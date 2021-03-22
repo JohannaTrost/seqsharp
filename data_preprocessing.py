@@ -68,7 +68,7 @@ def encode_alignment(aligned_seqs_raw, seq_len):
     middle = len(aligned_seqs_raw[0]) // 2
     start = max(0, (middle - seq_len // 2))
     end = min(len(aligned_seqs_raw[0]), (middle + seq_len // 2))
-    seqs = np.array([index2code(seq2index(seq[start:end])) for seq in aligned_seqs_raw])
+    seqs = np.array([index2code(seq2index(seq[start:end])).T for seq in aligned_seqs_raw])
     return seqs
 
 
@@ -81,8 +81,7 @@ def make_seq_pairs_tensor(aligned_seqs):
             sums = aligned_seqs[i, :, :] + aligned_seqs[j, :, :]
             aa_prop_no_pair = (sum_all_seqs - sums) / nb_seqs
             # diffs = (aligned_seqs[i, :, :] - aligned_seqs[j, :, :])
-
-            seq_pairs.append([sums, aa_prop_no_pair])
+            seq_pairs.append(np.concatenate((sums, aa_prop_no_pair), axis=0))
 
     seq_pairs_tensor = torch.from_numpy(np.asarray(seq_pairs))
     """

@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import random
+import sys
 from data_preprocessing import alignments_from_fastas, build_dataset
 
 
@@ -63,56 +63,65 @@ def fit(epochs, lr, model, train_loader, val_loader, opt_func=torch.optim.SGD):
             optimizer.zero_grad()
         # validation phase
         result = evaluate(model, val_loader)
-        # model.epoch_end(epoch, result)
+        model.epoch_end(epoch, result)
         history.append(result)
     return history
 
 
-def main():
+def main(args):
+    try:
+        fasta_dir = args[0]
+        fig_dir = None
+        if len(args) > 1:
+            fig_dir = args[1]
+    except IndexError:
+        print('At least one argument is required: path to the directory containing the fasta files.')
 
-        batch_size = 128
-        nb_seqs_per_align = 50
-        nb_classes = 40  # number of multiple alignments
-        epochs = 30
-        lr = 0.001
 
-        # preprocessing of data
-        raw_alignments = alignments_from_fastas('/home/jtrost/Clusterdata/fasta', nb_seqs_per_align, nb_classes)
-        min_seq_len = min(len(min([seq for seqs in raw_alignments for seq in seqs], key=len)), 200)
+    batch_size = 128
+    nb_seqs_per_align = 50
+    nb_classes = 40  # number of multiple alignments
+    epochs = 30
+    lr = 0.001
 
-        train_alignments, val_alignments = np.split(np.asarray(raw_alignments), [int(nb_seqs_per_align*0.9)], axis=1)
+    # preprocessing of data
+    raw_alignments = alignments_from_fastas(fasta_dir, nb_seqs_per_align, nb_classes)
+    min_seq_len = min(len(min([seq for seqs in raw_alignments for seq in seqs], key=len)), 200)
 
-        train_ds = build_dataset(train_alignments, min_seq_len)
-        val_ds = build_dataset(val_alignments, min_seq_len)
+    train_alignments, val_alignments = np.split(np.asarray(raw_alignments), [int(nb_seqs_per_align*0.9)], axis=1)
 
-        model_input_size = train_ds.data.shape[1] * train_ds.data.shape[2] * train_ds.data.shape[3]
-        # val_ds, train_ds = random_split(ds, [round(len(ds) * 0.1), len(ds) - round(len(ds) * 0.1)])
+    train_ds = build_dataset(train_alignments, min_seq_len)
+    val_ds = build_dataset(val_alignments, min_seq_len)
 
-        train_loader = DataLoader(train_ds, batch_size, shuffle=True)
-        val_loader = DataLoader(val_ds, batch_size)
+    model_input_size = train_ds.data.shape[1] * train_ds.data.shape[2]
+    # val_ds, train_ds = random_split(ds, [round(len(ds) * 0.1), len(ds) - round(len(ds) * 0.1)])
 
-        # generate model
-        model = Model(model_input_size, nb_classes)
+    train_loader = DataLoader(train_ds, batch_size, shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size)
 
-        # train and validate model
-        history = fit(epochs, lr, model, train_loader, val_loader)
+    # generate model
+    model = Model(model_input_size, nb_classes)
 
-        # plot the model evaluation
-        accuracies = [result['val_acc'] for result in history]
-        losses = [result['val_loss'] for result in history]
-        fig, axs = plt.subplots(2, 1, constrained_layout=True)
-        axs[0].plot(accuracies, '-x')
-        axs[0].set_xlabel('epoch')
-        axs[0].set_ylabel('accuracy')
-        axs[0].set_title('Accuracy vs. No. of epochs')
+    # train and validate model
+    history = fit(epochs, lr, model, train_loader, val_loader)
 
-        axs[1].plot(losses, '-x')
-        axs[1].set_xlabel('epoch')
-        axs[1].set_ylabel('loss')
-        axs[1].set_title('Loss vs. No. of epochs')
+    # plot the model evaluation
+    accuracies = [result['val_acc'] for result in history]
+    losses = [result['val_loss'] for result in history]
+    fig, axs = plt.subplots(2, 1, constrained_layout=True)
+    axs[0].plot(accuracies, '-x')
+    axs[0].set_xlabel('epoch')
+    axs[0].set_ylabel('accuracy')
+    axs[0].set_title('Accuracy vs. No. of epochs')
 
-        plt.savefig('/home/jtrost/PycharmProjects/figs/fig.png')
+    axs[1].plot(losses, '-x')
+    axs[1].set_xlabel('epoch')
+    axs[1].set_ylabel('loss')
+    axs[1].set_title('Loss vs. No. of epochs')
+
+    if fig_dir is not None:
+        plt.savefig(fig_dir + '/fig.png')
 
 
 if __name__ == '__main__':
-    main()
+    main(sys.argv[1:])
