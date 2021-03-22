@@ -69,18 +69,13 @@ def fit(epochs, lr, model, train_loader, val_loader, opt_func=torch.optim.SGD):
 
 
 def main():
-    for i in range(50):
-        seed = int((i % 2 + 14) * i*20)
-        print(seed)
-        random.seed(seed)
-        torch.manual_seed(10)
 
         batch_size = 128
         nb_seqs_per_align = 50
         nb_classes = 40  # number of multiple alignments
         epochs = 30
         lr = 0.001
-	
+
         # preprocessing of data
         raw_alignments = alignments_from_fastas('/home/jtrost/Clusterdata/fasta', nb_seqs_per_align, nb_classes)
         min_seq_len = min(len(min([seq for seqs in raw_alignments for seq in seqs], key=len)), 200)
@@ -116,7 +111,7 @@ def main():
         axs[1].set_ylabel('loss')
         axs[1].set_title('Loss vs. No. of epochs')
 
-        plt.savefig('/home/jtrost/PycharmProjects/figs/fig'+str(seed)+'.png')
+        plt.savefig('/home/jtrost/PycharmProjects/figs/fig.png')
 
 
 if __name__ == '__main__':
