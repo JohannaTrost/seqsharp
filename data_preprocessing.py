@@ -61,7 +61,7 @@ def alignments_from_fastas(dir, nb_seqs_per_align, nb_alignments):
     return alignments
 
 
-def encode_alignment(aligned_seqs_raw, seq_len):
+def encode_alignment(aligned_seqs_raw, seq_len, padding='data'):
     # encode sequences and limit to certain seq_len (seq taken from the middle)
     middle = len(aligned_seqs_raw[0]) // 2
     start = max(0, (middle - seq_len // 2))
@@ -72,7 +72,17 @@ def encode_alignment(aligned_seqs_raw, seq_len):
         pad_size = (seq_len - len(aligned_seqs_raw[0]))
         pad_before = pad_size // 2
         pad_after = pad_size // 2 if pad_size % 2 == 0 else pad_size // 2 + 1
-        seqs = np.pad(seqs, ((0, 0), (0, 0), (pad_before, pad_after)), 'constant', constant_values=0)
+
+        seqs_shape = list(seqs.shape)
+        seqs_shape[2] += pad_after + pad_before
+        seqs_new = np.zeros(seqs_shape)
+
+        if padding == 'data':
+            seqs_new = np.asarray([index2code(np.random.randint(0, seqs_shape[1], seqs_shape[2])).T
+                                   for _ in range(seqs_shape[0])])
+
+        seqs_new[:, :, pad_before:-pad_after] = seqs + 0
+        return seqs_new
 
     return seqs
 
