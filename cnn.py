@@ -1,14 +1,14 @@
-from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
-import os
 import random
-from data_preprocessing import alignments_from_fastas, TensorDataset
+import os
+from torch.utils.data import DataLoader
 from sklearn.model_selection import KFold
 from datetime import datetime
+from data_preprocessing import alignments_from_fastas, build_dataset, TensorDataset
 
 
 def accuracy(outputs, labels):
@@ -16,26 +16,46 @@ def accuracy(outputs, labels):
     return torch.tensor(torch.sum(preds == labels).item() / len(preds))
 
 
-class Model(nn.Module):
-    def __init__(self, input_size, nb_classes):
-        super().__init__()
-        self.linear = nn.Linear(input_size, nb_classes)
-        self.linear.reset_parameters()
+class ConvNet(nn.Module):
+    def __init__(self, seq_len, nb_classes):
+        super(ConvNet, self).__init__()
+        self.inpt = nn.Linear(seq_len, seq_len)
+        self.layer1 = nn.Sequential(
+            nn.Conv1d(46, 92, kernel_size=5, stride=1, padding=2),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2, stride=2)) # down-sampling
+        self.layer2 = nn.Sequential(
+            nn.Conv1d(92, 184, kernel_size=5, stride=1, padding=2),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2, stride=2)) # down-sampling
 
-    def forward(self, x):
-        x = x.view(x.shape[0], -1)
-        return self.linear(x)
+        self.drop_out = nn.Dropout() # layer that prevents overfitting
+        # fully connected layers
+        self.fc = nn.Linear(int(seq_len / 4) * 184, nb_classes)
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, x): # name is obligatory
+        #out = self.inpt(x)
+        out = self.layer1(x)
+        out = self.layer2(out)
+        out = out.reshape(out.size(0), -1) # flattens data from (seqlen/4)x46 to Nx1
+        out = self.drop_out(out)
+        out = self.fc(out)
+        # out = self.softmax(out)
+        return out
 
     def training_step(self, batch):
         seq_pairs, labels = batch
-        out = self(seq_pairs.float())  # generate predicitons
-        loss = nn.functional.cross_entropy(out, labels)
+        out = self(seq_pairs.float())  # generate predicitons, forward pass
+        criterion = nn.CrossEntropyLoss()
+        loss = criterion(out, labels)
         return loss
 
     def validation_step(self, batch):
         seq_pairs, labels = batch
         out = self(seq_pairs.float())  # generate predicitons
-        loss = nn.functional.cross_entropy(out, labels)
+        criterion = nn.CrossEntropyLoss()
+        loss = criterion(out, labels)
         acc = accuracy(out, labels)
         return {'val_loss': loss.detach(), 'val_acc': acc.detach()}
 
@@ -55,21 +75,25 @@ def evaluate(model, val_loader):
     return model.validation_epoch_end(outputs)
 
 
-def fit(epochs, lr, model, train_loader, val_loader, opt_func=torch.optim.SGD):
+def fit(epochs, lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad):
     history = []
-    optimizer = opt_func(model.parameters(), lr, weight_decay=1)
+    optimizer = opt_func(model.parameters(), lr)
     for epoch in range(0, epochs):
         # training Phase
+        model.train()
         for batch in train_loader:
             loss = model.training_step(batch)
-            loss.backward()
-            optimizer.step()
             optimizer.zero_grad()
+            loss.backward() # calcul of gradients
+            optimizer.step()
         # validation phase
-        result = evaluate(model, val_loader)
-        model.epoch_end(epoch, result)
-        history.append(result)
+        model.eval()
+        with torch.no_grad():
+            result = evaluate(model, val_loader)
+            model.epoch_end(epoch, result)
+            history.append(result)
     return history
+
 
 def main(args):
     try:
@@ -81,11 +105,24 @@ def main(args):
         print('At least 1 argument is required: path to the directory containing the fasta files\nOptional second '
               'argument: path to the directory where results will be stored')
 
+    # for testing
+    # model_dir = '/home/jtrost/PycharmProjects'
+    model_dir = None
+    fasta_dir = '/home/jtrost/Clusterdata/fasta'
+
+    # create unique subdir for the models
+    timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
+    if model_dir is not None:
+        model_dir = model_dir + '/cnn-' + str(timestamp)
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir)
+
     batch_size = 128
-    nb_seqs_per_align = 50
+    nb_seqs_per_align = 100
     nb_classes = 40  # number of multiple alignments
+    seq_len = 250
     epochs = 15
-    lr = 0.001
+    lr = 0.0001
     nb_folds = 5
 
     torch.manual_seed(42)
@@ -96,20 +133,12 @@ def main(args):
 
     # preprocessing of data
     raw_alignments = alignments_from_fastas(fasta_dir, nb_seqs_per_align, nb_classes)
-    seq_len = 200
-
-    # create unique subdir for the models
-    timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
-    if model_dir is not None:
-        model_dir = model_dir + '/models-' + str(timestamp)
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir)
 
     train_history = []
     fold_eval = []
     for fold, (train_ids, val_ids) in enumerate(kfold.split(raw_alignments[0])): # [0] because the seqs within one class shall be split not the classes
         # train_alignments, val_alignments = np.split(np.asarray(raw_alignments), [int(nb_seqs_per_align*0.9)], axis=1)
-        print(f'FOLD {fold}')
+        print(f'FOLD {fold+1}')
         print('----------------------------------------------------------------')
 
         # splitting dataset by splitting within each class
@@ -121,20 +150,20 @@ def main(args):
         val_loader = DataLoader(val_ds, batch_size)
 
         # generate model
-        model_input_size = train_ds.data.shape[1] * train_ds.data.shape[2]
-        model = Model(model_input_size, nb_classes)
+        input_size = train_ds.data.shape[2] # seq len
+        model = ConvNet(input_size, nb_classes)
 
         # train and validate model
         train_history.append(fit(epochs, lr, model, train_loader, val_loader))
         fold_eval.append(train_history[fold][-1]['val_acc'])
 
-        # Saving the model
+        # saving the model
         print('Training process has finished. Saving trained model.\n')
-        if model_dir is not None:
-            torch.save(model.state_dict(), f'{model_dir}/model-fold-{fold}.pth')
+        #  if model_dir is not None:
+            #  torch.save(model.state_dict(), f'{model_dir}/model-fold-{fold}.pth')
 
 
-    # Print fold results
+    # print fold results
     print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
     print('----------------------------------------------------------------')
     for i, acc in enumerate(fold_eval):
@@ -158,7 +187,8 @@ def main(args):
         axs[i][1].set_title(f'Fold {i+1}: Loss vs. No. of epochs')
 
     if model_dir is not None:
-        plt.savefig(model_dir + '/fig.png')
+        print(model_dir)
+        # plt.savefig(model_dir + '/fig.png')
 
 
 if __name__ == '__main__':
