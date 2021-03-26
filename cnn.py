@@ -8,7 +8,7 @@ import os
 from torch.utils.data import DataLoader
 from sklearn.model_selection import KFold
 from datetime import datetime
-from data_preprocessing import alignments_from_fastas, build_dataset, TensorDataset
+from data_preprocessing import alignments_from_fastas, TensorDataset
 
 compute_device = "cuda" if torch.cuda.is_available() else "cpu"
 

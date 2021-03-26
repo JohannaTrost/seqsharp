@@ -23,8 +23,6 @@ ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'X-',
                         '\x00' * 5 + '\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14' +
                         '\x15\x16')
 
-MIN_SEQS_PER_ALIGN = 50
-
 
 def seq2index(seq):
     """
@@ -67,20 +65,19 @@ def encode_alignment(aligned_seqs_raw, seq_len):
     # encode sequences and limit to certain seq_len (seq taken from the middle)
     middle = len(aligned_seqs_raw[0]) // 2
     start = max(0, (middle - seq_len // 2))
-    end = min(len(aligned_seqs_raw[0]), (middle + seq_len // 2 + 1))
-    seqs = []
-    for seq in aligned_seqs_raw:
-        enc_seq = index2code(seq2index(seq[start:end])).T
-        if len(seq) < seq_len:
-            pad_size = (seq_len - len(seq))
-            pad_before =  pad_size // 2
-            pad_after = pad_size // 2 if pad_size  % 2 == 0 else pad_size // 2 + 1
-            enc_seq = np.pad(enc_seq, ((0, 0), (pad_before, pad_after)), 'constant', constant_values=0)
-        seqs.append(enc_seq)
-    return np.asarray(seqs)
+    end = min(len(aligned_seqs_raw[0]), (middle + seq_len // 2))
+    seqs = np.asarray([index2code(seq2index(seq[start:end])).T for seq in aligned_seqs_raw])
+
+    if len(aligned_seqs_raw[0]) < seq_len: # padding
+        pad_size = (seq_len - len(aligned_seqs_raw[0]))
+        pad_before = pad_size // 2
+        pad_after = pad_size // 2 if pad_size % 2 == 0 else pad_size // 2 + 1
+        seqs = np.pad(seqs, ((0, 0), (0, 0), (pad_before, pad_after)), 'constant', constant_values=0)
+
+    return seqs
 
 
-def make_seq_pairs_tensor(aligned_seqs):
+def make_seq_pairs(aligned_seqs):
     nb_seqs = len(aligned_seqs)
     seq_pairs = []
     sum_all_seqs = np.sum(aligned_seqs, axis=0)
@@ -90,23 +87,21 @@ def make_seq_pairs_tensor(aligned_seqs):
             aa_prop_no_pair = (sum_all_seqs - sums) / nb_seqs
             # diffs = (aligned_seqs[i, :, :] - aligned_seqs[j, :, :])
             seq_pairs.append(np.concatenate((sums/2, aa_prop_no_pair), axis=0))
-
-    seq_pairs_tensor = np.asarray(seq_pairs)
     """
-    Vectorized Solution (about 10% slower)
-    ms_start = time.time()
-    nb_seqs = len(seqs)
-    ij = np.asarray(list(itertools.combinations(range(seqs.shape[0]), 2)))
-    aa_prop_no_pair = seqs.sum(axis=0)[np.newaxis, :, :].repeat(ij.shape[0], 0)
-    p1 = seqs[ij[:, 0], :, :]
-    p2 = seqs[ij[:, 1], :, :]
-    seq_pairs_sum = p1 + p2
+    # Vectorized Solution (about 10% slower)
+    # ms_start = time.time()
+    ij = np.asarray(list(itertools.combinations(range(aligned_seqs.shape[0]), 2)))
+    aa_prop_no_pair = aligned_seqs.sum(axis=0)[np.newaxis, :, :].repeat(ij.shape[0], 0)
+    p1 = aligned_seqs[ij[:, 0], :, :]
+    p2 = aligned_seqs[ij[:, 1], :, :]
+    seq_pairs_sum = (p1 + p2) / 2
     aa_prop_no_pair -= seq_pairs_sum
     aa_prop_no_pair = aa_prop_no_pair / nb_seqs
-    seq_pairs_diff = p1 - p2
-    print(time.time()-ms_start)
+    # seq_pairs_diff = p1 - p2
+    # print(time.time()-ms_start)
+    seq_pairs = np.concatenate((seq_pairs_sum, aa_prop_no_pair), axis=1)
     """
-    return seq_pairs_tensor
+    return np.asarray(seq_pairs)
 
 
 class TensorDataset(Dataset):
@@ -137,23 +132,11 @@ class TensorDataset(Dataset):
         labels = []
 
         for label, seqs in enumerate(alignments):
-            seq_pairs = make_seq_pairs_tensor(encode_alignment(seqs, seq_len))
+            seq_pairs = make_seq_pairs(encode_alignment(seqs, seq_len))
             data += seq_pairs.tolist()
             labels += (label * np.ones(seq_pairs.shape[0])).tolist()  # same label for all seq pairs from the current alignment
 
         return data, labels
 
-
-def build_dataset(alignments, seq_len):
-    # init dataset tensor/list
-    data = []
-    labels = []
-
-    for label, seqs in enumerate(alignments):
-        seq_pairs = make_seq_pairs_tensor(encode_alignment(seqs, seq_len))
-        data = data.append(seq_pairs)
-        labels = labels.append(label * np.ones(seq_pairs.shape[0]))  # same label for all seq pairs from the current alignment
-
-    return TensorDataset(data, labels)
 
 

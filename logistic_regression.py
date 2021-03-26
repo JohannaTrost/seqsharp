@@ -71,6 +71,7 @@ def fit(epochs, lr, model, train_loader, val_loader, opt_func=torch.optim.SGD):
         history.append(result)
     return history
 
+
 def main(args):
     try:
         fasta_dir = args[0]
@@ -99,8 +100,8 @@ def main(args):
     seq_len = 200
 
     # create unique subdir for the models
-    timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
     if model_dir is not None:
+        timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
         model_dir = model_dir + '/models-' + str(timestamp)
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
