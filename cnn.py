@@ -10,6 +10,8 @@ from sklearn.model_selection import KFold
 from datetime import datetime
 from data_preprocessing import alignments_from_fastas, build_dataset, TensorDataset
 
+compute_device = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 def accuracy(outputs, labels):
     _, preds = torch.max(outputs, dim=1)
@@ -29,7 +31,7 @@ class ConvNet(nn.Module):
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2, stride=2)) # down-sampling
 
-        self.drop_out = nn.Dropout() # layer that prevents overfitting
+        self.drop_out = nn.Dropout(p=0.25) # layer that prevents overfitting
         # fully connected layers
         self.fc = nn.Linear(int(seq_len / 4) * 184, nb_classes)
         self.softmax = nn.Softmax(dim=1)
@@ -46,14 +48,21 @@ class ConvNet(nn.Module):
 
     def training_step(self, batch):
         seq_pairs, labels = batch
-        out = self(seq_pairs.float())  # generate predicitons, forward pass
+        seq_pairs = seq_pairs.type(torch.FloatTensor)
+        seq_pairs, labels = seq_pairs.to(compute_device), labels.to(
+            compute_device)
+
+        out = self(seq_pairs)  # generate predicitons, forward pass
         criterion = nn.CrossEntropyLoss()
         loss = criterion(out, labels)
         return loss
 
     def validation_step(self, batch):
         seq_pairs, labels = batch
-        out = self(seq_pairs.float())  # generate predicitons
+        seq_pairs = seq_pairs.type(torch.FloatTensor)
+        seq_pairs, labels = seq_pairs.to(compute_device), labels.to(
+            compute_device)
+        out = self(seq_pairs)  # generate predicitons
         criterion = nn.CrossEntropyLoss()
         loss = criterion(out, labels)
         acc = accuracy(out, labels)
@@ -108,7 +117,10 @@ def main(args):
     # for testing
     # model_dir = '/home/jtrost/PycharmProjects'
     model_dir = None
-    fasta_dir = '/home/jtrost/Clusterdata/fasta'
+    if compute_device == "cuda":
+        fasta_dir = '/mnt/Clusterdata/fasta'
+    else:
+        fasta_dir = '/home/jtrost/Clusterdata/fasta'
 
     # create unique subdir for the models
     timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
@@ -117,10 +129,10 @@ def main(args):
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
 
-    batch_size = 128
-    nb_seqs_per_align = 100
+    batch_size = 512
+    nb_seqs_per_align = 75
     nb_classes = 40  # number of multiple alignments
-    seq_len = 250
+    seq_len = 300
     epochs = 15
     lr = 0.0001
     nb_folds = 5
@@ -152,6 +164,7 @@ def main(args):
         # generate model
         input_size = train_ds.data.shape[2] # seq len
         model = ConvNet(input_size, nb_classes)
+        model = model.to(compute_device)
 
         # train and validate model
         train_history.append(fit(epochs, lr, model, train_loader, val_loader))
