@@ -116,11 +116,11 @@ def main(args):
 
     # for testing
     # model_dir = '/home/jtrost/PycharmProjects'
-    model_dir = None
-    if compute_device == "cuda":
-        fasta_dir = '/mnt/Clusterdata/fasta'
-    else:
-        fasta_dir = '/home/jtrost/Clusterdata/fasta'
+    #model_dir = None
+    #if compute_device == "cuda":
+    #    fasta_dir = '/mnt/Clusterdata/fasta'
+    #else:
+    #    fasta_dir = '/home/jtrost/Clusterdata/fasta'
 
     # create unique subdir for the models
     timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
