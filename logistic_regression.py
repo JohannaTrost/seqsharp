@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import sys
 import os
 import random
-from data_preprocessing import alignments_from_fastas, TensorDataset
+from data_preprocessing import aligns_from_fastas, TensorDataset
 from sklearn.model_selection import KFold
 from datetime import datetime
 
@@ -84,7 +84,7 @@ def main(args):
 
     batch_size = 128
     nb_seqs_per_align = 50
-    nb_classes = 40  # number of multiple alignments
+    nb_classes = 40  # number of multiple aligns
     epochs = 15
     lr = 0.001
     nb_folds = 5
@@ -96,7 +96,7 @@ def main(args):
     kfold = KFold(nb_folds, shuffle=True)
 
     # preprocessing of data
-    raw_alignments = alignments_from_fastas(fasta_dir, nb_seqs_per_align, nb_classes)
+    raw_aligns = aligns_from_fastas(fasta_dir, nb_seqs_per_align, nb_classes)
     seq_len = 200
 
     # create unique subdir for the models
@@ -108,14 +108,14 @@ def main(args):
 
     train_history = []
     fold_eval = []
-    for fold, (train_ids, val_ids) in enumerate(kfold.split(raw_alignments[0])): # [0] because the seqs within one class shall be split not the classes
-        # train_alignments, val_alignments = np.split(np.asarray(raw_alignments), [int(nb_seqs_per_align*0.9)], axis=1)
+    for fold, (train_ids, val_ids) in enumerate(kfold.split(raw_aligns[0])): # [0] because the seqs within one class shall be split not the classes
+        # train_aligns, val_aligns = np.split(np.asarray(raw_aligns), [int(nb_seqs_per_align*0.9)], axis=1)
         print(f'FOLD {fold}')
         print('----------------------------------------------------------------')
 
         # splitting dataset by splitting within each class
-        train_ds = TensorDataset(np.take(raw_alignments, train_ids, axis=1), seq_len)
-        val_ds = TensorDataset(np.take(raw_alignments, val_ids, axis=1), seq_len)
+        train_ds = TensorDataset(np.take(raw_aligns, train_ids, axis=1), seq_len)
+        val_ds = TensorDataset(np.take(raw_aligns, val_ids, axis=1), seq_len)
         # val_ds, train_ds = random_split(ds, [round(len(ds) * 0.1), len(ds) - round(len(ds) * 0.1)])
 
         train_loader = DataLoader(train_ds, batch_size, shuffle=True)
