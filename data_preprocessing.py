@@ -120,9 +120,9 @@ def make_seq_pairs(aligned_seqs):
 
 class TensorDataset(Dataset):
     def __init__(self, real_aligns, sim_aligns=None, seq_len=1000):
-        print(f'0 . positional arg')
+
         if sim_aligns is not None:
-            print(f'1 . positional arg')
+
             data, labels = self._build_dataset(real_aligns, sim_aligns, seq_len)
         else:
             data, labels = self._build_dataset_class_per_align(real_aligns,
@@ -132,7 +132,7 @@ class TensorDataset(Dataset):
         labels = torch.from_numpy(np.asarray(labels)).float()
 
         self.data = data
-        self.labels = labels.long()
+        self.labels = labels
 
     def __getitem__(self, index):
         return self.data[index], self.labels[index]
@@ -141,7 +141,6 @@ class TensorDataset(Dataset):
         return self.data.size(0)
 
     def _build_dataset(self, real_aligns, sim_aligns, seq_len):
-        print(f'2 . positional arg')
 
         # init dataset list
         data = []

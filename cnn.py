@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from sklearn.model_selection import KFold
 from datetime import datetime
-from mlaa.data_preprocessing import aligns_from_fastas, TensorDataset
+from data_preprocessing import aligns_from_fastas, TensorDataset
 
 compute_device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -57,8 +57,8 @@ class ConvNet(nn.Module):
         labels = labels.to(compute_device)
 
         out = self(seq_pairs)  # generate predictions, forward pass
-        criterion = nn.BCELoss()
-        loss = criterion(out, labels)
+        criterion = nn.BCEWithLogitsLoss()
+        loss = criterion(out, torch.reshape(labels, out.shape))
 
         return loss
 
@@ -70,8 +70,8 @@ class ConvNet(nn.Module):
 
         out = self(seq_pairs)  # generate predictions
 
-        criterion = nn.CrossEntropyLoss()
-        loss = criterion(out, labels)
+        criterion = nn.BCEWithLogitsLoss()
+        loss = criterion(out, torch.reshape(labels, out.shape))
         acc = accuracy(out, labels)
 
         return {'val_loss': loss.detach(), 'val_acc': acc.detach()}
@@ -127,7 +127,7 @@ def main(args):
 
     # -------------------- handling arguments -------------------- #
 
-    if len(args) < 2:
+    if len(args) >= 2:
         real_fasta_path = args[0]
         sim_fasta_path = args[1]
         model_path = None
@@ -147,34 +147,24 @@ def main(args):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     sim_fasta_path)
     else:
-        raise (errno.ENOENT, os.strerror(errno.ENOENT),
+        raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
                'At least 2 arguments are required: path to the directory '
                'containing the hogenom fasta files\npath to the directory '
                'containing the simulated fasta files\nOptional second argument: '
                'path to the directory where results will be stored')
 
-    # for local testing
-    # model_path = '/home/jtrost/PycharmProjects'
-    model_path = None
-    real_fasta_path = 'mlaa/data/hogenom_fasta_seqs'
-    sim_fasta_path = 'mlaa/data/simulated_fasta_seqs'
-    # if compute_device == "cuda":
-    #    real_fasta_path = '/mnt/Clusterdata/fasta'
-    # else:
-    #    real_fasta_path = '/home/jtrost/Clusterdata/fasta'
-
     # -------------------- setting parameters -------------------- #
 
     # data specific parameters
     nb_protein_families = 63  # number of multiple aligns
-    min_seqs_per_align, max_seqs_per_align = 4, 300
-    seq_len = 400
+    min_seqs_per_align, max_seqs_per_align = 4, 200
+    seq_len = 200
 
     # hyperparameters
-    batch_size = 512
+    batch_size = 128
     epochs = 15
     lr = 0.0001
-    nb_folds = 5
+    nb_folds = 8
 
     torch.manual_seed(42)
     random.seed(42)
@@ -222,7 +212,7 @@ def main(args):
         # train and validate model
         train_history.append(fit(epochs, lr, model, train_loader, val_loader))
         fold_eval.append(train_history[fold][-1]['val_acc'])
-
+        break
         # saving the model
         print('Training process has finished.\n')
         #  if model_path is not None:
