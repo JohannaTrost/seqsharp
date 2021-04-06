@@ -59,7 +59,7 @@ class ConvNet(nn.Module):
         out = self(seq_pairs)  # generate predictions, forward pass
         criterion = nn.BCEWithLogitsLoss()
         loss = criterion(out, torch.reshape(labels, out.shape))
-
+        print('training acc: {}'.format(accuracy(out, labels).detach()))
         return loss
 
     def validation_step(self, batch):
