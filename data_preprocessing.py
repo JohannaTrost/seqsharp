@@ -93,14 +93,13 @@ def encode_align(aligned_seqs_raw, seq_len, padding='data'):
 
 def make_seq_pairs(aligned_seqs):
     nb_seqs = len(aligned_seqs)
-    seq_pairs = []
+    inds = np.asarray(np.triu_indices(nb_seqs, k=1))
     sum_all_seqs = np.sum(aligned_seqs, axis=0)
-    for i in range(nb_seqs):
-        for j in range(i + 1, nb_seqs):  # loops for pairs
-            sums = aligned_seqs[i, :, :] + aligned_seqs[j, :, :]
-            aa_prop_no_pair = (sum_all_seqs - sums) / nb_seqs
-            # diffs = (aligned_seqs[i, :, :] - aligned_seqs[j, :, :])
-            seq_pairs.append(np.concatenate((sums/2, aa_prop_no_pair), axis=0))
+    sum_all_seqs = sum_all_seqs[np.newaxis, :, :].repeat(len(inds[0]), axis=0)
+
+    sums = aligned_seqs[inds[0], :, :] + aligned_seqs[inds[1], :, :]
+    aa_prop_no_pair = (sum_all_seqs - sums) / nb_seqs
+    # diffs = (aligned_seqs[i, :, :] - aligned_seqs[j, :, :])
     """
     # Vectorized Solution (about 10% slower)
     # ms_start = time.time()
@@ -115,7 +114,7 @@ def make_seq_pairs(aligned_seqs):
     # print(time.time()-ms_start)
     seq_pairs = np.concatenate((seq_pairs_sum, aa_prop_no_pair), axis=1)
     """
-    return np.asarray(seq_pairs)
+    return np.concatenate((sums/2, aa_prop_no_pair), axis=1)
 
 
 class TensorDataset(Dataset):
