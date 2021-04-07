@@ -1,9 +1,12 @@
+import psutil
 from Bio import SeqIO
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 import os, random
 import warnings
+import multiprocessing as mp
+from utils import split_lst, flatten_lst
 
 warnings.simplefilter("ignore", DeprecationWarning)
 
@@ -20,6 +23,8 @@ gap : -
 ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'X-',
                         '\x00' * 5 + '\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14' +
                         '\x15\x16')
+
+THREADS = psutil.cpu_count(logical=False)
 
 
 def seq2index(seq):
@@ -65,7 +70,7 @@ def aligns_from_fastas(dir, min_seqs_per_align, max_seqs_per_align, nb_aligns):
     return aligns
 
 
-def encode_align(aligned_seqs_raw, seq_len, padding='data'):
+def encode_align(aligned_seqs_raw, seq_len, padding=''):
     # encode sequences and limit to certain seq_len (seq taken from the middle)
     middle = len(aligned_seqs_raw[0]) // 2
     start = max(0, (middle - seq_len // 2))
@@ -91,38 +96,46 @@ def encode_align(aligned_seqs_raw, seq_len, padding='data'):
     return seqs
 
 
+def seq_pair_worker(aligns):
+    return [make_seq_pairs(align) for align in aligns]
+
+
 def make_seq_pairs(aligned_seqs):
-    nb_seqs = len(aligned_seqs)
-    inds = np.asarray(np.triu_indices(nb_seqs, k=1))
-    sum_all_seqs = np.sum(aligned_seqs, axis=0)
-    sum_all_seqs = sum_all_seqs[np.newaxis, :, :].repeat(len(inds[0]), axis=0)
+
+    inds = np.asarray(np.triu_indices(len(aligned_seqs), k=1))
 
     sums = aligned_seqs[inds[0], :, :] + aligned_seqs[inds[1], :, :]
-    aa_prop_no_pair = (sum_all_seqs - sums) / nb_seqs
-    # diffs = (aligned_seqs[i, :, :] - aligned_seqs[j, :, :])
-    """
-    # Vectorized Solution (about 10% slower)
-    # ms_start = time.time()
-    ij = np.asarray(list(itertools.combinations(range(aligned_seqs.shape[0]), 2)))
-    aa_prop_no_pair = aligned_seqs.sum(axis=0)[np.newaxis, :, :].repeat(ij.shape[0], 0)
-    p1 = aligned_seqs[ij[:, 0], :, :]
-    p2 = aligned_seqs[ij[:, 1], :, :]
-    seq_pairs_sum = (p1 + p2) / 2
-    aa_prop_no_pair -= seq_pairs_sum
-    aa_prop_no_pair = aa_prop_no_pair / nb_seqs
-    # seq_pairs_diff = p1 - p2
-    # print(time.time()-ms_start)
-    seq_pairs = np.concatenate((seq_pairs_sum, aa_prop_no_pair), axis=1)
-    """
-    return np.concatenate((sums/2, aa_prop_no_pair), axis=1)
+    sum_all_seqs = np.sum(aligned_seqs, axis=0)
+    aa_prop_no_pair = (sum_all_seqs - sums) / len(aligned_seqs)
+    return np.concatenate((sums / 2, aa_prop_no_pair), axis=1)
+
+
+def make_pairs_from_aligns_mp(aligns):
+
+    if THREADS > len(aligns):
+        threads = len(aligns)
+    else:
+        threads = THREADS + 0
+
+    aligns_chunks = list(split_lst(aligns, threads))
+
+    work = [aligns_chunks[i] for i in range(threads)]
+
+    with mp.Pool() as pool:
+        res = pool.map(seq_pair_worker, work)
+
+    pairs_per_align = flatten_lst(res)
+
+    return pairs_per_align
+
 
 
 class TensorDataset(Dataset):
-    def __init__(self, real_aligns, sim_aligns=None, seq_len=1000):
+    def __init__(self, real_aligns, sim_aligns=None, seq_len=500):
 
         if sim_aligns is not None:
 
-            data, labels = self._build_dataset(real_aligns, sim_aligns, seq_len)
+            data, labels = self._build_dataset(real_aligns, sim_aligns)
         else:
             data, labels = self._build_dataset_class_per_align(real_aligns,
                                                                seq_len)
@@ -139,27 +152,17 @@ class TensorDataset(Dataset):
     def __len__(self):
         return self.data.size(0)
 
-    def _build_dataset(self, real_aligns, sim_aligns, seq_len):
+    def _build_dataset(self, real_pairs, sim_pairs):
 
-        # init dataset list
-        data = []
-        labels = []
+        nb_real_pairs = np.sum([len(align) for align in real_pairs])
+        nb_sim_pairs = np.sum([len(align) for align in sim_pairs])
 
-        for real_seqs, sim_seqs in zip(real_aligns, sim_aligns):
-            # generate pairs from encoded hogenom sequences
-            real_pairs = make_seq_pairs(encode_align(real_seqs, seq_len))
+        data = real_pairs + sim_pairs
+        data = np.concatenate(data)
 
-            # generate pairs from encoded simulated sequences
-            sim_pairs = make_seq_pairs(encode_align(sim_seqs, seq_len))
+        labels = [0]*nb_real_pairs + [1]*nb_sim_pairs
 
-            # populate dataset
-            data += real_pairs.tolist()
-            labels += [0] * real_pairs.shape[0]
-
-            data += sim_pairs.tolist()
-            labels += [1] * sim_pairs.shape[0]
-
-        return data, labels
+        return data, np.array(labels)
 
     def _build_dataset_class_per_align(self, aligns, seq_len):
         # init dataset list

@@ -4,16 +4,19 @@ import torch
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
+import json
+import time
 from torch.utils.data import DataLoader
 from sklearn.model_selection import KFold
 from datetime import datetime
-from data_preprocessing import aligns_from_fastas, TensorDataset
+from data_preprocessing import aligns_from_fastas, TensorDataset, encode_align, make_pairs_from_aligns_mp
+from utils import write_config_file
 
 compute_device = "cuda" if torch.cuda.is_available() else "cpu"
-
+compute_device = "cpu"
 
 def accuracy(outputs, labels):
-    _, preds = torch.max(outputs, dim=1)
+    preds = torch.round(torch.flatten(torch.sigmoid(outputs)))
     return torch.tensor(torch.sum(preds == labels).item() / len(preds))
 
 
@@ -52,14 +55,13 @@ class ConvNet(nn.Module):
     def training_step(self, batch):
         seq_pairs, labels = batch
 
-        seq_pairs = seq_pairs
         seq_pairs = seq_pairs.to(compute_device)
         labels = labels.to(compute_device)
 
         out = self(seq_pairs)  # generate predictions, forward pass
         criterion = nn.BCEWithLogitsLoss()
         loss = criterion(out, torch.reshape(labels, out.shape))
-        print('training acc: {}'.format(accuracy(out, labels).detach()))
+        # print('training acc: {}'.format(accuracy(out, labels).detach()))
         return loss
 
     def validation_step(self, batch):
@@ -158,13 +160,21 @@ def main(args):
     # data specific parameters
     nb_protein_families = 63  # number of multiple aligns
     min_seqs_per_align, max_seqs_per_align = 4, 200
-    seq_len = 200
+    seq_len = 500
 
     # hyperparameters
-    batch_size = 128
-    epochs = 15
+    batch_size = 512
+    epochs = 30
     lr = 0.0001
-    nb_folds = 8
+    optimizer = 'Adagrad'
+    nb_folds = 6
+
+    write_config_file(nb_protein_families,
+                      min_seqs_per_align,
+                      max_seqs_per_align,
+                      seq_len, batch_size,
+                      epochs, lr, optimizer,
+                      nb_folds, model_path)
 
     torch.manual_seed(42)
     random.seed(42)
@@ -172,13 +182,24 @@ def main(args):
     # k-fold validator
     kfold = KFold(nb_folds, shuffle=True)
 
-    # -------------------- loading data ------------------------------- #
-
+    # -------------------- data preparation ------------------------------- #
+    print("Loading alignments ...")
     # load sets of multiple aligned sequences
     real_aligns = aligns_from_fastas(real_fasta_path, min_seqs_per_align,
                                      max_seqs_per_align, nb_protein_families)
     sim_aligns = aligns_from_fastas(sim_fasta_path, min_seqs_per_align,
                                     max_seqs_per_align, nb_protein_families)
+    print("Encoding alignments ...")
+    # one-hot encode sequences shape: (nb_aligns, nb_seqs, amino acids, seq_length)
+    real_aligns = [encode_align(align, seq_len, padding='data') for align in real_aligns]
+    sim_aligns = [encode_align(align, seq_len, padding='data') for align in sim_aligns]
+
+    print("Pairing sequences ...")
+    start = time.time()
+    # make pairs !additional dim for each multiple alingment needs to be flattened before passed to CNN!
+    real_pairs_per_align = make_pairs_from_aligns_mp(real_aligns)
+    sim_pairs_per_align = make_pairs_from_aligns_mp(sim_aligns)
+    print(f'Finished pairing after {time.time()-start}s')
 
     # -------------------- k-fold cross validation -------------------- #
 
@@ -193,13 +214,13 @@ def main(args):
             '----------------------------------------------------------------')
 
         # splitting dataset by protein families
-
-        train_ds = TensorDataset([real_aligns[i] for i in train_ids],
-                                 [sim_aligns[i] for i in train_ids],
-                                 seq_len)
-        val_ds = TensorDataset([real_aligns[i] for i in val_ids],
-                               [sim_aligns[i] for i in val_ids],
-                               seq_len)
+        print("Building training and validation dataset ...")
+        start = time.time()
+        train_ds = TensorDataset([real_pairs_per_align[i] for i in train_ids],
+                                 [sim_pairs_per_align[i] for i in train_ids])
+        val_ds = TensorDataset([real_pairs_per_align[i] for i in val_ids],
+                               [sim_pairs_per_align[i] for i in val_ids])
+        print(f'Finished after {time.time()-start}s')
 
         train_loader = DataLoader(train_ds, batch_size, shuffle=True)
         val_loader = DataLoader(val_ds, batch_size)
@@ -212,7 +233,7 @@ def main(args):
         # train and validate model
         train_history.append(fit(epochs, lr, model, train_loader, val_loader))
         fold_eval.append(train_history[fold][-1]['val_acc'])
-        break
+
         # saving the model
         print('Training process has finished.\n')
         #  if model_path is not None:
@@ -245,8 +266,7 @@ def main(args):
         axs[i][1].set_title(f'Fold {i + 1}: Loss vs. No. of epochs')
 
     if model_path is not None:
-        print(model_path)
-        # plt.savefig(model_path + '/fig.png')
+        plt.savefig(model_path + '/fig.png')
 
 
 if __name__ == '__main__':
