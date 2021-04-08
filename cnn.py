@@ -9,11 +9,11 @@ import time
 from torch.utils.data import DataLoader
 from sklearn.model_selection import KFold
 from datetime import datetime
-from data_preprocessing import aligns_from_fastas, TensorDataset, encode_align, make_pairs_from_aligns_mp
+from data_preprocessing import aligns_from_fastas, TensorDataset, encode_align, make_pairs_from_aligns_mp, make_seq_pairs
 from utils import write_config_file
 
 compute_device = "cuda" if torch.cuda.is_available() else "cpu"
-compute_device = "cpu"
+# compute_device = "cpu"
 
 def accuracy(outputs, labels):
     preds = torch.round(torch.flatten(torch.sigmoid(outputs)))
@@ -38,13 +38,13 @@ class ConvNet(nn.Module):
         self.drop_out = nn.Dropout(p=0.25)  # adds noise to prevent overfitting
 
         # fully connected layer
-        self.fc = nn.Linear(int(seq_len / 4) * 184, 1)
+        self.fc = nn.Linear(int(seq_len / 2) * 92, 1) # for 2 layers: int(seq_len / 4) * 184 !
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):  # name is obligatory
         # out = self.inpt(x)
         out = self.layer1(x)
-        out = self.layer2(out)
+        # out = self.layer2(out)
         out = out.reshape(out.size(0),
                           -1)  # flattening from (seqlen/4)x46 to Nx1
         out = self.drop_out(out)
@@ -163,18 +163,19 @@ def main(args):
     seq_len = 500
 
     # hyperparameters
-    batch_size = 512
+    batch_size = 256
     epochs = 30
     lr = 0.0001
     optimizer = 'Adagrad'
     nb_folds = 6
 
-    write_config_file(nb_protein_families,
-                      min_seqs_per_align,
-                      max_seqs_per_align,
-                      seq_len, batch_size,
-                      epochs, lr, optimizer,
-                      nb_folds, model_path)
+    if model_path is not None:
+        write_config_file(nb_protein_families,
+                          min_seqs_per_align,
+                          max_seqs_per_align,
+                          seq_len, batch_size,
+                          epochs, lr, optimizer,
+                          nb_folds, model_path)
 
     torch.manual_seed(42)
     random.seed(42)
@@ -197,8 +198,8 @@ def main(args):
     print("Pairing sequences ...")
     start = time.time()
     # make pairs !additional dim for each multiple alingment needs to be flattened before passed to CNN!
-    real_pairs_per_align = make_pairs_from_aligns_mp(real_aligns)
-    sim_pairs_per_align = make_pairs_from_aligns_mp(sim_aligns)
+    real_pairs_per_align = [make_seq_pairs(align) for align in real_aligns]
+    sim_pairs_per_align = [make_seq_pairs(align) for align in sim_aligns]
     print(f'Finished pairing after {time.time()-start}s')
 
     # -------------------- k-fold cross validation -------------------- #
@@ -239,6 +240,25 @@ def main(args):
         #  if model_path is not None:
         #  torch.save(model.state_dict(), f'{model_path}/model-fold-{fold}.pth')
 
+        # plot the model evaluation
+        fig, axs = plt.subplots(1, 2, constrained_layout=True)
+
+        accuracies = [result['val_acc'] for result in train_history[fold]]
+        losses = [result['val_loss'] for result in train_history[fold]]
+
+        axs[0][0].plot(accuracies, '-x')
+        axs[0][0].set_xlabel('epoch')
+        axs[0][0].set_ylabel('accuracy')
+        axs[0][0].set_title(f'Fold {(i + 1)}: Accuracy vs. No. of epochs')
+
+        axs[0][1].plot(losses, '-x')
+        axs[0][1].set_xlabel('epoch')
+        axs[0][1].set_ylabel('loss')
+        axs[0][1].set_title(f'Fold {fold + 1}: Loss vs. No. of epochs')
+
+        if model_path is not None:
+            plt.savefig(f'{model_path}/fig-fold-{fold+1}.png')
+
     # print fold results
     print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
     print('----------------------------------------------------------------')
@@ -247,26 +267,6 @@ def main(args):
         print(f'Fold {(i + 1)}: {acc} %')
 
     print(f'Average: {np.sum(fold_eval) / len(fold_eval)} %')
-
-    # plot the model evaluation per fold
-    fig, axs = plt.subplots(1 * nb_folds, 2, constrained_layout=True)
-
-    for i, fold_history in enumerate(train_history):
-        accuracies = [result['val_acc'] for result in fold_history]
-        losses = [result['val_loss'] for result in fold_history]
-
-        axs[i][0].plot(accuracies, '-x')
-        axs[i][0].set_xlabel('epoch')
-        axs[i][0].set_ylabel('accuracy')
-        axs[i][0].set_title(f'Fold {(i + 1)}: Accuracy vs. No. of epochs')
-
-        axs[i][1].plot(losses, '-x')
-        axs[i][1].set_xlabel('epoch')
-        axs[i][1].set_ylabel('loss')
-        axs[i][1].set_title(f'Fold {i + 1}: Loss vs. No. of epochs')
-
-    if model_path is not None:
-        plt.savefig(model_path + '/fig.png')
 
 
 if __name__ == '__main__':

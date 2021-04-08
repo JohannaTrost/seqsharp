@@ -129,7 +129,6 @@ def make_pairs_from_aligns_mp(aligns):
     return pairs_per_align
 
 
-
 class TensorDataset(Dataset):
     def __init__(self, real_aligns, sim_aligns=None, seq_len=500):
 
