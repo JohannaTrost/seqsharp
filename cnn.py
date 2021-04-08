@@ -163,9 +163,9 @@ def main(args):
     seq_len = 500
 
     # hyperparameters
-    batch_size = 256
-    epochs = 30
-    lr = 0.0001
+    batch_size = 1024
+    epochs = 15
+    lr = 0.001
     optimizer = 'Adagrad'
     nb_folds = 6
 
@@ -246,15 +246,15 @@ def main(args):
         accuracies = [result['val_acc'] for result in train_history[fold]]
         losses = [result['val_loss'] for result in train_history[fold]]
 
-        axs[0][0].plot(accuracies, '-x')
-        axs[0][0].set_xlabel('epoch')
-        axs[0][0].set_ylabel('accuracy')
-        axs[0][0].set_title(f'Fold {(i + 1)}: Accuracy vs. No. of epochs')
+        axs[0].plot(accuracies, '-x')
+        axs[0].set_xlabel('epoch')
+        axs[0].set_ylabel('accuracy')
+        axs[0].set_title(f'Fold {(fold + 1)}: Accuracy vs. No. of epochs')
 
-        axs[0][1].plot(losses, '-x')
-        axs[0][1].set_xlabel('epoch')
-        axs[0][1].set_ylabel('loss')
-        axs[0][1].set_title(f'Fold {fold + 1}: Loss vs. No. of epochs')
+        axs[1].plot(losses, '-x')
+        axs[1].set_xlabel('epoch')
+        axs[1].set_ylabel('loss')
+        axs[1].set_title(f'Fold {fold + 1}: Loss vs. No. of epochs')
 
         if model_path is not None:
             plt.savefig(f'{model_path}/fig-fold-{fold+1}.png')
