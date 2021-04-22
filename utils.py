@@ -1,5 +1,4 @@
 import json, os, errno, math
-import numpy as np
 from datetime import datetime
 
 def write_config_file(nb_protein_families,
