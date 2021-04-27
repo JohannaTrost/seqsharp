@@ -67,6 +67,7 @@ def aligns_from_fastas(dir, min_seqs_per_align, max_seqs_per_align, nb_aligns):
         print('Only {} / {} fasta files could be taken into account. The rest '
               ' contains less than the minimum of {} sequences.'.format(
             len(aligns), nb_aligns, min_seqs_per_align))
+
     return aligns
 
 

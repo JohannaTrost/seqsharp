@@ -8,10 +8,13 @@ import time
 from torch.utils.data import DataLoader
 from sklearn.model_selection import KFold
 from datetime import datetime
-from data_preprocessing import aligns_from_fastas, TensorDataset, encode_align, make_pairs_from_aligns_mp, make_seq_pairs
+from data_preprocessing import aligns_from_fastas, TensorDataset, encode_align, \
+    make_pairs_from_aligns_mp, make_seq_pairs
 from utils import write_config_file
 
 compute_device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
 # compute_device = "cpu"
 
 def accuracy(outputs, labels):
@@ -37,7 +40,8 @@ class ConvNet(nn.Module):
         self.drop_out = nn.Dropout(p=0.25)  # adds noise to prevent overfitting
 
         # fully connected layer
-        self.fc = nn.Linear(int(seq_len / 2) * 92, 1) # for 2 layers: int(seq_len / 4) * 184 !
+        self.fc = nn.Linear(int(seq_len / 2) * 92,
+                            1)  # for 2 layers: int(seq_len / 4) * 184 !
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):  # name is obligatory
@@ -125,7 +129,6 @@ def fit(epochs, lr, model, train_loader, val_loader,
 
 
 def main(args):
-
     # -------------------- handling arguments -------------------- #
 
     if len(args) >= 2:
@@ -149,21 +152,21 @@ def main(args):
                                     sim_fasta_path)
     else:
         raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
-               'At least 2 arguments are required: path to the directory '
-               'containing the hogenom fasta files\npath to the directory '
-               'containing the simulated fasta files\nOptional second argument: '
-               'path to the directory where results will be stored')
+                         'At least 2 arguments are required: path to the directory '
+                         'containing the hogenom fasta files\npath to the directory '
+                         'containing the simulated fasta files\nOptional second argument: '
+                         'path to the directory where results will be stored')
 
     # -------------------- setting parameters -------------------- #
 
     # data specific parameters
     nb_protein_families = 63  # number of multiple aligns
     min_seqs_per_align, max_seqs_per_align = 4, 200
-    seq_len = 500
+    seq_len = 300
 
     # hyperparameters
-    batch_size = 1024
-    epochs = 15
+    batch_size = 512
+    epochs = 20
     lr = 0.001
     optimizer = 'Adagrad'
     nb_folds = 6
@@ -191,15 +194,17 @@ def main(args):
                                     max_seqs_per_align, nb_protein_families)
     print("Encoding alignments ...")
     # one-hot encode sequences shape: (nb_aligns, nb_seqs, amino acids, seq_length)
-    real_aligns = [encode_align(align, seq_len, padding='data') for align in real_aligns]
-    sim_aligns = [encode_align(align, seq_len, padding='data') for align in sim_aligns]
+    real_aligns = [encode_align(align, seq_len, padding='data') for align in
+                   real_aligns]
+    sim_aligns = [encode_align(align, seq_len, padding='data') for align in
+                  sim_aligns]
 
     print("Pairing sequences ...")
     start = time.time()
     # make pairs !additional dim for each multiple alingment needs to be flattened before passed to CNN!
     real_pairs_per_align = [make_seq_pairs(align) for align in real_aligns]
     sim_pairs_per_align = [make_seq_pairs(align) for align in sim_aligns]
-    print(f'Finished pairing after {time.time()-start}s')
+    print(f'Finished pairing after {time.time() - start}s')
 
     # -------------------- k-fold cross validation -------------------- #
 
@@ -220,7 +225,7 @@ def main(args):
                                  [sim_pairs_per_align[i] for i in train_ids])
         val_ds = TensorDataset([real_pairs_per_align[i] for i in val_ids],
                                [sim_pairs_per_align[i] for i in val_ids])
-        print(f'Finished after {time.time()-start}s')
+        print(f'Finished after {time.time() - start}s')
 
         train_loader = DataLoader(train_ds, batch_size, shuffle=True)
         val_loader = DataLoader(val_ds, batch_size)
@@ -236,8 +241,9 @@ def main(args):
 
         # saving the model
         print('Training process has finished.\n')
-        #  if model_path is not None:
-        #  torch.save(model.state_dict(), f'{model_path}/model-fold-{fold}.pth')
+        if model_path is not None:
+            torch.save(model.state_dict(),
+                       f'{model_path}/model-fold-{fold + 1}.pth')
 
         # plot the model evaluation
         fig, axs = plt.subplots(1, 2, constrained_layout=True)
@@ -256,7 +262,7 @@ def main(args):
         axs[1].set_title(f'Fold {fold + 1}: Loss vs. No. of epochs')
 
         if model_path is not None:
-            plt.savefig(f'{model_path}/fig-fold-{fold+1}.png')
+            plt.savefig(f'{model_path}/fig-fold-{fold + 1}.png')
 
     # print fold results
     print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')

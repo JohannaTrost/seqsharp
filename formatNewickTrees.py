@@ -2,6 +2,9 @@ import sys, os, errno, subprocess
 import argparse
 import numpy as np
 from Bio import Phylo
+from Bio import SeqIO
+from Bio import Seq
+from Bio import SeqRecord
 from data_preprocessing import aligns_from_fastas
 
 
@@ -73,6 +76,28 @@ def get_aa_freqs(aligns):
     return aa_freqs_aligns
 
 
+def remove_gaps(fasta_in, fasta_out):
+
+    aln_records = [rec for rec in SeqIO.parse(fasta_in, "fasta")]
+    aln = np.asarray([np.asarray(list(rec.seq)) for rec in aln_records])
+
+    remove_columns = np.any(aln == '-', axis=0)
+    aln_no_gaps = aln[:, np.invert(remove_columns)]
+
+    if aln_no_gaps.shape[1] > 0:
+
+        aln_no_gaps = [''.join([aa for aa in seq]) for seq in aln_no_gaps]
+
+        # update alignment with sequences without gaps
+        for i, rec in enumerate(aln_records):
+            rec.seq = Seq.Seq(aln_no_gaps[i])
+
+        SeqIO.write(aln_records, fasta_out, "fasta")
+
+    else:
+        print(f'No columns left after removing gaps. {fasta_out} not saved.')
+
+
 def main(args):
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
@@ -90,6 +115,10 @@ def main(args):
                        metavar=('seq-gen path', 'hogenom fasta path'),
                        help='simulate sequences from newick trees. Requires '
                             '</path/to/> Seq-Gen directory.')
+    group.add_argument('-r', '--removegaps', action='store_true',
+                       help='remove column(s) with gap(s) from input fasta '
+                            'file or directory and save alignment(s) without '
+                            'gaps in given output file or directory')
     sim_params.add_argument('-n', '--numberseqs', type=int, nargs=2,
                             default=[4,300],
                        metavar=('min number of sequences',
@@ -155,7 +184,7 @@ def main(args):
 
         if os.path.isfile(in_path):
 
-            bash_cmd = './' + seq_gen_path + '/source/seq-gen -mPAM -of < ' \
+            bash_cmd = seq_gen_path + '/source/seq-gen -mPAM -of < ' \
                        + in_path + ' > ' + out_path
             process = subprocess.Popen(bash_cmd, shell=True,
                                        stdout=subprocess.PIPE)
@@ -190,6 +219,12 @@ def main(args):
                                      f'At least as many trees with a minimum of'
                                      f' {min_nb_seqs} species as alignments '
                                      f'are required.');
+            else:
+                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                        hogenom_fasta_path)
+
+            print(f'number of hogenom alignments used: {len(alignments)}')
+            print(f'number of input trees used: {len(tree_files)}')
 
             for i, file in enumerate(tree_files):
                 if file.rpartition('.')[2] == 'tree':
@@ -198,14 +233,14 @@ def main(args):
                     tree_in_path = in_path + '/' + file
 
                     if seq_lens is None or aa_freqs is None:
-                        bash_cmd = './' + seq_gen_path + \
+                        bash_cmd = seq_gen_path + \
                                    '/source/seq-gen -mPAM -g20 -of < ' \
                                    + tree_in_path + ' > ' + fasta_out_path
                     else:
                         freqs = np.array2string(aa_freqs[i],
                                                 separator=',').replace('\n ',
                                                                        '')[1:-1]
-                        bash_cmd = './' + seq_gen_path + \
+                        bash_cmd = seq_gen_path + \
                                    '/source/seq-gen -mGENERAL' + \
                                    ' -l' + str(seq_lens[i]) + \
                                    ' -f' + freqs + \
@@ -216,7 +251,8 @@ def main(args):
                                                stdout=subprocess.PIPE)
                     output, error = process.communicate()
 
-                    if os.path.exists(fasta_out_path):
+                    if os.path.exists(fasta_out_path) and \
+                            os.stat(fasta_out_path).st_size > 0:
                         print('\tSaved ' + fasta_out_path.rpartition('/')[2] +
                               ' to ' + out_path)
                         print('________________________________________________'
@@ -236,7 +272,7 @@ def main(args):
                                                  'file.')
 
             # Varify number of simulated files
-            aligns_sim = aligns_from_fastas('data/simulated_fasta_seqs',
+            aligns_sim = aligns_from_fastas(out_path,
                                             min_nb_seqs, max_nb_seqs, nb_aligns)
             if seq_lens is not None:
 
@@ -260,6 +296,31 @@ def main(args):
             else:
                 print(f'Number of inputted trees: {len(tree_files)}')
                 print(f'Newly simulated alignments: {len(aligns_sim)}')
+        else:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                    in_path)
+
+    if args.removegaps:
+
+        print('Removing gaps ...')
+
+        if os.path.isfile(in_path):
+
+            remove_gaps(in_path, out_path)
+
+        elif os.path.isdir(in_path):
+
+            fasta_files = os.listdir(in_path)
+
+            for file in fasta_files:
+
+                if file.rpartition('.')[2] == 'fasta':
+
+                    remove_gaps(in_path + '/' + file, out_path + '/' + file)
+
+                else:
+                    print('skipped file ' + file + ',because it is not a '
+                                                   'fasta file')
         else:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     in_path)
