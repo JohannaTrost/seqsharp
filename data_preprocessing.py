@@ -131,11 +131,11 @@ def make_pairs_from_aligns_mp(aligns):
 
 
 class TensorDataset(Dataset):
-    def __init__(self, real_aligns, sim_aligns=None, seq_len=500):
+    def __init__(self, real_aligns, sim_aligns=None, seq_len=500, shuffle=False):
 
         if sim_aligns is not None:
 
-            data, labels = self._build_dataset(real_aligns, sim_aligns)
+            data, labels = self._build_dataset(real_aligns, sim_aligns, shuffle)
         else:
             data, labels = self._build_dataset_class_per_align(real_aligns,
                                                                seq_len)
@@ -152,13 +152,18 @@ class TensorDataset(Dataset):
     def __len__(self):
         return self.data.size(0)
 
-    def _build_dataset(self, real_pairs, sim_pairs):
+    def _build_dataset(self, real_pairs, sim_pairs, shuffle):
 
         nb_real_pairs = np.sum([len(align) for align in real_pairs])
         nb_sim_pairs = np.sum([len(align) for align in sim_pairs])
 
         data = real_pairs + sim_pairs
         data = np.concatenate(data)
+
+        if shuffle:
+            for i in range(nb_real_pairs):
+
+                data[i, :, :] = data[i, :, np.random.permutation(range(data.shape[2]))].swapaxes(0, 1)
 
         labels = [0]*nb_real_pairs + [1]*nb_sim_pairs
 

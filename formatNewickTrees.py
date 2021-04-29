@@ -1,10 +1,12 @@
-import sys, os, errno, subprocess
+import sys
+import os
+import errno
+import subprocess
 import argparse
 import numpy as np
 from Bio import Phylo
 from Bio import SeqIO
 from Bio import Seq
-from Bio import SeqRecord
 from data_preprocessing import aligns_from_fastas
 
 
@@ -40,7 +42,7 @@ def adapt_newick_format(in_path, out_path):
 def count_species_in_tree(clade):
     if clade.name is None and clade.clades is None:
         return 0
-    if clade.name is not None :
+    if clade.name is not None:
         return 1
     return np.asarray([count_species_in_tree(child) for child in clade.clades]).sum()
 
@@ -60,13 +62,13 @@ def get_aa_freqs(aligns):
     aa_freqs_aligns = []
 
     for align in aligns:
-        freqs = np.zeros((20))
+        freqs = np.zeros(20)
         for seq in align:
             for i, aa in enumerate(aas):
                 freqs[i] += seq.count(aa)
         freqs /= (len(align)*len(align[0]))  # get proportions
         freqs += ((1 - sum(freqs)) / 20)  # distribute the gap portion over
-                                          # all frequencies
+        # all frequencies
 
         if sum(freqs) != 1:  # get sum as close to 1 as possible
             freqs[np.random.randint(20)] += 1-sum(freqs)
@@ -98,11 +100,26 @@ def remove_gaps(fasta_in, fasta_out):
         print(f'No columns left after removing gaps. {fasta_out} not saved.')
 
 
-def main(args):
+def shuffle_aln(fasta_in, fasta_out):
+
+    aln_records = [rec for rec in SeqIO.parse(fasta_in, "fasta")]
+    aln = np.asarray([np.asarray(list(rec.seq)) for rec in aln_records])
+
+    # np.random.shuffle(aln)  # shuffle rows
+    np.random.shuffle(aln.T)  # shuffle columns
+    aln = [''.join([aa for aa in seq]) for seq in aln]
+
+    # update alignment with shuffled sequences
+    for i, rec in enumerate(aln_records):
+        rec.seq = Seq.Seq(aln[i])
+
+    SeqIO.write(aln_records, fasta_out, "fasta")
+
+
+def main():
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
     sim_params = parser.add_argument_group('arguments for simulation')
-
 
     parser.add_argument('indir', type=str,
                         help='the </path/to/> input directory or file')
@@ -119,8 +136,10 @@ def main(args):
                        help='remove column(s) with gap(s) from input fasta '
                             'file or directory and save alignment(s) without '
                             'gaps in given output file or directory')
+    group.add_argument('-m', '--mix', action='store_true',
+                       help='shuffle rows and columns of given alignment(s)')
     sim_params.add_argument('-n', '--numberseqs', type=int, nargs=2,
-                            default=[4,300],
+                            default=[4, 300],
                        metavar=('min number of sequences',
                                 'max number of sequences'),
                        help='2 integers determining minimum/maximum number of '
@@ -218,7 +237,7 @@ def main(args):
                                      f' {len(alignments)} hogenom fasta files. '
                                      f'At least as many trees with a minimum of'
                                      f' {min_nb_seqs} species as alignments '
-                                     f'are required.');
+                                     f'are required.')
             else:
                 raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                         hogenom_fasta_path)
@@ -325,8 +344,33 @@ def main(args):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     in_path)
 
+    if args.mix:
+
+        print('Shuffling aligned sequences ...')
+
+        if os.path.isfile(in_path):
+
+            shuffle_aln(in_path, out_path)
+
+        elif os.path.isdir(in_path):
+
+            fasta_files = os.listdir(in_path)
+
+            for file in fasta_files:
+
+                if file.rpartition('.')[2] == 'fasta':
+
+                    shuffle_aln(in_path + '/' + file, out_path + '/' + file)
+
+                else:
+                    print('skipped file ' + file + ',because it is not a '
+                                                   'fasta file')
+        else:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                    in_path)
+
     print('Process finished 0')
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    main()

@@ -36,13 +36,14 @@ class ConvNet(nn.Module):
             nn.Conv1d(92, 184, kernel_size=5, stride=1, padding=2),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2, stride=2))  # down-sampling
-
         self.drop_out = nn.Dropout(p=0.25)  # adds noise to prevent overfitting
-
         # fully connected layer
         self.fc = nn.Linear(int(seq_len / 2) * 92,
                             1)  # for 2 layers: int(seq_len / 4) * 184 !
         self.softmax = nn.Softmax(dim=1)
+
+        self.train_history = []
+        self.val_history = []
 
     def forward(self, x):  # name is obligatory
         # out = self.inpt(x)
@@ -106,7 +107,6 @@ def evaluate(model, val_loader):
 def fit(epochs, lr, model, train_loader, val_loader,
         opt_func=torch.optim.Adagrad):
     optimizer = opt_func(model.parameters(), lr)
-    history = []
 
     for epoch in range(0, epochs):
 
@@ -121,11 +121,14 @@ def fit(epochs, lr, model, train_loader, val_loader,
         # validation phase
         model.eval()
         with torch.no_grad():
-            result = evaluate(model, val_loader)
-            model.epoch_end(epoch, result)
-            history.append(result)
-
-    return history
+            # eval for training dataset
+            train_result = evaluate(model, train_loader)
+            model.epoch_end(epoch, train_result)
+            model.train_history.append(train_result)
+            # eval for validataion dataset
+            val_result = evaluate(model, val_loader)
+            model.epoch_end(epoch, val_result)
+            model.val_history.append(val_result)
 
 
 def main(args):
@@ -161,15 +164,15 @@ def main(args):
 
     # data specific parameters
     nb_protein_families = 63  # number of multiple aligns
-    min_seqs_per_align, max_seqs_per_align = 4, 200
+    min_seqs_per_align, max_seqs_per_align = 4, 300
     seq_len = 300
 
     # hyperparameters
-    batch_size = 512
-    epochs = 20
+    batch_size = 1024
+    epochs = 10
     lr = 0.001
     optimizer = 'Adagrad'
-    nb_folds = 6
+    nb_folds = 5
 
     if model_path is not None:
         write_config_file(nb_protein_families,
@@ -181,9 +184,10 @@ def main(args):
 
     torch.manual_seed(42)
     random.seed(42)
+    np.random.seed(42)
 
     # k-fold validator
-    kfold = KFold(nb_folds, shuffle=True)
+    kfold = KFold(nb_folds, shuffle=True, random_state=42)
 
     # -------------------- data preparation ------------------------------- #
     print("Loading alignments ...")
@@ -192,6 +196,7 @@ def main(args):
                                      max_seqs_per_align, nb_protein_families)
     sim_aligns = aligns_from_fastas(sim_fasta_path, min_seqs_per_align,
                                     max_seqs_per_align, nb_protein_families)
+
     print("Encoding alignments ...")
     # one-hot encode sequences shape: (nb_aligns, nb_seqs, amino acids, seq_length)
     real_aligns = [encode_align(align, seq_len, padding='data') for align in
@@ -204,7 +209,8 @@ def main(args):
     # make pairs !additional dim for each multiple alingment needs to be flattened before passed to CNN!
     real_pairs_per_align = [make_seq_pairs(align) for align in real_aligns]
     sim_pairs_per_align = [make_seq_pairs(align) for align in sim_aligns]
-    print(f'Finished pairing after {time.time() - start}s')
+    print(f'Finished pairing after {round(time.time() - start, 2)}s\n')
+
 
     # -------------------- k-fold cross validation -------------------- #
 
@@ -218,14 +224,14 @@ def main(args):
         print(
             '----------------------------------------------------------------')
 
-        # splitting dataset by protein families
+        # splitting dataset by alignments
         print("Building training and validation dataset ...")
         start = time.time()
         train_ds = TensorDataset([real_pairs_per_align[i] for i in train_ids],
-                                 [sim_pairs_per_align[i] for i in train_ids])
+                                 [sim_pairs_per_align[i] for i in train_ids], shuffle=True)
         val_ds = TensorDataset([real_pairs_per_align[i] for i in val_ids],
-                               [sim_pairs_per_align[i] for i in val_ids])
-        print(f'Finished after {time.time() - start}s')
+                               [sim_pairs_per_align[i] for i in val_ids], shuffle=True)
+        print(f'Finished after {round(time.time() - start, 2)}s\n')
 
         train_loader = DataLoader(train_ds, batch_size, shuffle=True)
         val_loader = DataLoader(val_ds, batch_size)
@@ -236,11 +242,12 @@ def main(args):
         model = model.to(compute_device)
 
         # train and validate model
-        train_history.append(fit(epochs, lr, model, train_loader, val_loader))
+        fit(epochs, lr, model, train_loader, val_loader)
+        train_history.append(model.val_history)
         fold_eval.append(train_history[fold][-1]['val_acc'])
 
         # saving the model
-        print('Training process has finished.\n')
+        print('\nTraining process has finished.')
         if model_path is not None:
             torch.save(model.state_dict(),
                        f'{model_path}/model-fold-{fold + 1}.pth')
@@ -248,21 +255,27 @@ def main(args):
         # plot the model evaluation
         fig, axs = plt.subplots(1, 2, constrained_layout=True)
 
-        accuracies = [result['val_acc'] for result in train_history[fold]]
-        losses = [result['val_loss'] for result in train_history[fold]]
+        accuracies_train = [result['val_acc'] for result in model.train_history]
+        losses_train = [result['val_loss'] for result in model.train_history]
 
-        axs[0].plot(accuracies, '-x')
+        accuracies_val = [result['val_acc'] for result in model.val_history]
+        losses_val = [result['val_loss'] for result in model.val_history]
+
+        axs[0].plot(accuracies_train, '-x', label='training')
+        axs[0].plot(accuracies_val, '-x', label='validation')
         axs[0].set_xlabel('epoch')
         axs[0].set_ylabel('accuracy')
         axs[0].set_title(f'Fold {(fold + 1)}: Accuracy vs. No. of epochs')
 
-        axs[1].plot(losses, '-x')
+        axs[1].plot(losses_train, '-x', label='training')
+        axs[1].plot(losses_val, '-x', label='validation')
         axs[1].set_xlabel('epoch')
         axs[1].set_ylabel('loss')
         axs[1].set_title(f'Fold {fold + 1}: Loss vs. No. of epochs')
 
         if model_path is not None:
             plt.savefig(f'{model_path}/fig-fold-{fold + 1}.png')
+            print(f'Saved model and evaluation plot to {model_path} ...\n')
 
     # print fold results
     print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
