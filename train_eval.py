@@ -1,7 +1,6 @@
 import errno
 import sys, random, os
 import torch
-import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 import time
@@ -9,94 +8,11 @@ from torch.utils.data import DataLoader
 from sklearn.model_selection import KFold
 from datetime import datetime
 from data_preprocessing import aligns_from_fastas, TensorDataset, encode_align, \
-    make_pairs_from_aligns_mp, make_seq_pairs
+    make_seq_pairs
 from utils import write_config_file
+import ConvNet
 
 compute_device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-# compute_device = "cpu"
-
-def accuracy(outputs, labels):
-    preds = torch.round(torch.flatten(torch.sigmoid(outputs)))
-    return torch.tensor(torch.sum(preds == labels).item() / len(preds))
-
-
-class ConvNet(nn.Module):
-    def __init__(self, seq_len, nb_classes):
-        super(ConvNet, self).__init__()
-
-        # self.inpt = nn.Linear(seq_len, seq_len)
-        # convolutional layers
-        self.layer1 = nn.Sequential(
-            nn.Conv1d(46, 92, kernel_size=5, stride=1, padding=2),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2))  # down-sampling
-        self.layer2 = nn.Sequential(
-            nn.Conv1d(92, 184, kernel_size=5, stride=1, padding=2),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2))  # down-sampling
-        self.drop_out = nn.Dropout(p=0.25)  # adds noise to prevent overfitting
-        # fully connected layer
-        self.fc = nn.Linear(int(seq_len / 2) * 92,
-                            1)  # for 2 layers: int(seq_len / 4) * 184 !
-        self.softmax = nn.Softmax(dim=1)
-
-        self.train_history = []
-        self.val_history = []
-
-    def forward(self, x):  # name is obligatory
-        # out = self.inpt(x)
-        out = self.layer1(x)
-        # out = self.layer2(out)
-        out = out.reshape(out.size(0),
-                          -1)  # flattening from (seqlen/4)x46 to Nx1
-        out = self.drop_out(out)
-        out = self.fc(out)
-        # out = self.softmax(out)
-        return out
-
-    def training_step(self, batch):
-        seq_pairs, labels = batch
-
-        seq_pairs = seq_pairs.to(compute_device)
-        labels = labels.to(compute_device)
-
-        out = self(seq_pairs)  # generate predictions, forward pass
-        criterion = nn.BCEWithLogitsLoss()
-        loss = criterion(out, torch.reshape(labels, out.shape))
-        # print('training acc: {}'.format(accuracy(out, labels).detach()))
-        return loss
-
-    def validation_step(self, batch):
-        seq_pairs, labels = batch
-
-        seq_pairs, labels = seq_pairs.to(compute_device), labels.to(
-            compute_device)
-
-        out = self(seq_pairs)  # generate predictions
-
-        criterion = nn.BCEWithLogitsLoss()
-        loss = criterion(out, torch.reshape(labels, out.shape))
-        acc = accuracy(out, labels)
-
-        return {'val_loss': loss.detach(), 'val_acc': acc.detach()}
-
-    def validation_epoch_end(self, outputs):
-        batch_losses = [x['val_loss'] for x in outputs]
-        epoch_loss = torch.stack(batch_losses).mean()  # combine losses
-
-        batch_accs = [x['val_acc'] for x in outputs]
-        epoch_acc = torch.stack(batch_accs).mean()  # combine accuracies
-
-        return {'val_loss': epoch_loss.item(), 'val_acc': epoch_acc.item()}
-
-    def epoch_end(self, epoch, result):
-        print("Epoch [{}], val_loss: {:.4f}, val_acc: {:.4f}".format(epoch,
-                                                                     result[
-                                                                         'val_loss'],
-                                                                     result[
-                                                                         'val_acc']))
 
 
 def evaluate(model, val_loader):
@@ -106,9 +22,22 @@ def evaluate(model, val_loader):
 
 def fit(epochs, lr, model, train_loader, val_loader,
         opt_func=torch.optim.Adagrad):
+
     optimizer = opt_func(model.parameters(), lr)
 
-    for epoch in range(0, epochs):
+    # validation phase with initialized weights (untrained network)
+    model.eval()
+    with torch.no_grad():
+        # eval for training dataset
+        train_result = evaluate(model, train_loader)
+        model.epoch_end(0, train_result)
+        model.train_history.append(train_result)
+        # eval for validataion dataset
+        val_result = evaluate(model, val_loader)
+        model.epoch_end(0, val_result)
+        model.val_history.append(val_result)
+
+    for epoch in range(1, epochs+1):
 
         # training Phase
         model.train()
@@ -129,6 +58,76 @@ def fit(epochs, lr, model, train_loader, val_loader,
             val_result = evaluate(model, val_loader)
             model.epoch_end(epoch, val_result)
             model.val_history.append(val_result)
+
+
+def load_net(self, path, seq_len, state='eval'):
+    model = ConvNet(seq_len)
+    checkpoint = torch.load(path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.train_history = checkpoint['train_history']
+    model.val_history = checkpoint['val_history']
+    if state == 'eval':
+        model.eval()
+    elif state == 'train':
+        model.train()
+
+
+def plot_folds(train_history_folds, val_history_folds, path=None):
+    accs_train_folds = []
+    losses_train_folds = []
+    accs_val_folds = []
+    losses_val_folds = []
+    for fold in range(len(train_history_folds)):
+        accs_train_folds.append([result['acc'] for result in train_history_folds[fold]])
+        losses_train_folds.append([result['loss'] for result in train_history_folds[fold]])
+        accs_val_folds.append([result['acc'] for result in val_history_folds[fold]])
+        losses_val_folds.append([result['loss'] for result in val_history_folds[fold]])
+
+    # calculate mean over folds per epoch
+    avg_accs_train = np.mean(accs_train_folds, axis=0)
+    avg_losses_train = np.mean(losses_train_folds, axis=0)
+    avg_accs_val = np.mean(accs_val_folds, axis=0)
+    avg_losses_val = np.mean(losses_val_folds, axis=0)
+
+    # calculate standard deviation over folds per epoch
+    std_accs_train = np.std(accs_train_folds, axis=0)
+    std_losses_train = np.std(losses_train_folds, axis=0)
+    std_accs_val = np.std(accs_val_folds, axis=0)
+    std_losses_val = np.std(losses_val_folds, axis=0)
+
+    # plot the model evaluation
+    fig, axs = plt.subplots(ncols=2, sharex=True, figsize=(12., 6.))
+
+    train_col, train_col_a = (0.518, 0.753, 0.776), (0.518, 0.753, 0.776, 0.2)
+    val_col, val_col_a = (0.576, 1.0, 0.588), (0.576, 1.0, 0.588, 0.3)
+
+    axs[0].plot(avg_accs_train, '-x', color=train_col)
+    axs[0].fill_between(range(len(avg_accs_train)), avg_accs_train - std_accs_train,
+                        avg_accs_train + std_accs_train, color=train_col_a)
+    axs[0].plot(avg_accs_val, '-x', color=val_col)
+    axs[0].fill_between(range(len(avg_accs_val)), avg_accs_val - std_accs_val,
+                        avg_accs_val + std_accs_val, color=val_col_a)
+    axs[0].set_ylim([0.5, 1.0])
+    axs[0].set_xlabel('epoch')
+    axs[0].set_ylabel('accuracy')
+    axs[0].set_title(f'Fold {(fold + 1)}: Accuracy vs. No. of epochs')
+
+    line_train, = axs[1].plot(avg_losses_train, '-x', color=tuple([c/1.3 for c in train_col]))
+    axs[1].fill_between(range(len(avg_losses_train)), avg_losses_train - std_losses_train,
+                        avg_losses_train + std_losses_train, color=tuple([c/1.3 for c in train_col_a]))
+    line_val, = axs[1].plot(avg_losses_val, '-x', color=tuple([c/1.3 for c in val_col]))
+    axs[1].fill_between(range(len(avg_losses_val)), avg_losses_val - std_losses_val,
+                        avg_losses_val + std_losses_val, color=tuple([c/1.3 for c in val_col_a]))
+    axs[1].set_xlabel('epoch')
+    axs[1].set_ylabel('loss')
+    axs[1].set_title(f'Fold {fold + 1}: Loss vs. No. of epochs')
+
+    plt.subplots_adjust(bottom=0.25)
+    plt.legend([line_train, line_val], ['training', 'validation'], bbox_to_anchor=[-0.1, -0.3],
+               loc='lower center', ncol=2)
+
+    if path is not None:
+        plt.savefig(path)
 
 
 def main(args):
@@ -169,10 +168,10 @@ def main(args):
 
     # hyperparameters
     batch_size = 1024
-    epochs = 10
+    epochs = 2
     lr = 0.001
     optimizer = 'Adagrad'
-    nb_folds = 5
+    nb_folds = 2
 
     if model_path is not None:
         write_config_file(nb_protein_families,
@@ -215,7 +214,8 @@ def main(args):
     # -------------------- k-fold cross validation -------------------- #
 
     # init for evaluation
-    train_history = []
+    train_history_folds = []
+    val_history_folds = []
     fold_eval = []
 
     for fold, (train_ids, val_ids) in enumerate(kfold.split(real_aligns)):
@@ -238,40 +238,24 @@ def main(args):
 
         # generate model
         input_size = train_ds.data.shape[2]  # seq len
-        model = ConvNet(input_size, nb_protein_families)
+        model = ConvNet(input_size)
         model = model.to(compute_device)
 
         # train and validate model
         fit(epochs, lr, model, train_loader, val_loader)
-        train_history.append(model.val_history)
-        fold_eval.append(train_history[fold][-1]['val_acc'])
+        train_history_folds.append(model.train_history)
+        val_history_folds.append(model.val_history)
+        fold_eval.append(val_history_folds[fold][-1]['acc'])
 
         # saving the model
         print('\nTraining process has finished.')
         if model_path is not None:
-            torch.save(model.state_dict(),
+            torch.save({
+                        'train_history': model.train_history,
+                        'val_history': model.val_history,
+                        'model_state_dict': model.state_dict(),
+                       },
                        f'{model_path}/model-fold-{fold + 1}.pth')
-
-        # plot the model evaluation
-        fig, axs = plt.subplots(1, 2, constrained_layout=True)
-
-        accuracies_train = [result['val_acc'] for result in model.train_history]
-        losses_train = [result['val_loss'] for result in model.train_history]
-
-        accuracies_val = [result['val_acc'] for result in model.val_history]
-        losses_val = [result['val_loss'] for result in model.val_history]
-
-        axs[0].plot(accuracies_train, '-x', label='training')
-        axs[0].plot(accuracies_val, '-x', label='validation')
-        axs[0].set_xlabel('epoch')
-        axs[0].set_ylabel('accuracy')
-        axs[0].set_title(f'Fold {(fold + 1)}: Accuracy vs. No. of epochs')
-
-        axs[1].plot(losses_train, '-x', label='training')
-        axs[1].plot(losses_val, '-x', label='validation')
-        axs[1].set_xlabel('epoch')
-        axs[1].set_ylabel('loss')
-        axs[1].set_title(f'Fold {fold + 1}: Loss vs. No. of epochs')
 
         if model_path is not None:
             plt.savefig(f'{model_path}/fig-fold-{fold + 1}.png')
