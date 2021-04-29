@@ -10,7 +10,7 @@ from datetime import datetime
 from data_preprocessing import aligns_from_fastas, TensorDataset, encode_align, \
     make_seq_pairs
 from utils import write_config_file
-import ConvNet
+from ConvNet import ConvNet
 
 compute_device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -107,7 +107,7 @@ def plot_folds(train_history_folds, val_history_folds, path=None):
     axs[0].plot(avg_accs_val, '-x', color=val_col)
     axs[0].fill_between(range(len(avg_accs_val)), avg_accs_val - std_accs_val,
                         avg_accs_val + std_accs_val, color=val_col_a)
-    axs[0].set_ylim([0.5, 1.0])
+    axs[0].set_ylim([np.floor(plt.ylim()[0] * 100) / 100, 1.0])
     axs[0].set_xlabel('epoch')
     axs[0].set_ylabel('accuracy')
     axs[0].set_title(f'Fold {(fold + 1)}: Accuracy vs. No. of epochs')
@@ -133,13 +133,14 @@ def plot_folds(train_history_folds, val_history_folds, path=None):
 def main(args):
     # -------------------- handling arguments -------------------- #
 
-    if len(args) >= 2:
+    if len(args) >= 3:
         real_fasta_path = args[0]
         sim_fasta_path = args[1]
+        shuffle =  True if args[2] == 'y' else False
         model_path = None
 
-        if len(args) > 2:
-            model_path = args[2]
+        if len(args) > 3:
+            model_path = args[3]
             # create unique subdir for the model
             timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
             model_path = model_path + '/cnn-' + str(timestamp)
@@ -168,10 +169,10 @@ def main(args):
 
     # hyperparameters
     batch_size = 1024
-    epochs = 2
+    epochs = 30
     lr = 0.001
     optimizer = 'Adagrad'
-    nb_folds = 2
+    nb_folds = 10
 
     if model_path is not None:
         write_config_file(nb_protein_families,
@@ -227,10 +228,11 @@ def main(args):
         # splitting dataset by alignments
         print("Building training and validation dataset ...")
         start = time.time()
+
         train_ds = TensorDataset([real_pairs_per_align[i] for i in train_ids],
-                                 [sim_pairs_per_align[i] for i in train_ids], shuffle=True)
+                                 [sim_pairs_per_align[i] for i in train_ids], shuffle)
         val_ds = TensorDataset([real_pairs_per_align[i] for i in val_ids],
-                               [sim_pairs_per_align[i] for i in val_ids], shuffle=True)
+                               [sim_pairs_per_align[i] for i in val_ids], shuffle)
         print(f'Finished after {round(time.time() - start, 2)}s\n')
 
         train_loader = DataLoader(train_ds, batch_size, shuffle=True)
@@ -247,21 +249,19 @@ def main(args):
         val_history_folds.append(model.val_history)
         fold_eval.append(val_history_folds[fold][-1]['acc'])
 
-        # saving the model
+        # saving the model and results
         print('\nTraining process has finished.')
         if model_path is not None:
-            torch.save({
-                        'train_history': model.train_history,
-                        'val_history': model.val_history,
-                        'model_state_dict': model.state_dict(),
-                       },
-                       f'{model_path}/model-fold-{fold + 1}.pth')
-
-        if model_path is not None:
-            plt.savefig(f'{model_path}/fig-fold-{fold + 1}.png')
+            model.save(f'{model_path}/model-fold-{fold + 1}.pth')
+            model.plot(f'{model_path}/fig-fold-{fold + 1}.png')
             print(f'Saved model and evaluation plot to {model_path} ...\n')
+        else:
+            model.plot()
 
-    # print fold results
+
+    # print/save fold results
+    plot_folds(train_history_folds, val_history_folds, f'{model_path}/fig-fold-eval.png')
+
     print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
     print('----------------------------------------------------------------')
 
