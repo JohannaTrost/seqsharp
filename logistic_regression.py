@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import sys
 import os
 import random
-from data_preprocessing import aligns_from_fastas, TensorDataset
+from data_preprocessing import alns_from_fastas, TensorDataset
 from sklearn.model_selection import KFold
 from datetime import datetime
 
@@ -96,7 +96,7 @@ def main(args):
     kfold = KFold(nb_folds, shuffle=True)
 
     # preprocessing of data
-    raw_aligns = aligns_from_fastas(fasta_dir, nb_seqs_per_align, nb_classes)
+    raw_aligns = alns_from_fastas(fasta_dir, nb_seqs_per_align, nb_classes)
     seq_len = 200
 
     # create unique subdir for the models

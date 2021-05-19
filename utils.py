@@ -1,6 +1,8 @@
 import json, os, errno, math
-import numpy as np
 from datetime import datetime
+
+import numpy as np
+
 
 def write_config_file(nb_protein_families,
                       min_seqs_per_align,
@@ -59,3 +61,4 @@ def flatten_lst(lst):
     for _lst in lst:
         flattened_lst += _lst
     return flattened_lst
+
