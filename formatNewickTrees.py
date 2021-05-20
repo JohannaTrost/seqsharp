@@ -1,8 +1,11 @@
+import math
 import sys
 import os
 import errno
 import subprocess
 import argparse
+import time
+
 import numpy as np
 from Bio import Phylo
 from Bio import SeqIO
@@ -88,9 +91,10 @@ def get_aa_freqs(aligns):
         freqs /= (len(align)*len(align[0]))  # get proportions
         freqs += ((1 - sum(freqs)) / 20)  # distribute the gap portion over
         # all frequencies
+        freqs = np.floor(np.asarray(freqs)*10**6)/10**6
 
-        if sum(freqs) != 1:  # get sum as close to 1 as possible
-            freqs[np.random.randint(20)] += 1-sum(freqs)
+        # if sum(freqs) != 1:  # get sum as close to 1 as possible
+        #     freqs[np.random.randint(20)] += 1-sum(freqs)
 
         aa_freqs_aligns.append(freqs)
 
@@ -282,6 +286,8 @@ def main():
                                                    stdout=subprocess.PIPE)
                         output, error = process.communicate()
 
+                        process.wait()
+
                         if os.path.exists(fasta_out_path) and \
                                 os.stat(fasta_out_path).st_size > 0:
                             i += 1
@@ -297,7 +303,7 @@ def main():
                     if error is not None:
                         print(error)
 
-                    if i == nb_aligns:
+                    if i == len(alignments):
                         break
 
                 else:
