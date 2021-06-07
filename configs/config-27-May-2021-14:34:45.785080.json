@@ -1,0 +1,1 @@
+{"data": {"nb_protein_families": 2600, "min_seqs_per_align": 4, "max_seqs_per_align": 3000, "seq_len": 3000}, "hyperparams": {"batch_size": 128, "epochs": 50, "lr": 0.001, "optimizer": "Adagrad", "nb_folds": 10}, "results_path": "results/cnn-27-May-2021-14:34:42.419489", "comments": ""}
