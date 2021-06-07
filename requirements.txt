@@ -1,0 +1,9 @@
+numpy==1.19.0
+matplotlib
+pandas==1.2.4
+torch
+scikit-learn
+psutil
+biopython
+scipy
+statsmodels

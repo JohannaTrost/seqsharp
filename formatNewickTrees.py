@@ -1,16 +1,14 @@
-import math
-import sys
 import os
 import errno
 import subprocess
 import argparse
-import time
 
 import numpy as np
 from Bio import Phylo
 from Bio import SeqIO
 from Bio import Seq
-from data_preprocessing import alns_from_fastas
+from preprocessing import alns_from_fastas
+from stats import get_aa_freqs, generate_data_from_dist
 
 
 def rearrange_tree(root):
@@ -77,28 +75,6 @@ def enough_leaves(tree_path, min_nb_seqs):
         return True
     else:
         return False
-
-
-def get_aa_freqs(aligns):
-    aas = 'ARNDCQEGHILKMFPSTWYV'
-    aa_freqs_aligns = []
-
-    for align in aligns:
-        freqs = np.zeros(20)
-        for seq in align:
-            for i, aa in enumerate(aas):
-                freqs[i] += seq.count(aa)
-        freqs /= (len(align)*len(align[0]))  # get proportions
-        freqs += ((1 - sum(freqs)) / 20)  # distribute the gap portion over
-        # all frequencies
-        freqs = np.floor(np.asarray(freqs)*10**6)/10**6
-
-        # if sum(freqs) != 1:  # get sum as close to 1 as possible
-        #     freqs[np.random.randint(20)] += 1-sum(freqs)
-
-        aa_freqs_aligns.append(freqs)
-
-    return aa_freqs_aligns
 
 
 def remove_gaps(fasta_in, fasta_out):
@@ -248,7 +224,8 @@ def main():
                 if len(alignments) <= len(tree_files):
                     # get lengths and frequences from hogenom aligned sequences
                     seq_lens = [len(algn[0]) for algn in alignments]
-                    aa_freqs = get_aa_freqs(alignments)
+                    seq_lens = generate_data_from_dist(seq_lens)
+                    aa_freqs = get_aa_freqs(alignments, gaps=False, dict=False)
                 else:
                     raise ValueError(f'Not enough input trees({len(tree_files)})'
                                      f'for {len(alignments)} simulations')
@@ -275,15 +252,10 @@ def main():
                             freqs = np.array2string(aa_freqs[i], separator=',')
                             freqs = freqs.replace('\n ', '')[1:-1]
 
-                            bash_cmd = seq_gen_path + \
-                                       '/source/seq-gen -mGENERAL' + \
-                                       ' -l' + str(seq_lens[i]) + \
-                                       ' -f' + freqs + \
-                                       ' -of < ' + tree_in_path + ' > ' + \
-                                       fasta_out_path
-
-                        process = subprocess.Popen(bash_cmd, shell=True,
-                                                   stdout=subprocess.PIPE)
+                        bash_cmd = (f'{seq_gen_path}/source/seq-gen '
+                                    f'-mWAG -l{str(seq_lens[i])} -f{freqs} -of '
+                                    f'< {tree_in_path} > {fasta_out_path}')
+                        process = subprocess.Popen(bash_cmd, shell=True, stdout=subprocess.PIPE)
                         output, error = process.communicate()
 
                         process.wait()
@@ -321,14 +293,14 @@ def main():
                 sim_seqs_lens.sort()
                 seq_lens.sort()
 
-                if sim_seqs_lens == seq_lens:
+                if len(sim_seqs_lens) == len(seq_lens):
                     print(f'Number of real alignments: {len(alignments)}')
                     print(f'Number of inputted trees: '
                           f'{len(tree_files[:len(alignments)])}')
                     print(f'Newly simulated alignments: {len(aligns_sim)}')
                 else:
-                    print(f'Nb. sites (simulated): {sim_seqs_lens}')
-                    print(f'Nb. sites (empirical): {seq_lens}')
+                    print(f'Nb. sites (simulated): {len(sim_seqs_lens)}')
+                    print(f'Nb. sites (empirical): {len(seq_lens)}')
                     print(f'Number of inputted trees: '
                           f'{len(tree_files[:len(alignments)])}')
                     print(f'Newly simulated alignments: {len(aligns_sim)}')

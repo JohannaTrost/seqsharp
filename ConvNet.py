@@ -1,117 +1,161 @@
+"""Provides a child class ConvNet of torch.nn.module to allow
+   the construction of a convolutional neural network as well as
+    a function to load a network and to initialize values of a tensor
+"""
+
+from numpy import floor
 import torch
 import torch.nn as nn
-import matplotlib.pyplot as plt
-from numpy import floor
+import matplotlib
 
-compute_device = "cuda" if torch.cuda.is_available() else "cpu"
-compute_device = "cpu"
+from train_eval import accuracy
 
+matplotlib.use('Agg')
+import matplotlib.pylab as plt
 
-def accuracy(outputs, labels):
-    preds = torch.round(torch.flatten(torch.sigmoid(outputs)))
-    return torch.tensor((torch.sum(preds == labels).item() / len(preds)))
-
-
-def evaluate(model, val_loader):
-    outputs = []
-    losses = []
-    labels = []
-    for batch in val_loader:
-        seq_pairs, labels_batch = batch
-
-        seq_pairs = seq_pairs.to(compute_device)
-        labels_batch = labels_batch.to(compute_device)
-        model.to(compute_device)
-
-        out = model(seq_pairs)  # generate predictions
-
-        criterion = nn.BCEWithLogitsLoss()
-        loss = criterion(out, torch.reshape(labels_batch, out.shape))
-
-        losses.append(loss.detach())
-        outputs = out if len(outputs) == 0 else torch.cat((outputs, out))
-        labels = (labels_batch if len(labels) == 0
-                  else torch.cat((labels, labels_batch)))
-
-    epoch_acc = accuracy(outputs, labels)
-    epoch_loss = torch.stack(losses).mean()  # combine losses
-
-    return {'loss': epoch_loss.item(), 'acc': epoch_acc.item()}
+compute_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def init_weights(m):
+    """Initializes weights with values according to the method
+       described in “Understanding the difficulty of training
+       deep feedforward neural networks” - Glorot, X.
+
+    :param m: convolutional or linear layer
+    """
+
     if type(m) == nn.Linear or type(m) == nn.Conv1d:
         torch.nn.init.xavier_uniform_(m.weight)
-        print("different init weights")
 
 
-def load_net(path, seq_len, state='eval'):
-    model = ConvNet(seq_len)
+def load_net(path, params, state='eval'):
+    """Loads a model and sets it to evaluation or training mode
+
+    :param path: <path/to/*.pth> model to be loaded (string)
+    :param params: model parameters (input size etc.) (dict)
+    :param state: 'eval' or 'train' to indicate desired model state (string)
+    :return: the model (ConvNet object)
+    """
+
+    model = ConvNet(params)
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.train_history = checkpoint['train_history']
     model.val_history = checkpoint['val_history']
+
     if state == 'eval':
         model.eval()
     elif state == 'train':
         model.train()
 
-    return model
+    return model.to(compute_device)
 
 
 class ConvNet(nn.Module):
-    def __init__(self, seq_len, nb_chnls):
+    """Neural network with at least 1 linear layer,
+       which can have multiple convolutional and linear layers
+       for a binary classification task, where classes are empirical
+       alignments and simulated alignments
+
+        Attributes
+        ----------
+        conv_layers : nn.Sequential
+            a sequence of conv1D, ReLu and maxpooling
+        lin_layers : nn.Sequential
+            one or multiple linear layers, the last one having 1 output node
+        sound : str
+            the sound that the animal makes
+        num_legs : int
+            the number of legs the animal has (default 4)
+        train_history : list of dictionaries keys: 'acc', 'loss'
+            accuracy and loss for each epoch on training dataset
+        val_history : list of dictionaries keys: 'acc', 'loss'
+            accuracy and loss for each epoch on validaiton dataset
+
+        Methods
+        -------
+        __init__(p)
+            initializes the networks layers
+        forward(x)
+            performs feed forward pass
+        training_step(batch)
+        validation_step(batch)
+        validation_epoch_end(outputs)
+            combines losses and accuracies for all batches
+        plot(path=None)
+            plots performance of the network
+        save(path)
+            save the model in a .pth file
+    """
+
+    def __init__(self, p):
+        """Initializes network layers
+
+        :param p: parameters that determine the network architecture (dict)
+        """
+
         super(ConvNet, self).__init__()
 
-        # self.inpt = nn.Linear(seq_len, seq_len)
+        out_size = (int(p['input_size'] / 2**p['nb_conv_layer']) *
+                    p['nb_chnls'] * 2**p['nb_conv_layer'])
+
         # convolutional layers
-        self.layer1 = nn.Sequential(
-            nn.Conv1d(nb_chnls, nb_chnls * 2,
-                      kernel_size=5, stride=1, padding=2),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2))  # down-sampling
-        self.layer2 = nn.Sequential(
-            nn.Conv1d(nb_chnls * 2, nb_chnls * 4,
-                      kernel_size=5, stride=1, padding=2),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2))  # down-sampling
-        self.drop_out = nn.Dropout(p=0.25)  # adds noise to prevent overfitting
-        # fully connected layer
-        self.fc = nn.Linear(int(seq_len / 2) * nb_chnls * 2,
-                            1)  # for 2 layers: int(seq_len / 4) * 184 !
+        self.conv_layers = []
+        for i in range(p['nb_conv_layer']):
+            conv1d = nn.Conv1d(p['nb_chnls'] * (2**i),
+                               p['nb_chnls'] * (2**(i+1)),
+                               kernel_size=p['kernel_size'], stride=1,
+                               padding=p['kernel_size'] // 2)
+
+            self.conv_layers += [conv1d, nn.ReLU()]
+
+            if p['do_maxpool'] and p['kernel_size'] > 1:  # down sampling
+                self.conv_layers.append(nn.MaxPool1d(kernel_size=2, stride=2))
+
+        self.conv_layers = (nn.Sequential(*self.conv_layers)
+                            if p['nb_conv_layer'] > 0 else None)
+
+        self.drop_out = nn.Dropout(p=0.25) if p['nb_conv_layer'] > 0 else None
+
+        # fully connected layer(s)
+        self.lin_layers = []
+        for i in range(max(p['nb_lin_layer'] - 1, 0)):
+            self.lin_layers.append(nn.Linear(out_size, out_size // 2))
+            out_size = out_size // 2
+        self.lin_layers.append(nn.Linear(out_size, 1))
+
+        self.lin_layers = nn.Sequential(*self.lin_layers)
 
         self.train_history = []
         self.val_history = []
 
-    def forward(self, x):  # name is obligatory
+    def forward(self, x):
         # out = self.inpt(x)
-        out = self.layer1(x)
-        # out = self.layer2(out)
-        out = out.reshape(out.size(0),
-                          -1)  # flattening from (seqlen/4)x46 to Nx1
-        out = self.drop_out(out)
-        out = self.fc(out)
+        if self.conv_layers is not None: out = self.conv_layers(x)
+        out = out.reshape(out.size(0), -1)  # flattening
+        if self.drop_out is not None: out = self.drop_out(out)
+        out = self.lin_layers(out)
         return out
 
     def training_step(self, batch):
-        seq_pairs, labels = batch
+        alns, labels = batch
 
-        seq_pairs = seq_pairs.to(compute_device)
+        alns = alns.to(compute_device)
         labels = labels.to(compute_device)
 
-        out = self(seq_pairs)  # generate predictions, forward pass
+        out = self(alns)  # generate predictions, forward pass
         criterion = nn.BCEWithLogitsLoss()
         loss = criterion(out, torch.reshape(labels, out.shape))
-        # print('training acc: {}'.format(accuracy(out, labels).detach()))
+
         return loss
 
     def validation_step(self, batch):
-        seq_pairs, labels = batch
+        alns, labels = batch
 
-        seq_pairs, labels = seq_pairs.to(compute_device), labels.to(
+        alns, labels = alns.to(compute_device), labels.to(
             compute_device)
 
-        out = self(seq_pairs)  # generate predictions
+        out = self(alns)  # generate predictions
 
         criterion = nn.BCEWithLogitsLoss()
         loss = criterion(out, torch.reshape(labels, out.shape))
@@ -128,12 +172,12 @@ class ConvNet(nn.Module):
 
         return {'loss': epoch_loss.item(), 'acc': epoch_acc.item()}
 
-    def epoch_end(self, epoch, result):
-        print("Epoch [{}], loss: {:.4f}, acc: {:.4f}".format(epoch,
-                                                             result['loss'],
-                                                             result['acc']))
-
     def plot(self, path=None):
+        """Generates a figure with 2 plots for loss and accuracy over epochs
+
+        :param path: <path/to/> directory to save the plot to (string/None)
+        """
+
         if len(self.train_history) > 0 and len(self.val_history) > 0:
             accuracies_train = [result['acc'] for result in self.train_history]
             losses_train = [result['loss'] for result in self.train_history]
