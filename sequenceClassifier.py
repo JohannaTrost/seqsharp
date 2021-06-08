@@ -42,7 +42,6 @@ compute_device = torch.device("cpu")
 
 def main():
     # -------------------- handling arguments -------------------- #
-    start = time.time()
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--training', type=str, nargs=2,
                         help='Specify the <path/to/> the empirical alignments '
@@ -167,13 +166,13 @@ def main():
         kfold = KFold(nb_folds, shuffle=True, random_state=42)
 
         # ------------------------- data preparation ------------------------- #
-        print(f'{time.time() - start}s until data prepro')
+
         data = data_prepro(real_fasta_path, sim_fasta_path,
                            config['data'], pairs,
                            csv_path=(f'{result_path}/alns_stats.csv'
                                      if args.track_stats else None))
 
-        real_alns, sim_alns, fastas_real, fastas_sim, nb_sites = data
+        real_alns, sim_alns, fastas_real, fastas_sim, config['data'] = data
 
         print(f'preloaded data uses : '
               f'{sys.getsizeof(data) / 10**9}GB')
@@ -185,8 +184,6 @@ def main():
                              range(len(sim_alns))}
 
         # ------------------------- save config ------------------------- #
-
-        config['data']['nb_sites'] = int(nb_sites)
 
         write_config_file(config,
                           result_path if result_path is not None else '',

@@ -11,7 +11,7 @@ from sklearn.model_selection import KFold
 from torch import nn as nn
 from torch.utils.data import DataLoader
 
-from ConvNet import load_net, compute_device
+from ConvNet import load_net, compute_device, accuracy
 from preprocessing import DatasetAln
 from stats import mse, distance_stats
 
@@ -24,18 +24,6 @@ gc.collect()
 compute_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 print(f'compute device : {compute_device}')
-
-
-def accuracy(outputs, labels):
-    """Calculates accuracy of network predictions
-
-    :param outputs: network output for all examples (torch tensor)
-    :param labels: 0 and 1 labels (0: empirircal, 1:simulated) (torch tensor)
-    :return: accuracy values (between 0 and 1) (torch tensor)
-    """
-
-    preds = torch.round(torch.flatten(torch.sigmoid(outputs))).to(compute_device)
-    return torch.tensor((torch.sum(preds == labels).item() / len(preds)))
 
 
 def evaluate(model, val_loader):

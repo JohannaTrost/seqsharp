@@ -18,7 +18,7 @@ import numpy as np
 from Bio import SeqIO
 from torch.utils.data import Dataset
 
-from stats import generate_aln_stats_df, get_nb_sites
+from stats import generate_aln_stats_df, get_nb_sites, nb_seqs_per_alns
 from utils import split_lst, flatten_lst
 
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -285,6 +285,7 @@ def data_prepro(real_fasta_path, sim_fasta_path, params, pairs=False,
     :param csv_path: <path/to> store csv file with info about alignments
     :return: alignment representations and ids, number of sites
     """
+
     nb_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
 
     print("Loading alignments ...")
@@ -317,11 +318,19 @@ def data_prepro(real_fasta_path, sim_fasta_path, params, pairs=False,
     raw_sim_alns = raw_sim_alns[start:start + len(raw_real_alns)]
     sim_fastas = sim_fastas[start:start + len(raw_real_alns)]
 
-    zip_ids_alns = zip(raw_sim_alns, sim_fastas)
-    np.random.shuffle(zip_ids_alns)
-    raw_sim_alns, sim_fastas = zip(*zip_ids_alns)
+    # shuffeling alignments and theirs ids
+    indices = np.arange(len(raw_sim_alns))
+    np.random.shuffle(indices)
+    raw_sim_alns = [raw_sim_alns[i] for i in indices]
+    sim_fastas = [sim_fastas[i] for i in indices]
 
-    seq_len = min(seq_len, np.max(get_nb_sites(raw_sim_alns + raw_real_alns)))
+    params['nb_sites'] = int(min(seq_len, np.max(get_nb_sites(raw_sim_alns +
+                                                          raw_real_alns))))
+    params['nb_alignments'] = len(raw_real_alns)
+    params['max_seqs_per_align'] = int(np.max(nb_seqs_per_alns(raw_sim_alns +
+                                                               raw_real_alns)))
+    params['min_seqs_per_align'] = int(np.min(nb_seqs_per_alns(raw_sim_alns +
+                                                               raw_real_alns)))
 
     # generate alignment representations
     if pairs:
@@ -331,19 +340,19 @@ def data_prepro(real_fasta_path, sim_fasta_path, params, pairs=False,
         start = time.time()
 
         real_alns_repr_p = [make_seq_pairs(encode_aln(
-            aln, seq_len, padding=padding)) for aln in raw_real_alns]
+            aln, params['nb_sites'], padding=padding)) for aln in raw_real_alns]
 
         sim_alns_repr_p = [make_seq_pairs(encode_aln(
-            aln, seq_len, padding=padding)) for aln in raw_sim_alns]
+            aln, params['nb_sites'], padding=padding)) for aln in raw_sim_alns]
 
         print(f'Finished pairing after {round(start - time.time(), 2)}s\n')
 
         if csv_path is not None:
             generate_aln_stats_df(real_fastas, sim_fastas, raw_real_alns,
-                                  raw_sim_alns, seq_len, None, None)
+                                  raw_sim_alns, params['nb_sites'], None, None)
 
         return (real_alns_repr_p, sim_alns_repr_p, real_fastas, sim_fastas,
-                seq_len)
+                params)
 
     else:
         print("Generating alignment representations ...")
@@ -351,14 +360,16 @@ def data_prepro(real_fasta_path, sim_fasta_path, params, pairs=False,
         # make pairs !additional dim for each multiple alingment needs flatteing
         # before passed to CNN!
         real_alns_repr = [make_aln_representation(
-            encode_aln(aln, seq_len, padding=padding)) for aln in raw_real_alns]
+            encode_aln(aln, params['nb_sites'], padding=padding))
+            for aln in raw_real_alns]
 
         sim_alns_repr = [make_aln_representation(
-            encode_aln(aln, seq_len, padding=padding)) for aln in raw_sim_alns]
+            encode_aln(aln, params['nb_sites'], padding=padding))
+            for aln in raw_sim_alns]
 
         if csv_path is not None:
             generate_aln_stats_df(real_fastas, sim_fastas, raw_real_alns,
-                                  raw_sim_alns, seq_len, real_alns_repr,
-                                  sim_alns_repr, csv_path)
+                                  raw_sim_alns, params['nb_sites'],
+                                  real_alns_repr, sim_alns_repr, csv_path)
 
-        return real_alns_repr, sim_alns_repr, real_fastas, sim_fastas, seq_len
+        return real_alns_repr, sim_alns_repr, real_fastas, sim_fastas, params

@@ -8,8 +8,6 @@ import torch
 import torch.nn as nn
 import matplotlib
 
-from train_eval import accuracy
-
 matplotlib.use('Agg')
 import matplotlib.pylab as plt
 
@@ -219,3 +217,15 @@ class ConvNet(nn.Module):
             'model_state_dict': self.state_dict()
             },
             path)
+
+
+def accuracy(outputs, labels):
+    """Calculates accuracy of network predictions
+
+    :param outputs: network output for all examples (torch tensor)
+    :param labels: 0 and 1 labels (0: empirircal, 1:simulated) (torch tensor)
+    :return: accuracy values (between 0 and 1) (torch tensor)
+    """
+
+    preds = torch.round(torch.flatten(torch.sigmoid(outputs))).to(compute_device)
+    return torch.tensor((torch.sum(preds == labels).item() / len(preds)))
