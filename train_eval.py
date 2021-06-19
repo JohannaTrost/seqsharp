@@ -1,29 +1,20 @@
 """Functions to train and evaluate a neural network"""
 
-import os
 import gc
 
 import numpy as np
 import pandas as pd
-import psutil
 import torch
-from sklearn.model_selection import KFold
 from torch import nn as nn
 from torch.utils.data import DataLoader
 
-from ConvNet import load_net, compute_device, accuracy
+from ConvNet import compute_device, accuracy
 from preprocessing import DatasetAln
 from stats import mse, distance_stats
-
-process = psutil.Process(os.getpid())
 
 torch.cuda.empty_cache()
 
 gc.collect()
-
-compute_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-print(f'compute device : {compute_device}')
 
 
 def evaluate(model, val_loader):
@@ -115,7 +106,7 @@ def eval_per_align(conv_net, real_alns, sim_alns,
                    fastas_real, fastas_sim, indices, pairs=False):
     """
     Predicting whether given alignments are simulated or empirical using a
-    trained network
+    given (trained) network
     :param conv_net: ConvNet object
     :param real_alns: list of floats of shape (alignments, aa channels, sites)
     :param sim_alns: list of floats of shape (alignments, aa channels, sites)
@@ -173,63 +164,6 @@ def eval_per_align(conv_net, real_alns, sim_alns,
             del alns, labels, outputs, preds
 
     return acc_real, acc_sim
-
-
-def kfold_eval_per_aln(k, real_alns, sim_alns, fastas_real, fastas_sim,
-                       seq_len, nb_chnls, nb_conv_layer, nb_lin_layer,
-                       model_path):
-    """
-    Loading a trained model and computing predictions on given data
-    :param k: number of folds
-    :param real_alns: list of floats of shape (alignments, aa channels, sites)
-    :param sim_alns: list of floats of shape (alignments, aa channels, sites)
-    :param fastas_real: list of empirical alignment identifiers (string list)
-    :param fastas_sim: list of simulated alignment identifiers (string list)
-    :param seq_len: number of sites (integer)
-    :param nb_chnls: number of channels (integer) typically 1 channel per aa
-    :param nb_conv_layer: number of convoltional layers (integer)
-    :param nb_lin_layer: number of linear layers (integer)
-    :param model_path: <path/to/> trained model
-    :return: accuracies and alignment ids for training and validation sets
-    """
-
-    # k-fold validator
-    kfold = KFold(k, shuffle=True, random_state=42)
-
-    val_real_folds = []
-    train_real_folds = []
-    val_sim_folds = []
-    train_sim_folds = []
-
-    for fold, (train_ids, val_ids) in enumerate(kfold.split(real_alns)):
-        print(f'FOLD {fold + 1}')
-        print(
-            '----------------------------------------------------------------')
-        # splitting dataset by alignments
-        print("Building training and validation dataset ...")
-
-        # loading model
-        convNet = load_net(f'{model_path}/model-fold-{fold + 1}.pth',
-                           seq_len, nb_chnls, nb_conv_layer, nb_lin_layer,
-                           state='eval')
-        convNet = convNet.to(compute_device)
-
-        # evaluate training data per alignment
-        train_acc_real, train_acc_sim = eval_per_align(convNet, real_alns,
-                                                       sim_alns, fastas_real,
-                                                       fastas_sim, train_ids)
-
-        # evaluate val data per alignment
-        val_acc_real, val_acc_sim = eval_per_align(convNet, real_alns, sim_alns,
-                                                   fastas_real, fastas_sim,
-                                                   val_ids)
-
-        val_real_folds.append(val_acc_real)
-        train_real_folds.append(train_acc_real)
-        val_sim_folds.append(val_acc_sim)
-        train_sim_folds.append(train_acc_sim)
-
-    return train_real_folds, train_sim_folds, val_real_folds, val_sim_folds
 
 
 def generate_eval_dict(fold, train_real, train_sim, val_real, val_sim,

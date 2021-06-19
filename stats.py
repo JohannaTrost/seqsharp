@@ -5,6 +5,8 @@ import pandas as pd
 from scipy import stats as st
 from scipy.stats._continuous_distns import _distn_names
 
+from utils import dim
+
 
 def mse(aln1, aln2):
     """Mean square error of 2 alignment representations"""
@@ -14,6 +16,7 @@ def mse(aln1, aln2):
 
 def padding(alns, max_seq_len=300):
     """Generated list with padding size per alignment"""
+
     paddings = []
     for aln in alns:
         seq_len = len(aln[0])
@@ -22,10 +25,18 @@ def padding(alns, max_seq_len=300):
 
 
 def nb_seqs_per_alns(alns):
+    # multiple datasets of 'raw' MSAs (e.g. real and simulated)
+    if dim(alns) == 3 and type(alns[0][0][0]) == str:
+        return [[len(aln) for aln in dataset] for dataset in alns]
+
     return [len(aln) for aln in alns]
 
 
 def get_nb_sites(alns):
+    # multiple datasets of 'raw' MSAs (e.g. real and simulated)
+    if dim(alns) == 3 and type(alns[0][0][0]) == str:
+        return [[len(aln[0]) for aln in dataset] for dataset in alns]
+
     return [len(aln[0]) for aln in alns]
 
 
@@ -74,33 +85,55 @@ def distance_stats(dists):
     return {'mean': mean_mse, 'max': max_mse, 'min': min_mse}
 
 
-def generate_aln_stats_df(real_fastas, sim_fastas, real_alns, sim_alns,
-                          max_seq_len, real_alns_repr, sim_alns_repr,
+def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
                           csv_path=None):
-    """Returns a dataframe with information about empirical and simulated
+    """Returns a dataframe with information about input
        alignments with option to save the table as a csv file
+
+    :param fastas: list of lists with fasta filenames (2D string list)
+    :param alns: list of lists with MSAs (3D string list)
+    :param max_seq_len: max. number of sites (integer)
+    :param alns_repr: list of lists with MSA representations
+    :param is_sim: list of 0s and 1s (0: real MSAs, 1: simulated MSAs)
+    :param csv_path: <path/to> file to store dataframe
+    :return: dataframe with information about input alignments
     """
 
-    dists_real = np.asarray([[mse(aln1, aln2) for aln2 in real_alns_repr]
-                             for aln1 in real_alns_repr])
-    dists_sim = np.asarray([[mse(aln1, aln2) for aln2 in sim_alns_repr]
-                            for aln1 in sim_alns_repr])
+    ids, aa_freqs, padding, number_seqs, seq_length = [], [], [], [], []
+    mean_mse_all, max_mse_all, min_mse_all = [], [], []
 
-    mse_stats_real = distance_stats(dists_real)
-    mse_stats_sim = distance_stats(dists_sim)
+    for i in range(len(fastas)):
+        ids += fastas[i]
+        aa_freqs += get_aa_freqs(alns[i])
+        padding += padding(alns[i], max_seq_len)
+        number_seqs += nb_seqs_per_alns(alns[i])
+        seq_length += get_nb_sites(alns[i])
 
-    dat_dict = {'id': real_fastas + sim_fastas,
-                'aa_freqs': get_aa_freqs(real_alns + sim_alns),
-                'padding': padding(real_alns + sim_alns, max_seq_len),
-                'number_seqs': nb_seqs_per_alns(real_alns + sim_alns),
-                'seq_length': get_nb_sites(real_alns + sim_alns),
-                'mean_mse_all': list(mse_stats_real['mean']) +
-                                list(mse_stats_sim['mean']),
-                'max_mse_all': list(mse_stats_real['max']) +
-                               list(mse_stats_sim['max']),
-                'min_mse_all': list(mse_stats_real['min']) +
-                               list(mse_stats_sim['min']),
-                'simulated': [0] * len(real_alns) + [1] * len(sim_alns)
+        dists = np.asarray([[mse(aln1, aln2) for aln2 in alns_repr[i]]
+                                 for aln1 in alns_repr[i]])
+
+        mean_mse_all += list(distance_stats(dists)['mean'])
+        max_mse_all += list(distance_stats(dists)['max'])
+        min_mse_all += list(distance_stats(dists)['min'])
+
+    simulated = []
+    if len(is_sim) > 0:
+        for is_sim_, msa in zip(is_sim, alns):
+            simulated.append(len(msa) * [is_sim_])
+    elif len(alns) == 2:
+        simulated = [0] * len(alns[0]) + [1] * len(alns[1])
+    else:
+        simulated = [-1] * len(ids)
+
+    dat_dict = {'id': ids,
+                'aa_freqs': aa_freqs,
+                'padding': padding,
+                'number_seqs': number_seqs,
+                'seq_length': seq_length,
+                'mean_mse_all': mean_mse_all,
+                'max_mse_all': max_mse_all,
+                'min_mse_all': min_mse_all,
+                'simulated': simulated
                 }
 
     df = pd.DataFrame(dat_dict)
@@ -114,7 +147,11 @@ def generate_aln_stats_df(real_fastas, sim_fastas, real_alns, sim_alns,
 
 
 def best_fit_distribution(data, bins=200, ax=None):
-    """Model data by finding best fit distribution to data"""
+    """Model data by finding best fit distribution to data
+
+        src: https://stackoverflow.com/questions/6620471/fitting-empirical
+             -distribution-to-theoretical-ones-with-scipy-python
+    """
 
     # Get histogram of original data
     y, x = np.histogram(data, bins=bins, density=True)

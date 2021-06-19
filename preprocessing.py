@@ -172,7 +172,7 @@ def seq_pair_worker(alns):
     return [make_seq_pairs(aln) for aln in alns]
 
 
-def make_aln_representation(alned_seqs):
+def get_aln_representation(alned_seqs):
     """Returns proportions of amino acids at each site of the alignment"""
 
     return np.sum(alned_seqs, axis=0) / len(alned_seqs)
@@ -231,13 +231,15 @@ class TensorDataset(Dataset):
         nb_real = len(real_alns)
         nb_sim = len(sim_alns)
 
-        data = np.asarray(real_alns + sim_alns, dtype='float32')
+        data = real_alns + sim_alns
 
         if pairs:
             # remove first dimension from (aln, pair, chnls, sites) array
             data = np.concatenate(data)
             nb_real = np.sum([len(aln) for aln in real_alns])
             nb_sim = np.sum([len(aln) for aln in sim_alns])
+
+        data = np.asarray(data, dtype='float32')
 
         if shuffle:  # shuffle columns/sites of empirical alignments
             for i in range(nb_real):
@@ -274,12 +276,14 @@ class DatasetAln(Dataset):
         return self.data.size(0)
 
 
-def data_prepro(real_fasta_path, sim_fasta_path, params, pairs=False,
+def data_prepro(fasta_paths, params, pairs=False, take_quantiles=True,
                 csv_path=None):
     """Loads alignments and generates representations for the network
 
-    :param real_fasta_path: <path/to> empirical fasta files (string)
-    :param sim_fasta_path: <path/to> simulated fasta files (string)
+    :param take_quantiles: indicate possible reduction of number of sequences
+                           per alignment
+    :param fasta_paths: <path(s)/to> empirical/simulated fasta files
+                        (list/tuple string)
     :param params: parameters for preprocessing (dictionary)
     :param pairs: choose representation by pairs if true (boolean)
     :param csv_path: <path/to> store csv file with info about alignments
@@ -289,48 +293,57 @@ def data_prepro(real_fasta_path, sim_fasta_path, params, pairs=False,
     nb_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
 
     print("Loading alignments ...")
+
     # load sets of multiple alned sequences
-    raw_real_alns, real_fastas = alns_from_fastas(real_fasta_path,
-                                                  min_nb_seqs, max_nb_seqs,
-                                                  nb_alns)
-    raw_sim_alns, sim_fastas = alns_from_fastas(sim_fasta_path, min_nb_seqs,
-                                                max_nb_seqs, nb_alns)
+    alns, fastas = [], []
+    for path in fasta_paths:
+        raw_data = alns_from_fastas(path, min_nb_seqs, max_nb_seqs, nb_alns)
+        alns.append(raw_data[0])
+        fastas.append(raw_data[1])
 
-    # removing sequences where length is < 0.25 quantile or > 0.75 quantile
-    seq_lens = np.asarray(get_nb_sites(raw_real_alns))
-    q1 = np.quantile(seq_lens, 0.25)
-    q2 = np.quantile(seq_lens, 0.75)
+    if take_quantiles:
+        # removing sequences where length is < 0.25 quantile or > 0.75 quantile
+        seq_lens = np.asarray(get_nb_sites(alns[0]))
+        q1 = np.quantile(seq_lens, 0.25)
+        q2 = np.quantile(seq_lens, 0.75)
 
-    raw_real_alns = [raw_real_alns[i] for i in range(len(seq_lens))
-                     if q1 <= seq_lens[i] <= q2]
-    real_fastas = [real_fastas[i] for i in range(len(seq_lens))
+        alns[0] = [alns[0][i] for i in range(len(seq_lens))
                    if q1 <= seq_lens[i] <= q2]
+        fastas[0] = [fastas[0][i] for i in range(len(seq_lens))
+                     if q1 <= seq_lens[i] <= q2]
 
-    # sort simulated data by sequence length
-    ind_s = np.argsort(get_nb_sites(raw_sim_alns))
+        if len(alns) == 2 and len(fastas) == 2:  # if there is simulated data
 
-    raw_sim_alns = [raw_sim_alns[i] for i in ind_s]
-    sim_fastas = [sim_fastas[i] for i in ind_s]
+            # sort simulated data by sequence length
+            ind_s = np.argsort(get_nb_sites(alns[1]))
 
-    # keeping same amount of simulated alns from the "middle"(regarding lengths)
-    start = len(raw_real_alns) // 2
+            alns[1] = [alns[1][i] for i in ind_s]
+            fastas[1] = [fastas[1][i] for i in ind_s]
 
-    raw_sim_alns = raw_sim_alns[start:start + len(raw_real_alns)]
-    sim_fastas = sim_fastas[start:start + len(raw_real_alns)]
+            # keeping same amount of simulated alns from the "middle"(regarding
+            # lengths)
+            start = len(alns[0]) // 2
 
-    # shuffeling alignments and theirs ids
-    indices = np.arange(len(raw_sim_alns))
-    np.random.shuffle(indices)
-    raw_sim_alns = [raw_sim_alns[i] for i in indices]
-    sim_fastas = [sim_fastas[i] for i in indices]
+            alns[1] = alns[1][start:start + len(alns[0])]
+            fastas[1] = fastas[1][start:start + len(alns[0])]
 
-    params['nb_sites'] = int(min(seq_len, np.max(get_nb_sites(raw_sim_alns +
-                                                          raw_real_alns))))
-    params['nb_alignments'] = len(raw_real_alns)
-    params['max_seqs_per_align'] = int(np.max(nb_seqs_per_alns(raw_sim_alns +
-                                                               raw_real_alns)))
-    params['min_seqs_per_align'] = int(np.min(nb_seqs_per_alns(raw_sim_alns +
-                                                               raw_real_alns)))
+            assert len(alns[0]) == len(alns[1]), (f'{len(alns[1])} simulated '
+                                                  f'alignments vs. '
+                                                  f'{len(alns[0])} '
+                                                  f'empirical alignments ')
+
+            # shuffling the sorted simulated alignments and their ids
+            indices = np.arange(len(alns[1]))
+            np.random.shuffle(indices)
+            alns[1] = [alns[1][i] for i in indices]
+            fastas[1] = [fastas[1][i] for i in indices]
+
+    nb_seqs = nb_seqs_per_alns(alns)
+
+    params['nb_sites'] = int(min(seq_len, np.max(get_nb_sites(alns))))
+    params['nb_alignments'] = len(alns[0])
+    params['max_seqs_per_align'] = int(np.max(nb_seqs))
+    params['min_seqs_per_align'] = int(np.min(nb_seqs))
 
     # generate alignment representations
     if pairs:
@@ -339,37 +352,31 @@ def data_prepro(real_fasta_path, sim_fasta_path, params, pairs=False,
 
         start = time.time()
 
-        real_alns_repr_p = [make_seq_pairs(encode_aln(
-            aln, params['nb_sites'], padding=padding)) for aln in raw_real_alns]
-
-        sim_alns_repr_p = [make_seq_pairs(encode_aln(
-            aln, params['nb_sites'], padding=padding)) for aln in raw_sim_alns]
+        alns_reprs_pairs = []
+        for alns_set in alns:
+            alns_reprs_pairs.append([make_seq_pairs(encode_aln(
+                aln, params['nb_sites'], padding=padding)) for aln in alns_set])
 
         print(f'Finished pairing after {round(start - time.time(), 2)}s\n')
 
         if csv_path is not None:
-            generate_aln_stats_df(real_fastas, sim_fastas, raw_real_alns,
-                                  raw_sim_alns, params['nb_sites'], None, None)
+            generate_aln_stats_df(fastas, alns, params['nb_sites'], None, None)
 
-        return (real_alns_repr_p, sim_alns_repr_p, real_fastas, sim_fastas,
-                params)
+        return *alns_reprs_pairs + fastas, params
 
     else:
+
         print("Generating alignment representations ...")
 
         # make pairs !additional dim for each multiple alingment needs flatteing
         # before passed to CNN!
-        real_alns_repr = [make_aln_representation(
-            encode_aln(aln, params['nb_sites'], padding=padding))
-            for aln in raw_real_alns]
-
-        sim_alns_repr = [make_aln_representation(
-            encode_aln(aln, params['nb_sites'], padding=padding))
-            for aln in raw_sim_alns]
+        alns_reprs = []
+        for alns_set in alns:
+            alns_reprs.append([get_aln_representation(encode_aln(
+                aln, params['nb_sites'], padding=padding)) for aln in alns_set])
 
         if csv_path is not None:
-            generate_aln_stats_df(real_fastas, sim_fastas, raw_real_alns,
-                                  raw_sim_alns, params['nb_sites'],
-                                  real_alns_repr, sim_alns_repr, csv_path)
+            generate_aln_stats_df(fastas, alns, params['nb_sites'],
+                                  alns_reprs, csv_path)
 
-        return real_alns_repr, sim_alns_repr, real_fastas, sim_fastas, params
+        return *alns_reprs + fastas, params

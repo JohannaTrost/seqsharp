@@ -22,24 +22,26 @@ def write_config_file(config, model_path, config_path, timestamp):
 
     if os.path.isfile(config_path):
         config_dir = config_path.rpartition('/')[0]
-        out_path = config_path
     elif os.path.isdir(config_path):
         config_dir = config_path
-        out_path = f'{config_dir}/config-{timestamp}.json'
     else:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                 config_path)
 
+    out_path = f'{config_dir}/config-{timestamp}.json'
+
     # get second and third latest config files
-    files = [f'{config_dir}/{file}' for file in os.listdir(config_dir)]
+    files = [f'{config_dir}/{file}' for file in os.listdir(config_dir)
+             if f'{config_dir}/{file}' != config_path]
     files = sorted(files, key=lambda t: -os.stat(t).st_mtime)[1:3]
 
     same_config = {}
     for file in files:
         older_config = read_config_file(file)
-        if(older_config['data'] == config['data'] and
-           older_config['hyperparameters'] == config['hyperparameters'] and
-           older_config['conv_net_parameters'] == config['conv_net_parameters']):
+        if (older_config['data'] == config['data'] and
+                older_config['hyperparameters'] == config['hyperparameters'] and
+                older_config['conv_net_parameters'] == config[
+                    'conv_net_parameters']):
             same_config = older_config
             same_config_file = file
             break
@@ -104,6 +106,13 @@ def flatten_lst(lst):
     return flattened_lst
 
 
+def dim(lst):
+    """Return number of dimensions of a list"""
+    if not type(lst) == list:
+        return 0
+    return 1 + dim(lst[0])
+
+
 def collect_histories_folds(path, nb_folds, seq_len, nb_chnls):
     """Gets validation and training history from models in *path* directory
 
@@ -124,3 +133,32 @@ def collect_histories_folds(path, nb_folds, seq_len, nb_chnls):
         val_history_folds.append(model.val_history)
 
     return train_history_folds, val_history_folds
+
+
+def extract_accuary_loss(train_history_folds, val_history_folds):
+    """Extracts losses and accuracies from training and validation history"""
+
+    accs_train_folds = []
+    losses_train_folds = []
+    accs_val_folds = []
+    losses_val_folds = []
+
+    for fold in range(len(train_history_folds)):
+        accs_train_fold = []
+        losses_train_fold = []
+        accs_val_fold = []
+        losses_val_fold = []
+
+        for i in range(len(train_history_folds[fold])):
+            accs_train_fold.append(train_history_folds[fold][i]['acc'])
+            losses_train_fold.append(train_history_folds[fold][i]['loss'])
+            accs_val_fold.append(val_history_folds[fold][i]['acc'])
+            losses_val_fold.append(val_history_folds[fold][i]['loss'])
+
+        accs_train_folds.append(accs_train_fold)
+        losses_train_folds.append(losses_train_fold)
+        accs_val_folds.append(accs_val_fold)
+        losses_val_folds.append(losses_val_fold)
+
+    return (accs_train_folds, losses_train_folds,
+            accs_val_folds, losses_val_folds)

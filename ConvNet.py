@@ -93,10 +93,13 @@ class ConvNet(nn.Module):
         """
 
         super(ConvNet, self).__init__()
-
-        out_size = (int(p['input_size'] / 2**p['nb_conv_layer']) *
-                    p['nb_chnls'] * 2**p['nb_conv_layer'])
-
+        
+        if p['do_maxpool']:
+            out_size = (int(p['input_size'] / 2**p['nb_conv_layer']) *
+                        p['nb_chnls'] * 2**p['nb_conv_layer'])
+        else:
+            out_size = p['input_size'] * (p['nb_chnls'] * 2**p['nb_conv_layer'])
+        
         # convolutional layers
         self.conv_layers = []
         for i in range(p['nb_conv_layer']):
@@ -107,13 +110,16 @@ class ConvNet(nn.Module):
 
             self.conv_layers += [conv1d, nn.ReLU()]
 
-            if p['do_maxpool'] and p['kernel_size'] > 1:  # down sampling
+            if p['do_maxpool']:  # down sampling
                 self.conv_layers.append(nn.MaxPool1d(kernel_size=2, stride=2))
 
         self.conv_layers = (nn.Sequential(*self.conv_layers)
                             if p['nb_conv_layer'] > 0 else None)
 
-        self.drop_out = nn.Dropout(p=0.25) if p['nb_conv_layer'] > 0 else None
+        if p['nb_conv_layer'] == 0 or (p['nb_conv_layer'] == 1 and p['kernel_size'] == 1):
+            self.drop_out = None
+        else:
+            self.drop_out = nn.Dropout(p=0.25)
 
         # fully connected layer(s)
         self.lin_layers = []
@@ -129,9 +135,15 @@ class ConvNet(nn.Module):
 
     def forward(self, x):
         # out = self.inpt(x)
-        if self.conv_layers is not None: out = self.conv_layers(x)
-        out = out.reshape(out.size(0), -1)  # flattening
-        if self.drop_out is not None: out = self.drop_out(out)
+        if self.conv_layers is not None:
+            out = self.conv_layers(x)
+            out = out.reshape(out.size(0), -1)  # flattening
+        else:
+            out = x.view(x.shape[0], -1)
+
+        if self.drop_out is not None:
+            out = self.drop_out(out)
+
         out = self.lin_layers(out)
         return out
 
