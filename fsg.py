@@ -216,7 +216,7 @@ def main():
 
         if os.path.isfile(in_path):
 
-            bash_cmd = seq_gen_path + '/source/seq-gen -mPAM -of < ' \
+            bash_cmd = seq_gen_path + ' -mPAM -of < ' \
                        + in_path + ' > ' + out_path
             process = subprocess.Popen(bash_cmd, shell=True,
                                        stdout=subprocess.PIPE)
@@ -263,13 +263,13 @@ def main():
                     if enough_leaves(tree_in_path, min_nb_seqs):
                         if seq_lens is None or aa_freqs is None:
                             bash_cmd = seq_gen_path + \
-                                       '/source/seq-gen -mPAM -g20 -of < ' \
+                                       ' -mPAM -g20 -of < ' \
                                        + tree_in_path + ' > ' + fasta_out_path
                         else:
                             freqs = np.array2string(aa_freqs[i], separator=',')
                             freqs = freqs.replace('\n ', '')[1:-1]
 
-                            bash_cmd = (f'{seq_gen_path}/source/seq-gen '
+                            bash_cmd = (f'{seq_gen_path} '
                                         f'-mWAG -l{str(seq_lens[i])} '
                                         f'-f{freqs} -of '
                                         f'< {tree_in_path} > {fasta_out_path}')

@@ -55,7 +55,10 @@ def write_config_file(config, model_path, config_path, timestamp):
         config['results_path'] = list(filter(None, res_paths))
 
         if type(same_config['comments']) is list:
-            comments = same_config['comments'] + config['comments']
+            if type(config['comments']) is not list:
+                comments = same_config['comments'] + [config['comments']]
+            else:
+                comments = same_config['comments'] + config['comments']
         else:
             comments = [same_config['comments'], config['comments']]
         config['comments'] = list(filter(None, comments))
@@ -66,8 +69,13 @@ def write_config_file(config, model_path, config_path, timestamp):
     with open(out_path, "w") as outfile:
         json.dump(config, outfile)
 
+    if model_path != '':
+        with open(f'{model_path}/config.json', "w") as outfile:
+            json.dump(config, outfile)
+
     # delete old config
-    if same_config != {}: os.remove(same_config_file)
+    if same_config != {}:
+        os.remove(same_config_file)
 
 
 def read_config_file(path):

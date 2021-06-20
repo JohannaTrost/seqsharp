@@ -79,9 +79,11 @@ def fit(epochs, lr, model, train_loader, val_loader,
 
     for epoch in range(1, epochs + 1):
 
+        print(f'Epoch [{epoch}]')
+
         # training Phase
         model.train()
-        for batch in train_loader:
+        for i, batch in enumerate(train_loader):
             loss = model.training_step(batch)
             optimizer.zero_grad()
             loss.backward()  # calcul of gradients
@@ -92,13 +94,13 @@ def fit(epochs, lr, model, train_loader, val_loader,
         with torch.no_grad():
             # eval for training dataset
             train_result = evaluate(model, train_loader)
-            print(f"Epoch [{epoch}], loss: {train_result['loss']}, "
-                  f"acc: {train_result['acc']}")
+            print(f"Training: Loss: {np.round(train_result['loss'], 4)}, "
+                  f"Acc.: {np.round(train_result['acc'], 4)}")
             model.train_history.append(train_result)
             # eval for validataion dataset
             val_result = evaluate(model, val_loader)
-            print(f"Epoch [{epoch}], loss: {val_result['loss']}, "
-                  f"acc: {val_result['acc']}")
+            print(f"Validation: Loss: {np.round(val_result['loss'], 4)}, "
+                  f"Acc.: {np.round(val_result['acc'], 4)}")
             model.val_history.append(val_result)
 
 

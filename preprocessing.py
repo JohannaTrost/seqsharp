@@ -338,12 +338,12 @@ def data_prepro(fasta_paths, params, pairs=False, take_quantiles=True,
             alns[1] = [alns[1][i] for i in indices]
             fastas[1] = [fastas[1][i] for i in indices]
 
-    nb_seqs = nb_seqs_per_alns(alns)
+        params['nb_sites'] = int(min(seq_len, np.max(get_nb_sites(alns))))
 
-    params['nb_sites'] = int(min(seq_len, np.max(get_nb_sites(alns))))
-    params['nb_alignments'] = len(alns[0])
+    nb_seqs = nb_seqs_per_alns(alns)
     params['max_seqs_per_align'] = int(np.max(nb_seqs))
     params['min_seqs_per_align'] = int(np.min(nb_seqs))
+    params['nb_alignments'] = len(alns[0])
 
     # generate alignment representations
     if pairs:
@@ -360,7 +360,8 @@ def data_prepro(fasta_paths, params, pairs=False, take_quantiles=True,
         print(f'Finished pairing after {round(start - time.time(), 2)}s\n')
 
         if csv_path is not None:
-            generate_aln_stats_df(fastas, alns, params['nb_sites'], None, None)
+            generate_aln_stats_df(fastas, alns, params['nb_sites'],
+                                  None, is_sim=[0, 1] if len(alns) == 2 else [])
 
         return *alns_reprs_pairs + fastas, params
 
@@ -377,6 +378,8 @@ def data_prepro(fasta_paths, params, pairs=False, take_quantiles=True,
 
         if csv_path is not None:
             generate_aln_stats_df(fastas, alns, params['nb_sites'],
-                                  alns_reprs, csv_path)
+                                  alns_reprs,
+                                  is_sim=[0, 1] if len(alns) == 2 else [],
+                                  csv_path=csv_path)
 
         return *alns_reprs + fastas, params

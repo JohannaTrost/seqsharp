@@ -99,13 +99,13 @@ def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
     :return: dataframe with information about input alignments
     """
 
-    ids, aa_freqs, padding, number_seqs, seq_length = [], [], [], [], []
+    ids, aa_freqs, paddings, number_seqs, seq_length = [], [], [], [], []
     mean_mse_all, max_mse_all, min_mse_all = [], [], []
 
     for i in range(len(fastas)):
         ids += fastas[i]
         aa_freqs += get_aa_freqs(alns[i])
-        padding += padding(alns[i], max_seq_len)
+        paddings += padding(alns[i], max_seq_len)
         number_seqs += nb_seqs_per_alns(alns[i])
         seq_length += get_nb_sites(alns[i])
 
@@ -119,15 +119,15 @@ def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
     simulated = []
     if len(is_sim) > 0:
         for is_sim_, msa in zip(is_sim, alns):
-            simulated.append(len(msa) * [is_sim_])
+            simulated += len(msa) * [is_sim_]
     elif len(alns) == 2:
         simulated = [0] * len(alns[0]) + [1] * len(alns[1])
     else:
-        simulated = [-1] * len(ids)
+        simulated = [-1] * (len(alns))
 
     dat_dict = {'id': ids,
                 'aa_freqs': aa_freqs,
-                'padding': padding,
+                'padding': paddings,
                 'number_seqs': number_seqs,
                 'seq_length': seq_length,
                 'mean_mse_all': mean_mse_all,

@@ -1,6 +1,3 @@
-/models*
 /.idea/*
 /__pycache__/*
-/results/*
-/configs/*
-/data/*
+/unused_fcts.py

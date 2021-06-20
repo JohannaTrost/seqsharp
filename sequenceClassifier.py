@@ -37,15 +37,26 @@ gc.collect()
 def main():
     # -------------------- handling arguments -------------------- #
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d', '--datasets', nargs='*', type=str,
+    parser.add_argument('-d', '--datasets', nargs='*', type=str, required=True,
                         help='Specify the <path/to/> directory(s) containing '
                              'alignments (in fasta format)')
     parser.add_argument('-t', '--training', action='store_true',
                         help='Datasets will be used to train the neural '
-                             'network. Requires --config and --datasets.')
-    parser.add_argument('-v', '--validate', action='store_true',
+                             'network (specified with --datasets option). '
+                             'Requires --config and --datasets.')
+    parser.add_argument('--test', action='store_true',
                         help='Alignments will be passed to (a) trained '
-                             'model(s). Requires --models and --datasets')
+                             'model(s). Requires --models, --datasets and '
+                             '--config')
+    parser.add_argument('-m', '--models', type=str,
+                        help='<path/to> directory with trained model(s). '
+                             'These models will then be tested on a given data '
+                             'set. --config, --datasets and --test are '
+                             'required for this option.')
+    parser.add_argument('--real', action='store_true',
+                        help='Indicates that given data set has empirical '
+                             'alignments for --models option. '
+                             'Otherwise they are assumed to be simulated')
     parser.add_argument('-c', '--config', type=str,
                         help='<path/to> config file (.json) or directory '
                              'containing: hyperparameters, data specific '
@@ -58,22 +69,14 @@ def main():
                              'result plots will be saved')
     parser.add_argument('--track_stats', action='store_true',
                         help='Generate a csv file with information about the '
-                             'data e.g. the number of sites')
+                             'data e.g. the number of sites and the training')
     parser.add_argument('--shuffle', action='store_true',
-                        help='Shuffle the sites of alignments in the first '
-                             'directory specified')
-    parser.add_argument('-m', '--models', type=str,
-                        help='<path/to> directory with trained model(s). '
-                             'Plot the performance of the model(s). Multiple '
-                             'directories can be specified to compare '
-                             'different trainings. Use <-s> option to save '
-                             'the plots')
-    parser.add_argument('--real', action='store_true',
-                        help='Option required for --models, to indicate that '
-                             'given data set has empirical alignments. '
-                             'Otherwise they are assumed to be simulated')
+                        help='Shuffle the sites of alignments/pairs in the '
+                             'first directory specified')
     parser.add_argument('--plot_stats', action='store_true',
-                        help='')
+                        help='Generates histograms of number of sites and '
+                             'number of sequences of given alignments '
+                             '(specified with --datasets)')
     parser.add_argument('--pairs', action='store_true',
                         help='A representation for each pair of sequences in '
                              'an alignment will be used')
@@ -92,11 +95,11 @@ def main():
             args.config and not args.datasets):
         parser.error('--datasets and --config have to be used together')
 
-    if args.validate and (not args.models or not args.datasets):
-        parser.error('--validate requires --modles and --datasets')
+    if args.test and (not args.models or not args.datasets):
+        parser.error('--test requires --modles and --datasets')
 
-    if args.validate and len(args.datasets) != 1:
-        parser.error('--validate only takes one set of alignments '
+    if args.test and len(args.datasets) != 1:
+        parser.error('--test only takes one set of alignments '
                      '(one directory specified with --datasets)')
 
     if args.training and len(args.datasets) != 2:
@@ -111,11 +114,10 @@ def main():
     if args.plot_stats:
         timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
         config = read_config_file(args.config)
+        path = args.save
 
-        if os.path.isdir(args.save):
-            path = args.save
-        else:
-            args.save.rpartition('/')[0]
+        if not os.path.exists(path):
+            os.makedirs(path)
 
         if len(args.datasets) == 2:
             real_fasta_path, sim_fasta_path = args.datasets
@@ -156,7 +158,6 @@ def main():
                                     xlabels=['Number of sequences'],
                                     path=f'{path}/hist_nb_seqs-{timestamp}'
                                          f'-{i}.png')
-
 
     if args.training:
         real_fasta_path, sim_fasta_path = args.datasets
@@ -218,8 +219,8 @@ def main():
 
         real_alns, sim_alns, fastas_real, fastas_sim, config['data'] = data
 
-        print(f'preloaded data uses : '
-              f'{sys.getsizeof(data) / 10 ** 9}GB')
+        print(f'Preloaded data uses : '
+              f'{sys.getsizeof(data) / 10 ** 9}GB\n')
 
         if args.track_stats:
             real_alns_dict = {fastas_real[i]: real_alns[i] for i in
@@ -235,6 +236,8 @@ def main():
                           timestamp)
 
         # -------------------- k-fold cross validation -------------------- #
+
+        print(f'\nCompute device: {compute_device}\n')
 
         # init for evaluation
         train_history_folds = []
@@ -278,7 +281,7 @@ def main():
             fold_eval.append(val_history_folds[fold][-1]['acc'])
 
             # saving the model and results
-            print('\nTraining process has finished.')
+            print('\nTraining process has finished.\n')
 
             if result_path is not None:
                 model.save(f'{result_path}/model-fold-{fold + 1}.pth')
@@ -298,9 +301,15 @@ def main():
                                                            sim_alns,
                                                            fastas_real,
                                                            fastas_sim, val_ids)
+
+                if result_path is not None:
+                    csv_path = f'{result_path}/stats-fold-{fold + 1}.csv'
+                else:
+                    csv_path = ''
+
                 df = generate_eval_dict(fold, real_pred_tr, sim_pred_tr,
                                         real_pred_va, sim_pred_va,
-                                        real_alns_dict, sim_alns_dict)
+                                        real_alns_dict, sim_alns_dict, csv_path)
                 dfs.append(df)
 
         # print/save fold results
@@ -325,7 +334,7 @@ def main():
 
         print(f'Average: {np.sum(fold_eval) / len(fold_eval)} %')
 
-    if args.validate:
+    if args.test:
         model_path = args.models
         fasta_path = args.datasets[0]
         pairs = args.pairs
@@ -352,7 +361,6 @@ def main():
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     model_path)
 
-
         # -------------------- configure parameters -------------------- #
 
         config = read_config_file(config_path)
@@ -367,8 +375,8 @@ def main():
 
         # ------------------------- data preparation ------------------------- #
 
-        alns, fastas,_ = data_prepro([fasta_path], config['data'],
-                                     pairs, take_quantiles=False)
+        alns, fastas, _ = data_prepro([fasta_path], config['data'],
+                                      pairs, take_quantiles=False)
 
         # ------------------ load and evaluate model(s) ------------------- #
 
@@ -388,7 +396,6 @@ def main():
         accs_after_train = []
 
         for i, path in enumerate(model_paths):
-
             # generate model
             model = load_net(path, model_params, state='eval')
             with torch.no_grad():
@@ -397,14 +404,16 @@ def main():
                 accs.append(result['acc'])
                 accs_after_train.append(model.val_history[-1]['acc'])
 
-                print(f"model {i + 1}, accuracy: {result['acc']}"
-                      f"({accs_after_train[i]})")
+                print(f"model {i + 1}, accuracy: {np.round(result['acc'], 4)}"
+                      f"({np.round(accs_after_train[i], 4)})")
 
         if len(accs) > 1:
-            print(f'\nAverage: {np.mean(accs)}, '
-                  f'Standard deviation: {np.std(accs)}\n'
-                  f'Average acc. after training: {np.mean(accs_after_train)}, '
-                  f'Standard deviation: {np.std(accs_after_train)}')
+            print(f'\nAverage: {np.round(np.mean(accs), 4)}, '
+                  f'Standard deviation: {np.round(np.std(accs), 4)}\n'
+                  f'Average acc. after training: '
+                  f'{np.round(np.mean(accs_after_train), 4)}, '
+                  f'Standard deviation: '
+                  f'{np.round(np.std(accs_after_train), 4)}')
 
 
 if __name__ == '__main__':

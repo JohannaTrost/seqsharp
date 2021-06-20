@@ -108,8 +108,10 @@ def plot_hist_quantiles(datasets, labels=None, xlabels=None, ylabels=None,
     if labels is None:
         labels = []
 
+    cmap = matplotlib.cm.get_cmap('viridis')
+
     if len(datasets) > 1:
-        fig, axs = plt.subplots(ncols=2, nrows=np.ceil(len(datasets) / 2),
+        fig, axs = plt.subplots(ncols=2, nrows=int(np.ceil(len(datasets) / 2)),
                                 sharex=True, figsize=(12., 6.))
     else:
         fig, axs = plt.subplots(ncols=1, nrows=1, sharex=True,
@@ -125,12 +127,12 @@ def plot_hist_quantiles(datasets, labels=None, xlabels=None, ylabels=None,
         q2 = np.quantile(data, 0.5)
         q3 = np.quantile(data, 0.75)
 
-        axs[i].hist(data, bins=200, label=label)
+        axs[i].hist(data, bins=200, label=label, color=cmap(1 / (i + 1)))
         axs[i].axvline(x=q1, label=f"0.05q = {q1}", c='#6400e4')
         axs[i].axvline(x=q2, label=f"0.5q = {q2}", c='#fd4d3f')
         axs[i].axvline(x=q3, label=f"0.95q = {q3}", c='#4fe0b0')
-        axs[i].xlabel(xlabel)
-        axs[i].ylabel(ylabel)
+        axs[i].set_xlabel(xlabel)
+        axs[i].set_ylabel(ylabel)
         axs[i].legend()
 
     if path is not None:
