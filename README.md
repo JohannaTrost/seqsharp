@@ -1,10 +1,10 @@
-# Assesing the realism of biological sequence evolution simulations
+# Assessing the realism of biological sequence evolution simulations
 
-Project on the classification of simulated and empirical aligned protein sequences with a supervied learning approach. 
+Project on the classification of simulated and empirical aligned protein sequences with a supervised learning approach. 
 
 The performance of the supervised learning to distinguish empirical and simulated alignments shall serve as a metric to evaluate the realism of a sequence evolution simulator and thus to optimize the parameters used for its simulations. 
 
-Furthermore a program is provided that allows to automatically simulate the sequence evolution using the simulator Seq-Gen, based on a set of given evolutionary trees as well as a set of empirical alignments which would also be the emirical input for the classification task. 
+Furthermore a program is provided that allows to automatically simulate the sequence evolution using the simulator Seq-Gen, based on a set of given evolutionary trees as well as a set of empirical alignments which would also be the empirical input for the classification task. 
 This program is independent from the sequence classification, meaning that any simulated sequences can be used for the classification.   
 
 ## The Sequence Classifier
@@ -16,11 +16,6 @@ A minimum python version of 3.6 is required to run the program. Install all requ
 python -m pip install --upgrade pip
 pip install -r requirements.txt 
 ```
-
-### Documentation
-
-After cloning the repository to your local machine, you can open the documentation from here: `doc/_build/html/index.html`
-
 
 ### Usage
 
@@ -51,7 +46,7 @@ optional arguments:
                         Otherwise they are assumed to be simulated
   -c CONFIG, --config CONFIG
                         <path/to> config file (.json) or directory containing: hyperparameters, data
-                        specific parameters and parameters determinin the structure of the Network.
+                        specific parameters and parameters determining the structure of the Network.
                         If a directory is given, the latest modified json file will be used
   -s SAVE, --save SAVE  <path/to> directory where trained models and result plots will be saved
   --track_stats         Generate a csv file with information about the data e.g. the number of sites
@@ -69,7 +64,7 @@ Note that `--datasets` is required which might not be the case in a future versi
 
 **`-d <str>`** example: `-d my/path/to/empirical/data my/path/to/simulated/data`
 
-This argument specifies one or two paths to the directory(ies) containing fasta formated files with multiple sequence alignments (MSAs) typically the first path should lead to the emirical MSAs while the second one should lead to the simulated alignments. Theses 2 data sets serve as an input for the supervised learning method. 
+This argument specifies one or two paths to the directory(ies) containing fasta formatted files with multiple sequence alignments (MSAs) typically the first path should lead to the empirical MSAs while the second one should lead to the simulated alignments. Theses 2 data sets serve as an input for the supervised learning method. 
 It is possible to indicate only one path if the `--models` and `--test` options are used. In that case the given data will be used as an input to the given model(s).
 
 **`-t`**
@@ -81,7 +76,7 @@ This flag triggers the training of a Convolutional Neural Network (CNN) on the g
 A test of (a) trained CNN(s) is performed in which a (single) data set, specified by `-d` is inputted into the CNN and its performance is subsequently printed.
 
 
-**`-m <str>`** example: `-d my/path/to/my/trained/model(s)`
+**`-m <str>`** example: `-m my/path/to/my/trained/model(s)`
 
 This argument can be used to specify a path to a file or directory. It can be either a `.pth` file or a directory containing one or more `.pth` files. These files should contain a trained CNN previously created with this program. 
 
@@ -89,14 +84,14 @@ This argument can be used to specify a path to a file or directory. It can be ei
 
 In combination with `-d` only specifying one data set this flag indicates that the data set is composed of empirical alignments. Without this flag set the data is assumed to be simulated. This argument is necessary in order to correctly evaluate the predictions of the tested CNN. 
 
-**`-c <str>`** example: `-d my/path/to/the/config/file.json`
+**`-c <str>`** example: `-c my/path/to/the/config/file.json`
 
 An argument that specifies a path to a file or directory with a configuration of parameters in a json format that must look like the example shown below. If a directory is specified, the last modified json file in that directory will be used. The parameters include hyperparameters for the optimization and input size of the CNN, parameters specifying the architecture of the network and parameters for preprocessing the data. In addition, a newly generated configuration file is stored in the `-s` directory as well as in the `-c` directory, which contains the path of the models and results as well as the rest of the parameters of the input configuration. After preprocessing the data some of these parameters might have been adjusted.
 
-**`-s <str>`** example: `-d my/path/to/where/models/and/results/will/be/stored`
+**`-s <str>`** example: `-s my/path/to/where/models/and/results/will/be/stored`
 
 Plots (.png), eventually csv files and trained models (.pth) are saved in the directory specified with this argument. More specifically they will be stored in a newly generated folder starting with *cnn-* followed by a time stamp. 
-According to other used arguments result plots could be plots showing the performance of each fold of a training (*fig-fold-[fold number].png*) as well as the overall accuracy and loss during the training (*fig-fold-eval.png*). For the `--plot_stats` flag historams will be saved (*hist_nb_seqs.png*, *hist_nb_sites.png*). Moreover, the config file will be saved in *conig.json*. 
+According to other used arguments result plots could be plots showing the performance of each fold of a training (*fig-fold-[fold number].png*) as well as the overall accuracy and loss during the training (*fig-fold-eval.png*). For the `--plot_stats` flag histograms will be saved (*hist_nb_seqs.png*, *hist_nb_sites.png*). Moreover, the config file will be saved in *conig.json*. 
 
 **`--track_stats`**
 
@@ -127,128 +122,234 @@ Train a model to distinguish real and simulated data:
 `python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c configs/config.json
 `
 
-Train a model and save it and its performance plots:
+Use a train model to test it on empirical data: 
 
-`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c configs -s results
+` python sequenceClassifier.py -d data/fasta_real --test -c results/cnn-example/config.json -m results/cnn-example
 `
 
+Train a model and save it and its performance plots:
 
+`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c configs -s results/example
+`
 
-### Results
+Train a model, additionally saving information about the data and the training in csv files:
 
-For each evolution a `evo_config.json` file is used to store main parameters of the evolution. Furthermore, a `stats.csv` and `fitness.csv` file store basic statistics such as average fitness and fitness per generation and individuals. A `tracker.pkl` file is requested storing the paths of each individual for each simulation. Supress requested tracker file by adding `-nt` to the simulation command. 
+`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c configs -s results/example --track_stats
+`
 
-The script `experiments/group_stats.py` shows plots for experiments with different mutation rates once using symmetic and once non-symmetric individuals each experiment having 30 trials. It shows a box plot for the last generation of all experiments once in normal size and once "zoomed in" to be able to read all results properly. Furthermore, one will see 2 plots containing the average performance over all generations one for the experiments with symmety and the other one for the experiments without symmetry.  
+Plot the distribution of the number of sites and the number of sequences per alignment: 
 
-### evo_config.json
+`python3 sequenceClassifier.py -d data/fasta_real data/fasta_sim --plot_stats -c configs -s results/example
+`
 
-an example `evo_config.json` file looks like this:
+### config.json
+
+an example `config.json` file looks like this:
 
 ```
 {
-"individuals": 
+    "data": 
     {
-    "min_box_size": 0.3,              -> minimum half size of initial randomly created boxes
-    "max_box_size": 1.0,              -> maximum half size of initial randomly created boxes
-    "random_box_size": true,          -> use random boxes - if false, the average of the above is used as fixed size
-    "symmetric": false,               -> whether the individual is symmetric with respect to the sizes of it's limbs 
-    "min_force": 100,                 -> minimum force per limb
-    "max_force": 500,                 -> maximum force per limb
-    "start_move_pattern_size": 240,   -> size of the initial moving pattern (at 240 fps, this corresponds to 1s of steps)
-    "vary_pattern_length": true,      -> whether to vary the length of the motion pattern by evolution
-    "normalize_move_pattern": false,  -> whether to normalize the move pattern such that all step sizes sum up to 2 pi
-    "standard_volume": 2.197          -> scales the mass to be at 1 if the cube is shaped 1.3^3 (default half size * 2)
+        "nb_alignments": 2500, 
+        "min_seqs_per_align": 4, 
+        "max_seqs_per_align": 1000, 
+        "nb_sites": 1000, "padding": "data"
     }, 
-"simulation": 
+    
+    "hyperparameters": 
     {
-    "fps": 240,                       -> update simulations so many times per second
-    "colormap": "viridis",            -> color scheme for individuals that are rendered (randomly chosen from colormap)
-    "generations": 200,               -> number of generations to be evolved
-    "individuals": 80,                -> number of individuals per generation
-    "duration": 40                    -> duration of the simulation for each individual in seconds
+        "batch_size": 128, 
+        "epochs": 20, 
+        "lr": 0.01, 
+        "optimizer": "Adagrad", 
+        "nb_folds": 10
     }, 
-"evolution": 
+        
+    "conv_net_parameters": 
     {
-    "mutation_prob_ind": 0.05,        -> probability for an individual to mutate
-    "mutation_prob_gene": 0.05,       -> probability for a gene to mutate
-    "mutation_prob_feature": 0.05,    -> probability for a feature of that gene to mutate
-    "alpha_limits": 0.5               -> alpha value for computing limits for choosing the value after crossing
-    }
+        "nb_conv_layer": 2, 
+        "nb_lin_layer": 1, 
+        "kernel_size": 5, 
+        "do_maxpool": 1
+    }, 
+    
+    "results_path": "", 
+    "comments": "This is an example configuration"
 }
 ```
+
+### Results
+
+When training a model the printed output before and during the learning process looks like this:
+
+```
+Loading alignments ...
+Generating alignment representations ...
+Preloaded data uses : 8e-08GB
+
+
+Compute device: cuda:0
+
+FOLD 1
+----------------------------------------------------------------
+Building training and validation data set ...
+Finished after 0.1s
+
+Epoch [0], loss: 0.693507194519043, acc: 0.5
+Epoch [1]
+Training: Loss: 0.6885, Acc.: 0.6788
+Validation: Loss: 0.6892, Acc.: 0.6627
+Epoch [2]
+Training: Loss: 0.6905, Acc.: 0.6863
+Validation: Loss: 0.691, Acc.: 0.6468
+Epoch [3]
+Training: Loss: 0.6914, Acc.: 0.7155
+Validation: Loss: 0.6917, Acc.: 0.6786
+
+( ... )
+```
+
+For testing a trained network you can expect an output like this: 
+
+```
+Loading alignments ...
+Only 2690 / 5517 fasta files taken into account.
+Generating alignment representations ...
+Building validation data set ...
+
+model 1, accuracy: 0.1524(0.9701)
+model 2, accuracy: 0.1323(0.9782)
+model 3, accuracy: 0.171(0.981)
+model 4, accuracy: 0.1743(0.9691)
+model 5, accuracy: 0.1335(0.9746)
+model 6, accuracy: 0.0996(0.9583)
+model 7, accuracy: 0.1197(0.9664)
+model 8, accuracy: 0.0963(0.9774)
+model 9, accuracy: 0.0349(0.9783)
+model 10, accuracy: 0.1435(0.9665)
+
+Average: 0.1258, Standard deviation: 0.0392
+Average acc. after training: 0.972, Standard deviation: 0.0067
+```
+
+
+## Formatting and Simulations Generator (fsg)
+
+### Usage
+
+In order to generate simulations, please download the Seq-Gen simulator from [here](http://tree.bio.ed.ac.uk/software/seqgen/)
+
+To run the script use:
+
+`python fsg.py [args]`
+
+Type `python fsg.py -h` obtain the output below for possible arguments:
+
+```
+usage: fsg.py [-h] (-f | -s seq-gen path hogenom fasta path | -r) [-n min number of sequences max number of sequences] [-a NUMBERALIGNS] indir outdir
+
+positional arguments:
+  indir                 the </path/to/> input directory or file
+  outdir                the </path/to/> output directory or file
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -f, --format          format newick trees such that they can be passed to the Seq-Gen simulator
+  -s seq-gen path hogenom fasta path, --simulator seq-gen path hogenom fasta path
+                        simulate sequences from newick trees. Requires </path/to/> Seq-Gen directory.
+  -r, --removegaps      remove column(s) with gap(s) from input fasta file or directory and save alignment(s) without gaps in given output file or directory
+
+arguments for simulation:
+  -n min number of sequences max number of sequences, --numberseqs min number of sequences max number of sequences
+                        2 integers determining minimum/maximum number of sequences to be simulated per alignmnet default: (4,300)
+  -a NUMBERALIGNS, --numberaligns NUMBERALIGNS
+                        the number of alignments to be simulated
+
+```
+
+### Arguments explained 
+
+**`indir <str>`** example: `my/path/to/input/data`
+
+The input folder can contain newick trees (.ph), newick trees especially reformatted for Seq-Gen (.tree) or fasta files.
+
+**`outdir <str>`** example: `my/path/to/output/directory`                
+    
+Specify the directory where formatted trees or fasta files or simulated alignments should be stored.
+
+**`-f`**
+
+Flag indicating that you want to reformat newick trees for the Seq-Gen simulator. If the first node is terminal, then the first non-terminal node will be exchanged with the terminal one. Furthermore, confidence values will be removed form the trees.   
+
+**`-s <str> <str>`** example: `-s my/path/to/Seq-Gen/source/seq-gen my/path/to/empirical/fastas`
+
+The first path needs to be the directory to [the `seq-gen` program](http://tree.bio.ed.ac.uk/software/seqgen/), while the second directory has to contain fasta formatted sequence alignment. The simulations will be based on the amino acid frequency and number of sites of these MSAs.
+
+**`-n` <int> <int>** example: `-n 3 1000`
+
+Minimum and maximum number of sequences for each simulated alignment. The default values are 4 and 300. 
+
+**`-a` <int>** example: `-a 300`
+
+Argument to specify the desired number of simulations (alignments).
+
+**`-r`**
+
+Flag indicating that gaps and indels (`'-'`) shall be removed from inputted fasta files. Note that the directory for the alignments has to be given by the positional argument `indir`.
+
+### The generation of simulations: Walk Through
+
+1. Reformat your newick trees so that they are accepted by Seq-Gen:
+
+`python fsg.py data/hogenom_trees data/seq_gen_input_trees -f
+`
+
+2. Remove gaps/indels from the empirical alignments:
+
+`python fsg.py data/fasta_real_gaps_indels data/fasta_real_no_gaps_indels -r
+`
+
+3. Run the simulations:
+
+` python3 fsg.py data/seq_gen_input_trees data/simulations -s ../../Seq-Gen/source/seq-gen data/fasta_real_no_gaps_indels -a 99 -n 3 1000
+`
+
+Note that you need to replace `../../Seq-Gen/source/seq-gen` with your path to the simulator.
+
 ## Organisation of scripts
+
+The following diagram illustrates the dependencies between scripts.
 
 
 ```mermaid
 graph TD 
-SE("simulate_evolution <br/> main()") --> IO(IO)
-SE --> V(visualize)
-SE --> S(simulation)
-SE --> E(evolution)
-subgraph module: src
-E --> I(individual)
-IO --> E
-V --> S
-S --> I 
-S --> E
-end
-subgraph module: experiments
-GS(group_stats) --> E
-end
+SC("sequenceClassifier <br/> main()")
+SC --> U(utils)
+SC --> S(stats)
+SC --> CN(ConvNet)
+SC --> T(train_eval)
+SC --> P(preprocessing)
+SC --> PL(plots)
+
+F("fsg <br/> main()")
+
+T --> P
+T --> CN
+T --> S
+
+P --> S
+P --> U
+
+PL --> U
+
+S --> U
+
+U --> CN
+
+F --> P
+F --> S
+
+style SC fill:#77e5c8
+style F fill:#77e5c8
 ```
 
-### individual
-
-##### sizes
-All individuals consist of 6 boxes and 6 spheres (actually 11 spheres since 2 spheres overlap at each connection gutted the head). Boxes are: chest, hip, left / right arm and left / right leg. Spheres are: head, waist, left / right shoulder and left / right hip joint.
-
-Each box is initialized such, that the mass (on average) per box is 1. This is due to the fact that the half-size of each box is a random value between 0.3 and 1.0 (for the default settings), which on average is 0.65. Since this value defines the half-size each box is on average shaped 1.3 * 1.3 * 1.3 and thus has a standard volume of 2.197 which corresponds to mass of one. If values are changed, consider adapting the standard mass.
-
-##### forces
-To each sphere (except the head) a force is added, moving the limb in x and / or z direction. The force is depending on the mass, but capped. It is computed according to this formula:
-
-`1 / (1 / max_force + np.exp(-mass * 3)) + min_force`
-
-which creates a sigmoid function f such that force = f(mass) between min_force and max_force. Hence there is an optimal range were the best volume - force tradeoff is achieved, preventing boxes from getting too small and too big.
-
-##### moving pattern
-Each limb has an assigned movment pattern. Its array values are called sequentially one for each simulation step. If the end of the pattern is reached, it will repeat.
-
-If requested the movement pattern can be normalized to (e.g.) 2 pi. This would make the sum of all step sizes (absolute values) in the pattern be of 2 pi. Hence it is ensured, that no more than one "round" of a circle can be made per cycle.
-
-### evolution
-
-main functionalities of this script are: 
-
-##### fitness
-The fintess is computed as the L2 norm between [0, 0] and the coordinate of any individual at the last time step of the simulation. Note that the z coordinate is ignored.
-
-##### selection
-For selecting individuals to carry their genome to the next generation, the fitness is ranked descending, and individuals are selected based on "Concepts fondamentaux des algorithmes évolutionnistes" by Jean-Baptiste Mouret. Once individuals that are allowed to carry their genes over to the next generation are selected, as many pairs as there were individuals in the original population are formed. Thereby individuals are combined randomly with other individuals, ensuring that every individual has been chosen at least once.
-
-##### crossing
-Crossing is performed gene wise. For each pair of values a random value is selected between the limits [o - d / 2 - a * d, o + d / 2 + a * d], where "o" is the average of the value pairs, "d" the absolute difference and "a" a value to enlarge the search space linearly (in the default case a = 0.5). Thus a random r value would be selected such that o - d / 2 - d * a < r < o + d / 2 + a * d. This procedure is repeated for every value- pair across the parent genomes. Afterwards mutation is applied with a certain probability.
-
-##### mutation
-Mutation is realized as a random re-initialization of certain features of the genome. Thereby 3 different probabilities can be tuned. 1) the probability that the inidivual mutates at all, 2) the probability that a certain gene mutates (e.g. size of the left hand) and 3) the probability for a certain feature to mutate (e.g. the y size of the left hand).
-
-### IO
-
-* manages the user input e. g. generation of a jason configuration file 
-* can generate, read or load a jason configuration file
-* can save or load the output of an evolution like the fitness for each individual 
-
-### simulation 
-
-* sets up the physics simulation and simulates all individuals 
-* handels multi-core processing for windows and unix io systems
-
-### visualize 
-
-* can render a GUI based simulation for selected individuals
-* can be used to show a plot of the average and best performance of eah generation during an evolution
-* shows the path that an individual or multiple individuals have traveled in a plot if requested 
-
-### group_stats
-
-* shows all plots that can be generated from experiments that have been executed on a cluster 
