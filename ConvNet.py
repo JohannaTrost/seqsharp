@@ -61,10 +61,6 @@ class ConvNet(nn.Module):
             a sequence of conv1D, ReLu and maxpooling
         lin_layers : nn.Sequential
             one or multiple linear layers, the last one having 1 output node
-        sound : str
-            the sound that the animal makes
-        num_legs : int
-            the number of legs the animal has (default 4)
         train_history : list of dictionaries keys: 'acc', 'loss'
             accuracy and loss for each epoch on training dataset
         val_history : list of dictionaries keys: 'acc', 'loss'
@@ -116,7 +112,8 @@ class ConvNet(nn.Module):
         self.conv_layers = (nn.Sequential(*self.conv_layers)
                             if p['nb_conv_layer'] > 0 else None)
 
-        if p['nb_conv_layer'] == 0 or (p['nb_conv_layer'] == 1 and p['kernel_size'] == 1):
+        if (p['nb_conv_layer'] == 0 or
+                (p['nb_conv_layer'] == 1 and p['kernel_size'] == 1)):
             self.drop_out = None
         else:
             self.drop_out = nn.Dropout(p=0.25)
