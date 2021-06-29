@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import matplotlib.pylab as plt
 import matplotlib
@@ -127,13 +129,105 @@ def plot_hist_quantiles(datasets, labels=None, xlabels=None, ylabels=None,
         q2 = np.quantile(data, 0.5)
         q3 = np.quantile(data, 0.75)
 
-        axs[i].hist(data, bins=200, label=label, color=cmap(1 / (i + 1)))
-        axs[i].axvline(x=q1, label=f"0.05q = {q1}", c='#6400e4')
-        axs[i].axvline(x=q2, label=f"0.5q = {q2}", c='#fd4d3f')
-        axs[i].axvline(x=q3, label=f"0.95q = {q3}", c='#4fe0b0')
-        axs[i].set_xlabel(xlabel)
-        axs[i].set_ylabel(ylabel)
-        axs[i].legend()
+        if len(datasets) > 1:
+            axs[i].hist(data, bins=200, label=label, color=cmap(1 / (i + 1)))
+            axs[i].axvline(x=q1, label=f"0.25q = {q1}", c='#6400e4')
+            axs[i].axvline(x=q2, label=f"0.5q = {q2}", c='#fd4d3f')
+            axs[i].axvline(x=q3, label=f"0.75q = {q3}", c='#4fe0b0')
+            axs[i].set_xlabel(xlabel)
+            axs[i].set_ylabel(ylabel)
+            axs[i].legend()
+        else:
+            axs.hist(data, bins=200, label=label, color=cmap(1 / (i + 1)))
+
+            axs.axvline(x=q1, label=f"0.25q = {q1}", c='#6400e4')
+            axs.axvline(x=q2, label=f"0.5q = {q2}", c='#fd4d3f')
+            axs.axvline(x=q3, label=f"0.75q = {q3}", c='#4fe0b0')
+            axs.set_xlabel(xlabel)
+            axs.set_ylabel(ylabel)
+            axs.legend()
 
     if path is not None:
         plt.savefig(path)
+
+
+def plot_weights(models, path):
+    model_path = '/home/jtrost/beegfs/mlaa/results/ocaml-lin/cnn-25-Jun-2021-23:23:53.176489'
+    config_path = f'{model_path}/config.json'
+
+    config = read_config_file(config_path)
+
+    model_params = config['conv_net_parameters']
+    model_params['input_size'] = config['data']['nb_sites']
+    model_params['nb_chnls'] = 23
+    nb_sites = config['data']['nb_sites']
+
+    files = os.listdir(model_path)
+    model_paths = [f'{model_path}/{file}' for file in files
+                   if file.endswith('.pth')]
+
+    # collect all the weights
+    aas = 'OARNDCQEGHILKMFPSTWYVX-'
+    weights_all_folds = {}
+    for i, path in enumerate(model_paths):
+        # generate model
+        model = load_net(path, model_params, state='eval')
+        weights = model.state_dict()[
+            'lin_layers.0.weight'].data.cpu().numpy()[0]
+
+        for j, aa in enumerate(aas):
+            w_norm = ((weights[nb_sites * j:nb_sites * (j + 1)] -
+                       np.min(weights)) / (np.max(weights) - np.min(weights)))
+
+            if aa in weights_all_folds.keys():
+                weights_all_folds[aa] += [w_norm]
+            else:
+                weights_all_folds[aa] = [w_norm]
+
+    # calculate mean and std over folds
+    avg_w = {}
+    std_w = {}
+    for key, val in weights_all_folds.items():
+        avg_w[key] = np.mean(val, axis=0)
+        std_w[key] = np.std(val, axis=0)
+
+    del weights_all_folds
+
+    avg_w_arr = np.asarray([val for lst in avg_w.values() for val in lst])
+    std_w_arr = np.asarray([val for lst in std_w.values() for val in lst])
+
+    fig, axs = plt.subplots(ncols=1, nrows=1, sharex=True,
+                            figsize=(12., 6.))
+
+    line, = axs.plot(avg_w_arr, '.', markersize=1)
+    axs.margins(x=0)
+    axs.fill_between(range(len(avg_w_arr)),
+                        avg_w_arr - std_w_arr,
+                        avg_w_arr + std_w_arr,
+                        color=line.get_color(), alpha=0.3)
+    ylim = np.max(avg_w_arr + std_w_arr)
+    for j, aa in enumerate(aas):
+        axs.axvline(x=nb_sites * (j + 1), color='grey', linewidth=0.5)
+        axs.annotate(aa, ((nb_sites * (j + 1)) - (nb_sites / 2), ylim))
+
+    if not os.path.exists(f'{model_path}/weights'):
+        os.mkdir(f'{model_path}/weights')
+
+    fig.savefig(f'{model_path}/weights/weights-overview.png')
+
+    # separate plots for each aa
+    for aa, w in avg_w.items():
+        sub_fig, sub_axs = plt.subplots(ncols=1, nrows=1, sharex=True,
+                                        figsize=(12., 6.))
+        line, = sub_axs.plot(w, '.', markersize=2)
+        sub_axs.margins(x=0)
+        sub_axs.fill_between(range(len(w)), w - std_w[aa], w + std_w[aa],
+                         color=line.get_color(), alpha=0.3)
+        sub_axs.set_ylim(np.min(avg_w_arr), np.max(avg_w_arr))
+        sub_axs.set_title(aa)
+        sub_axs.set_xlabel('Number of sites')
+        sub_axs.set_ylabel('Weight (scaled [0, 1])')
+
+        if not os.path.exists(f'{model_path}/weights'):
+            os.mkdir(f'{model_path}/weights')
+        sub_fig.savefig(f'{model_path}/weights/{aa}.png')

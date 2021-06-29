@@ -11,6 +11,7 @@ import numpy as np
 from Bio import Phylo, SeqIO, Seq
 
 from preprocessing import alns_from_fastas
+from simulation import enough_leaves
 from stats import get_aa_freqs, generate_data_from_dist
 
 
@@ -48,62 +49,6 @@ def adapt_newick_format(in_path, out_path):
     Phylo.write(tree, out_path, 'newick')
 
     print('Saved formatted tree to ' + out_path)
-
-
-def count_species_in_tree(clade):
-    """Count tree nodes"""
-
-    if clade.name is None and clade.clades is None:
-        return 0
-    if clade.name is not None:
-        return 1
-    return np.asarray([count_species_in_tree(child)
-                       for child in clade.clades]).sum()
-
-
-def filter_trees_by_nb_seqs(in_path, tree_files, min_nb_seqs, nb_alns):
-    """Returns tree files with > *min_nb_seqs* non-terminal nodes
-
-    :param in_path: </path/to> folder containing tree files (string)
-    :param tree_files: list of filenames of trees (list string)
-    :param min_nb_seqs: min. number of sequences (non-terminal nodes) (integer)
-    :param nb_alns: number of alignments (real alns for training) (integer)
-    :return: file names of trees with appropriate size (list string)
-    """
-
-    tree_file_selection = []
-    tree_file_deselection = []
-
-    for file in tree_files:
-        tree_path = in_path + '/' + file
-        tree = Phylo.read(tree_path, 'newick')
-
-        if count_species_in_tree(tree.root) >= min_nb_seqs:
-            tree_file_selection.append(file)
-        else:
-            tree_file_deselection.append(file)
-
-        if len(tree_file_selection) == (nb_alns * 2):  # enough trees for sim
-            break
-
-    if len(tree_file_selection) < nb_alns:
-        raise ValueError(f'{len(tree_file_deselection)} files did not '
-                         f'contain a minimum of {min_nb_seqs} leaves. Only '
-                         f'{len(tree_file_selection)} suitable trees were '
-                         f'found. Too small trees are: '
-                         f'{tree_file_deselection}')
-
-    return tree_file_selection
-
-
-def enough_leaves(tree_path, min_nb_seqs):
-    """Check if given tree has desired min. size"""
-
-    tree = Phylo.read(tree_path, 'newick')
-    if count_species_in_tree(tree.root) >= min_nb_seqs:
-        return True
-    else:
-        return False
 
 
 def remove_gaps(fasta_in, fasta_out):
@@ -145,10 +90,13 @@ def main():
     group.add_argument('-f', '--format', action='store_true',
                        help='format newick trees such that they can be '
                             'passed to the Seq-Gen simulator')
+    parser.add_argument('--ocaml', action='store_true',
+                        help='Indicate reformatting for simulations with the '
+                             'ocaml-simulator')
     group.add_argument('-s', '--simulator', type=str, nargs=2,
-                       metavar=('seq-gen path', 'hogenom fasta path'),
+                       metavar=('simulator path', 'hogenom fasta path'),
                        help='simulate sequences from newick trees. Requires '
-                            '</path/to/> Seq-Gen directory.')
+                            '</path/to/> seq-gen or ocaml-sim executable.')
     group.add_argument('-r', '--removegaps', action='store_true',
                        help='remove column(s) with gap(s) from input fasta '
                             'file or directory and save alignment(s) without '
@@ -178,53 +126,58 @@ def main():
 
     if args.format:
 
-        print('Adapting format to fit Gen-Seq format requirements...')
+        if args.ocaml:
+            print('Adapting format to fit Ocaml-Sim format requirements...')
 
-        if os.path.isfile(in_path):
+            if os.path.isfile(in_path):
 
-            adapt_newick_format(in_path, out_path)
+                tree = Phylo.read(in_path, 'newick')
+                tree_remove_confidence(tree.root)
+                Phylo.write(tree, out_path, 'newick')
 
-        elif os.path.isdir(in_path):
-            tree_files = os.listdir(in_path)
+            elif os.path.isdir(in_path):
+                tree_files = os.listdir(in_path)
 
-            for file in tree_files:
-                if file.rpartition('.')[2] == 'ph':
-                    tree_out_path = out_path + '/' + file.rpartition('.')[
-                        0] + '.tree'
+                for file in tree_files:
+                    tree_out_path = f'{out_path}/{file.rpartition(".")[0]}.tree'
+
+                    tree = Phylo.read(in_path + '/' + file, 'newick')
+                    tree_remove_confidence(tree.root)
+                    Phylo.write(tree, tree_out_path, 'newick')
+            else:
+                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                        in_path)
+        else:
+            print('Adapting format to fit Gen-Seq format requirements...')
+
+            if os.path.isfile(in_path):
+
+                adapt_newick_format(in_path, out_path)
+
+            elif os.path.isdir(in_path):
+                tree_files = os.listdir(in_path)
+
+                for file in tree_files:
+                    tree_out_path = f'{out_path}/{file.rpartition(".")[0]}.tree'
 
                     adapt_newick_format(in_path + '/' + file, tree_out_path)
-
-                else:
-                    print('skipped file ' + file + ',because it is not a ".ph" '
-                                                   'file.')
-        else:
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    in_path)
+            else:
+                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                        in_path)
 
     if args.simulator:
 
-        print('Gen-Seq is starting sequence simulation...')
+        print('Starting sequence simulations...')
 
-        seq_gen_path, hogenom_fasta_path = args.simulator
-        min_nb_seqs, max_nb_seqs = args.numberseqs if args.numberseqs else \
-            (4, 300)
+        sim_path, hogenom_fasta_path = args.simulator
+        min_nb_seqs, max_nb_seqs = args.numberseqs if args.numberseqs else (4, 300)
         nb_aligns = args.numberaligns if args.numberaligns else 100
 
-        if not os.path.exists(seq_gen_path):
+        if not os.path.exists(sim_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    seq_gen_path)
+                                    sim_path)
 
-        if os.path.isfile(in_path):
-
-            bash_cmd = seq_gen_path + ' -mPAM -of < ' \
-                       + in_path + ' > ' + out_path
-            process = subprocess.Popen(bash_cmd, shell=True,
-                                       stdout=subprocess.PIPE)
-            output, error = process.communicate()
-            print(output)
-            print(error)
-
-        elif os.path.isdir(in_path):
+        if os.path.isdir(in_path):
 
             tree_files = os.listdir(in_path)
 
@@ -260,27 +213,34 @@ def main():
                     fasta_out_path = out_path + '/' + \
                                      file.rpartition('.')[0] + '.fasta'
                     tree_in_path = in_path + '/' + file
-                    if enough_leaves(tree_in_path, min_nb_seqs):
-                        if seq_lens is None or aa_freqs is None:
-                            bash_cmd = seq_gen_path + \
-                                       ' -mPAM -g20 -of < ' \
-                                       + tree_in_path + ' > ' + fasta_out_path
-                        else:
-                            freqs = np.array2string(aa_freqs[i], separator=',')
-                            freqs = freqs.replace('\n ', '')[1:-1]
 
-                            bash_cmd = (f'{seq_gen_path} '
+                    if enough_leaves(tree_in_path, min_nb_seqs):
+                        freqs = np.array2string(aa_freqs[i], separator=',')
+                        freqs = freqs.replace('\n ', '')[1:-1]
+
+                        if sim_path.rpartition('/')[2] == 'seq-gen':
+                            bash_cmd = (f'{sim_path} '
                                         f'-mWAG -l{str(seq_lens[i])} '
                                         f'-f{freqs} -of '
                                         f'< {tree_in_path} > {fasta_out_path}')
+                        elif sim_path.rpartition('/')[2] == 'simulator.exe':
+                            param_dir = f'{sim_path.rpartition("/")[0]}/../..'
+                            bash_cmd = (
+                                f'{sim_path} --tree {tree_in_path} '
+                                f'--profiles {param_dir}/263SelectedProfiles.tsv '
+                                f'--wag {param_dir}/wag.dat '
+                                f'-o {fasta_out_path} '
+                                f'--mu 0.0 --lambda 0.0 '
+                                f'--nsites {str(seq_lens[i])}')
+
                         process = subprocess.Popen(bash_cmd, shell=True,
                                                    stdout=subprocess.PIPE)
                         output, error = process.communicate()
 
                         process.wait()
 
-                        if os.path.exists(fasta_out_path) and \
-                                os.stat(fasta_out_path).st_size > 0:
+                        if (os.path.exists(fasta_out_path) and
+                                os.stat(fasta_out_path).st_size > 0):
                             i += 1
                             print(
                                 '\tSaved ' + fasta_out_path.rpartition('/')[2] +

@@ -89,18 +89,19 @@ class ConvNet(nn.Module):
         """
 
         super(ConvNet, self).__init__()
-        
+
         if p['do_maxpool']:
-            out_size = (int(p['input_size'] / 2**p['nb_conv_layer']) *
-                        p['nb_chnls'] * 2**p['nb_conv_layer'])
+            out_size = (int(p['input_size'] / 2 ** p['nb_conv_layer']) *
+                        p['nb_chnls'] * 2 ** p['nb_conv_layer'])
         else:
-            out_size = p['input_size'] * (p['nb_chnls'] * 2**p['nb_conv_layer'])
-        
+            out_size = p['input_size'] * (
+                    p['nb_chnls'] * 2 ** p['nb_conv_layer'])
+
         # convolutional layers
         self.conv_layers = []
         for i in range(p['nb_conv_layer']):
-            conv1d = nn.Conv1d(p['nb_chnls'] * (2**i),
-                               p['nb_chnls'] * (2**(i+1)),
+            conv1d = nn.Conv1d(p['nb_chnls'] * (2 ** i),
+                               p['nb_chnls'] * (2 ** (i + 1)),
                                kernel_size=p['kernel_size'], stride=1,
                                padding=p['kernel_size'] // 2)
 
@@ -197,7 +198,8 @@ class ConvNet(nn.Module):
             train_col = (0.518, 0.753, 0.776)
             val_col = (0.576, 1.0, 0.588)
 
-            axs[0].plot(accuracies_train, '-x', label='training', color=train_col)
+            axs[0].plot(accuracies_train, '-x', label='training',
+                        color=train_col)
             axs[0].plot(accuracies_val, '-x', label='validation', color=val_col)
             axs[0].set_ylim([floor(plt.ylim()[0] * 100) / 100, 1.0])
             axs[0].set_xlabel('epoch')
@@ -224,7 +226,7 @@ class ConvNet(nn.Module):
             'train_history': self.train_history,
             'val_history': self.val_history,
             'model_state_dict': self.state_dict()
-            },
+        },
             path)
 
 
@@ -236,5 +238,6 @@ def accuracy(outputs, labels):
     :return: accuracy values (between 0 and 1) (torch tensor)
     """
 
-    preds = torch.round(torch.flatten(torch.sigmoid(outputs))).to(compute_device)
+    preds = torch.round(torch.flatten(torch.sigmoid(outputs))).to(
+        compute_device)
     return torch.tensor((torch.sum(preds == labels).item() / len(preds)))

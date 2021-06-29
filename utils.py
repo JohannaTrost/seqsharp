@@ -121,7 +121,7 @@ def dim(lst):
     return 1 + dim(lst[0])
 
 
-def collect_histories_folds(path, nb_folds, seq_len, nb_chnls):
+def collect_histories_folds(path, nb_folds, model_params):
     """Gets validation and training history from models in *path* directory
 
     :param path: <path/to> directory containing .pth file(s) (string)
@@ -136,7 +136,7 @@ def collect_histories_folds(path, nb_folds, seq_len, nb_chnls):
 
     for fold in range(1, nb_folds + 1):
         model_path = f'{path}/model-fold-{fold}.pth'
-        model = load_net(model_path, seq_len, nb_chnls)
+        model = load_net(model_path, model_params)
         train_history_folds.append(model.train_history)
         val_history_folds.append(model.val_history)
 

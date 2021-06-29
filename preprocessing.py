@@ -119,6 +119,28 @@ def alns_from_fastas(fasta_dir, min_nb_seqs, max_nb_seqs, nb_alns):
     return alns, fastas
 
 
+def remove_gaps(alns):
+    """Remove columns with gaps from given raw alignments (not yet encoded)
+
+    :param alns: list of list of amino acid sequences (2D list strings)
+    """
+
+    alns_no_gaps = []
+
+    for aln in alns:
+        aln = np.asarray([list(seq) for seq in aln])
+        remove_columns = np.any(aln == '-', axis=0)
+        aln_no_gaps = aln[:, np.invert(remove_columns)]
+
+        if np.any(remove_columns):
+            aln_no_gaps = [''.join([aa for aa in seq]) for seq in aln_no_gaps]
+            alns_no_gaps.append(aln_no_gaps)
+        else:
+            alns_no_gaps.append(aln)
+
+    return alns_no_gaps
+
+
 def encode_aln(alned_seqs_raw, seq_len, padding=''):
     """Turns aligned sequences into (padded) one-hot encodings
 
@@ -344,6 +366,18 @@ def data_prepro(fasta_paths, params, pairs=False, take_quantiles=True,
     params['max_seqs_per_align'] = int(np.max(nb_seqs))
     params['min_seqs_per_align'] = int(np.min(nb_seqs))
     params['nb_alignments'] = len(alns[0])
+
+    # TODO shuffle here
+    """for aln in alns[0]:
+        aln = np.asarray([list(seq) for seq in aln])
+        data[i, :, :] = data[i, :, np.random.permutation(
+            range(data.shape[2]))].swapaxes(0, 1)
+
+        if np.any(remove_columns):
+            aln_no_gaps = [''.join([aa for aa in seq]) for seq in aln_no_gaps]
+            alns_no_gaps.append(aln_no_gaps)
+        else:
+            alns_no_gaps.append(aln)"""
 
     # generate alignment representations
     if pairs:

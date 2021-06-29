@@ -151,10 +151,10 @@ def main():
                                         config['data']['max_seqs_per_align'],
                                         config['data']['nb_alignments'])[0]
 
-                plot_hist_quantiles([alns], xlabels=['Number of sites'],
+                plot_hist_quantiles([get_nb_sites(alns)], xlabels=['Number of sites'],
                                     path=f'{path}/hist-sites-{timestamp}'
                                          f'-{i}.png')
-                plot_hist_quantiles([alns],
+                plot_hist_quantiles([nb_seqs_per_alns(alns)],
                                     xlabels=['Number of sequences'],
                                     path=f'{path}/hist_nb_seqs-{timestamp}'
                                          f'-{i}.png')
