@@ -213,7 +213,7 @@ def main():
         # ------------------------- data preparation ------------------------- #
 
         data = data_prepro([real_fasta_path, sim_fasta_path],
-                           config['data'], pairs,
+                           config['data'], pairs, shuffle=shuffle,
                            csv_path=(f'{result_path}/alns_stats.csv'
                                      if args.track_stats else None))
 
@@ -256,10 +256,10 @@ def main():
             start = time.time()
             train_ds = TensorDataset([real_alns[i] for i in train_ids],
                                      [sim_alns[i] for i in train_ids],
-                                     shuffle, pairs)
+                                     pairs)
             val_ds = TensorDataset([real_alns[i] for i in val_ids],
                                    [sim_alns[i] for i in val_ids],
-                                   shuffle, pairs)
+                                   pairs)
             print(f'Finished after {round(time.time() - start, 2)}s\n')
 
             train_loader = DataLoader(train_ds, batch_size, shuffle=True)

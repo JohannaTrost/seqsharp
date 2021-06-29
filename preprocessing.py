@@ -30,7 +30,7 @@ asparagine    : N |  glycine       : G | methionine    : M | tryptophan: W |
 aspartic acid : D |  histidine     : H | phenylalanine : F | tyrosine  : Y |
 cysteine      : C |  isoleucine    : I | proline       : P | valine    : V |
 unknown : X 
-gap : - 
+gap/indel : - 
 """
 
 ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'X-',
@@ -89,7 +89,7 @@ def aln_from_fasta(filename, nb_seqs):
 
 
 def alns_from_fastas(fasta_dir, min_nb_seqs, max_nb_seqs, nb_alns):
-    """Gets alignments from fasta files in given directory
+    """Extracts alignments from fasta files in given directory
 
     :param fasta_dir: <path/to/> fasta files
     :param min_nb_seqs: min. required number of aligned sequences
@@ -120,7 +120,7 @@ def alns_from_fastas(fasta_dir, min_nb_seqs, max_nb_seqs, nb_alns):
 
 
 def remove_gaps(alns):
-    """Remove columns with gaps from given raw alignments (not yet encoded)
+    """Removes columns with gaps from given raw alignments (not yet encoded)
 
     :param alns: list of list of amino acid sequences (2D list strings)
     """
@@ -247,8 +247,7 @@ class TensorDataset(Dataset):
             0 for empirical, 1 for simulated
     """
 
-    def __init__(self, real_alns, sim_alns, shuffle=False,
-                 pairs=False):
+    def __init__(self, real_alns, sim_alns, pairs=False):
 
         nb_real = len(real_alns)
         nb_sim = len(sim_alns)
@@ -262,11 +261,6 @@ class TensorDataset(Dataset):
             nb_sim = np.sum([len(aln) for aln in sim_alns])
 
         data = np.asarray(data, dtype='float32')
-
-        if shuffle:  # shuffle columns/sites of empirical alignments
-            for i in range(nb_real):
-                data[i, :, :] = data[i, :, np.random.permutation(
-                    range(data.shape[2]))].swapaxes(0, 1)
 
         self.labels = torch.FloatTensor([0] * nb_real + [1] * nb_sim)
         self.data = torch.from_numpy(data).float()
@@ -298,7 +292,11 @@ class DatasetAln(Dataset):
         return self.data.size(0)
 
 
-def data_prepro(fasta_paths, params, pairs=False, take_quantiles=True,
+def data_prepro(fasta_paths,
+                params,
+                pairs=False,
+                take_quantiles=True,
+                shuffle=False,
                 csv_path=None):
     """Loads alignments and generates representations for the network
 
@@ -367,17 +365,13 @@ def data_prepro(fasta_paths, params, pairs=False, take_quantiles=True,
     params['min_seqs_per_align'] = int(np.min(nb_seqs))
     params['nb_alignments'] = len(alns[0])
 
-    # TODO shuffle here
-    """for aln in alns[0]:
-        aln = np.asarray([list(seq) for seq in aln])
-        data[i, :, :] = data[i, :, np.random.permutation(
-            range(data.shape[2]))].swapaxes(0, 1)
+    if shuffle:  # shuffle sites/columns of alignments
+        for i in range(len(alns)):
+            for j in range(len(alns[i])):
+                aln = np.asarray([list(seq) for seq in alns[i][j]])
+                aln[:, :] = aln[:, np.random.permutation(range(aln.shape[1]))]
 
-        if np.any(remove_columns):
-            aln_no_gaps = [''.join([aa for aa in seq]) for seq in aln_no_gaps]
-            alns_no_gaps.append(aln_no_gaps)
-        else:
-            alns_no_gaps.append(aln)"""
+                alns[i][j] = [''.join([aa for aa in seq]) for seq in aln]
 
     # generate alignment representations
     if pairs:
@@ -397,7 +391,7 @@ def data_prepro(fasta_paths, params, pairs=False, take_quantiles=True,
             generate_aln_stats_df(fastas, alns, params['nb_sites'],
                                   None, is_sim=[0, 1] if len(alns) == 2 else [])
 
-        return *alns_reprs_pairs + fastas, params
+        return (*(alns_reprs_pairs + fastas), params)
 
     else:
 
@@ -416,4 +410,4 @@ def data_prepro(fasta_paths, params, pairs=False, take_quantiles=True,
                                   is_sim=[0, 1] if len(alns) == 2 else [],
                                   csv_path=csv_path)
 
-        return *alns_reprs + fastas, params
+        return (*(alns_reprs + fastas), params)
