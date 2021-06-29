@@ -181,6 +181,9 @@ def encode_aln(alned_seqs_raw, seq_len, padding=''):
                                                                 seqs_shape[
                                                                     2])).T
                                    for _ in range(seqs_shape[0])])
+        elif padding == 'gaps':
+            seqs_new = np.asarray([index2code(seq2index(seq)).T
+                           for seq in ['-' * seq_len] * seqs_shape[1]])
 
         seqs_new[:, :, pad_before:-pad_after] = seqs + 0
         return seqs_new
