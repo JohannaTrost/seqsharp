@@ -4,7 +4,7 @@ Project on the classification of simulated and empirical aligned protein sequenc
 
 The performance of the supervised learning to distinguish empirical and simulated alignments shall serve as a metric to evaluate the realism of a sequence evolution simulator and thus to optimize the parameters used for its simulations. 
 
-Furthermore a program is provided that allows to automatically simulate the sequence evolution using the simulator Seq-Gen, based on a set of given evolutionary trees as well as a set of empirical alignments which would also be the empirical input for the classification task. 
+Furthermore a program is provided that allows to automatically simulate the sequence evolution, based on a set of given evolutionary trees as well as a set of empirical alignments which would also be the empirical input for the classification task. 
 This program is independent from the sequence classification, meaning that any simulated sequences can be used for the classification.   
 
 ## The Sequence Classifier
@@ -177,6 +177,13 @@ an example `config.json` file looks like this:
     "comments": "This is an example configuration"
 }
 ```
+Note that you do not have to specify the batch size and the learning rate. In this case, enter `""` instead of a value. Consequently, the following batch sizes are used: `32, 64, 128, 256, 512`. The learning rates in that case are: `0.1, 0.01, 0.001, 0.0001`. All batch sizes and learning rates are combined and used for different trainings. In the end, only the results and models of the training with the best validation accuracy are stored. 
+If you want to use your own parameter spaces, you can specify them like this:
+
+``` 
+"batch_size": [128, 64]  
+"lr": [0.01, 0.0001]  
+```
 
 ### Results
 
@@ -246,7 +253,7 @@ To run the script use:
 Type `python fsg.py -h` obtain the output below for possible arguments:
 
 ```
-usage: fsg.py [-h] (-f | -s seq-gen path hogenom fasta path | -r) [-n min number of sequences max number of sequences] [-a NUMBERALIGNS] indir outdir
+usage: fsg.py [-h] [-f] [--ocaml] [-s simulator path hogenom fasta path] [-r] [-n min number of sequences max number of sequences] [-a NUMBERALIGNS] indir outdir
 
 positional arguments:
   indir                 the </path/to/> input directory or file
@@ -254,9 +261,10 @@ positional arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
-  -f, --format          format newick trees such that they can be passed to the Seq-Gen simulator
-  -s seq-gen path hogenom fasta path, --simulator seq-gen path hogenom fasta path
-                        simulate sequences from newick trees. Requires </path/to/> Seq-Gen directory.
+  -f, --format          format newick trees such that they can be passed to the simulator. Per default files are formatted for the Seq-Gen simulator. Use --ocaml to format for the ocaml-simulator
+  --ocaml               Indicate reformatting for simulations with the ocaml-simulator
+  -s simulator path hogenom fasta path, --simulator simulator path hogenom fasta path
+                        simulate sequences from newick trees. Requires </path/to/> seq-gen or ocaml-sim executable.
   -r, --removegaps      remove column(s) with gap(s) from input fasta file or directory and save alignment(s) without gaps in given output file or directory
 
 arguments for simulation:
@@ -264,7 +272,6 @@ arguments for simulation:
                         2 integers determining minimum/maximum number of sequences to be simulated per alignmnet default: (4,300)
   -a NUMBERALIGNS, --numberaligns NUMBERALIGNS
                         the number of alignments to be simulated
-
 ```
 
 ### Arguments explained 
@@ -279,11 +286,17 @@ Specify the directory where formatted trees or fasta files or simulated alignmen
 
 **`-f`**
 
-Flag indicating that you want to reformat newick trees for the Seq-Gen simulator. If the first node is terminal, then the first non-terminal node will be exchanged with the terminal one. Furthermore, confidence values will be removed form the trees.   
+Flag indicating that you want to reformat newick trees for a simulator. Per default given trees are reformatted in order to be passed to the Seq-Gen simulator. In that case, if the first node is terminal, then the first non-terminal node will be exchanged with the terminal one. Furthermore, confidence values will be removed form the trees.   
+
+**`--ocaml`**
+
+This flag indicates that trees should be formatted to perform simulations with the ocaml-simulator. If so, only confidence values will be deleted from the tree. 
+
 
 **`-s <str> <str>`** example: `-s my/path/to/Seq-Gen/source/seq-gen my/path/to/empirical/fastas`
 
-The first path needs to be the directory to [the `seq-gen` program](http://tree.bio.ed.ac.uk/software/seqgen/), while the second directory has to contain fasta formatted sequence alignment. The simulations will be based on the amino acid frequency and number of sites of these MSAs.
+The first path needs to be the directory to [the `seq-gen` program](http://tree.bio.ed.ac.uk/software/seqgen/) or the [ocaml-executable `_build/default/simulator.exe`](https://gitlab.in2p3.fr/pveber/mlaa/-/tree/indel-simulator/ocaml) , while the second directory has to contain fasta formatted sequence alignment. The simulations with Seq-Gen will be based on the amino acid frequency and number of sites of these MSAs.  
+While the ocaml-simulator uses a given rate matrix and a set of amino acid profiles. The files need to be named: [`wag.dat`](https://www.ebi.ac.uk/goldman-srv/WAG/wag.dat) and [`263SelectedProfiles.tsv`](https://gitlab.in2p3.fr/pveber/codepi/-/blob/master/example/aa_fitness/263SelectedProfiles.tsv) and need to be in the partent folder of the parent folder of the ocaml-executable (in `exe-folder/../..`). The insertion and deletion rate for the simulations are currently set to zero. 
 
 **`-n` <int> <int>** example: `-n 3 1000`
 
