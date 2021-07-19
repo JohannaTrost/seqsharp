@@ -20,7 +20,9 @@ def write_config_file(config, model_path, config_path, timestamp):
     :param timestamp: format %d-%b-%Y-%H:%M:%S.%f (string)
     """
 
-    if os.path.isfile(config_path):
+    if config_path == '':
+        config_dir = ''
+    elif os.path.isfile(config_path):
         config_dir = config_path.rpartition('/')[0]
     elif os.path.isdir(config_path):
         config_dir = config_path
@@ -28,54 +30,58 @@ def write_config_file(config, model_path, config_path, timestamp):
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                 config_path)
 
-    out_path = f'{config_dir}/config-{timestamp}.json'
+    if config_dir != '':
+        out_path = f'{config_dir}/config-{timestamp}.json'
 
-    # get second and third latest config files
-    files = [f'{config_dir}/{file}' for file in os.listdir(config_dir)
-             if f'{config_dir}/{file}' != config_path]
-    files = sorted(files, key=lambda t: -os.stat(t).st_mtime)[1:3]
+        # get second and third latest config files
+        files = [f'{config_dir}/{file}' for file in os.listdir(config_dir)
+                 if f'{config_dir}/{file}' != config_path]
+        files = sorted(files, key=lambda t: -os.stat(t).st_mtime)[1:3]
 
-    same_config = {}
-    for file in files:
-        older_config = read_config_file(file)
-        if (older_config['data'] == config['data'] and
-                older_config['hyperparameters'] == config['hyperparameters'] and
-                older_config['conv_net_parameters'] == config[
-                    'conv_net_parameters']):
-            same_config = older_config
-            same_config_file = file
-            break
+        same_config = {}
+        for file in files:
+            older_config = read_config_file(file)
+            if (older_config['data'] == config['data'] and
+                    older_config['hyperparameters'] == config['hyperparameters'] and
+                    older_config['conv_net_parameters'] == config[
+                        'conv_net_parameters']):
+                same_config = older_config
+                same_config_file = file
+                break
 
-    # saving model path(s) and comments
-    if same_config != {}:
-        if type(same_config['results_path']) is list:
-            res_paths = same_config['results_path'] + [model_path]
-        else:
-            res_paths = [same_config['results_path'], model_path]
-        config['results_path'] = list(filter(None, res_paths))
-
-        if type(same_config['comments']) is list:
-            if type(config['comments']) is not list:
-                comments = same_config['comments'] + [config['comments']]
+        # saving model path(s) and comments
+        if same_config != {}:
+            if type(same_config['results_path']) is list:
+                res_paths = same_config['results_path'] + [model_path]
             else:
-                comments = same_config['comments'] + config['comments']
+                res_paths = [same_config['results_path'], model_path]
+            config['results_path'] = list(filter(None, res_paths))
+
+            if type(same_config['comments']) is list:
+                if type(config['comments']) is not list:
+                    comments = same_config['comments'] + [config['comments']]
+                else:
+                    comments = same_config['comments'] + config['comments']
+            else:
+                comments = [same_config['comments'], config['comments']]
+            config['comments'] = list(filter(None, comments))
         else:
-            comments = [same_config['comments'], config['comments']]
-        config['comments'] = list(filter(None, comments))
+            config['results_path'] = model_path
+
+        # save config to file
+        with open(out_path, "w") as outfile:
+            json.dump(config, outfile)
+
+        # delete old config
+        if same_config != {}:
+            os.remove(same_config_file)
+
     else:
         config['results_path'] = model_path
-
-    # save config to file
-    with open(out_path, "w") as outfile:
-        json.dump(config, outfile)
 
     if model_path != '':
         with open(f'{model_path}/config.json', "w") as outfile:
             json.dump(config, outfile)
-
-    # delete old config
-    if same_config != {}:
-        os.remove(same_config_file)
 
 
 def read_config_file(path):

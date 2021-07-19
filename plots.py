@@ -151,9 +151,10 @@ def plot_hist_quantiles(datasets, labels=None, xlabels=None, ylabels=None,
         plt.savefig(path)
 
 
-def plot_weights(models, path):
-    model_path = '/home/jtrost/beegfs/mlaa/results/ocaml-lin/cnn-25-Jun-2021-23:23:53.176489'
-    config_path = f'{model_path}/config.json'
+def plot_weights(model_path, config_path):
+    model_path = '/home/jtrost/beegfs/mlaa/results/ocaml-lin/cnn-30-Jun-2021-03:38:54.258092'
+    # config_path = f'{model_path}/config.json'
+    config_path = '/home/jtrost/beegfs/mlaa/configs/config-30-Jun-2021-03:38:54.258092.json'
 
     config = read_config_file(config_path)
 
@@ -231,3 +232,45 @@ def plot_weights(models, path):
         if not os.path.exists(f'{model_path}/weights'):
             os.mkdir(f'{model_path}/weights')
         sub_fig.savefig(f'{model_path}/weights/{aa}.png')
+
+"""
+real_fasta_path = '/home/jtrost/beegfs/fasta_no_gaps'
+sim_fasta_path = '/home/jtrost/beegfs/ocaml_sim_fasta_1'
+
+config_path = '/home/jtrost/beegfs/mlaa/configs/config.json'
+
+config = read_config_file(config_path)
+
+alns,_,_ = raw_alns_prepro([real_fasta_path,sim_fasta_path], config['data'])
+
+real_alns, sim_alns = alns
+
+real_aa = np.array(get_aa_freqs(real_alns, dict=False)).T
+sim_aa = np.array(get_aa_freqs(sim_alns, dict=False)).T
+
+aa = list('ARNDCQEGHILKMFPSTWYVX-') + ['other']
+i = 0
+for r, s in zip(real_aa, sim_aa):
+    plot_hist_quantiles([r, s], labels = [f'real({aa[i]})', f'sim({aa[i]})'], path=f'freqs_comp/freqs-{aa[i]}.png')
+    i += 1
+    
+real_aa_avg = np.mean(real_aa, axis=1)
+sim_aa_avg = np.mean(sim_aa, axis=1)
+
+x = np.arange(len(aa))  # the label locations
+width = 0.35  # the width of the bars
+
+fig, ax = plt.subplots()
+rects1 = ax.bar(x - width/2, real_aa_avg, width, label='real')
+rects2 = ax.bar(x + width/2, sim_aa_avg, width, label='sim')
+
+# Add some text for labels, title and custom x-axis tick labels, etc.
+ax.set_ylabel('avg frequency')
+ax.set_xticks(x)
+ax.set_xticklabels(aa)
+ax.legend()
+
+fig.tight_layout()
+
+plt.savefig('freqs_distr_ocaml_vs_real/bar.png')
+"""

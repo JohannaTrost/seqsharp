@@ -49,27 +49,28 @@ def get_aa_freqs(alns, gaps=True, dict=True):
     :return: list of aa frequencies
     """
 
-    aas = 'ARNDCQEGHILKMFPSTWYVX-' if gaps else 'ARNDCQEGHILKMFPSTWYV'
+    aas = 'ARNDCQEGHILKMFPSTWYVX-' if gaps else 'ARNDCQEGHILKMFPSTWYVX'
     aa_freqs_alns = []
 
     for aln in alns:
-        freqs = np.zeros(22) if gaps else np.zeros(20)
+        freqs = np.zeros(23) if gaps else np.zeros(22)
 
         for seq in aln:
             for i, aa in enumerate(aas):
                 freqs[i] += seq.count(aa)
+            freqs[-1] += (seq.count('B') + seq.count('Z') + seq.count('J') +
+                          seq.count('U') + seq.count('O'))
 
-        freqs /= (len(aln) * len(aln[0]))  # get proportions
-
-        if gaps:
-            # distribute the gap portion over all frequencies
-            freqs += ((1 - sum(freqs)) / 20)
+        freqs /= len(aln) * len(aln[0])  # get proportions
 
         # limit to 6 digits after the comma
         freqs = np.floor(np.asarray(freqs) * 10 ** 6) / 10 ** 6
 
         if dict:
-            aa_freqs_alns.append({aas[i]: freqs[i] for i in range(len(aas))})
+            freq_dict = {aas[i]: freqs[i] for i in range(len(aas))}
+            freq_dict['other'] = freqs[-1]
+
+            aa_freqs_alns.append(freq_dict)
         else:
             aa_freqs_alns.append(freqs)
 

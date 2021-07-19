@@ -9,6 +9,7 @@ Please execute 'python sequenceClassifier.py --help' to view all the options
 
 import argparse
 import errno
+import itertools
 import os
 import random
 import sys
@@ -23,7 +24,8 @@ from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader
 
 from ConvNet import ConvNet, load_net, compute_device
-from preprocessing import TensorDataset, data_prepro, alns_from_fastas
+from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
+    get_representations
 from plots import plot_folds, plot_hist_quantiles
 from stats import get_nb_sites, nb_seqs_per_alns
 from utils import write_config_file, read_config_file
@@ -35,6 +37,9 @@ gc.collect()
 
 
 def main():
+    sep_line = '-------------------------------------------------------' \
+               '---------'
+
     # -------------------- handling arguments -------------------- #
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--datasets', nargs='*', type=str, required=True,
@@ -151,7 +156,8 @@ def main():
                                         config['data']['max_seqs_per_align'],
                                         config['data']['nb_alignments'])[0]
 
-                plot_hist_quantiles([get_nb_sites(alns)], xlabels=['Number of sites'],
+                plot_hist_quantiles([get_nb_sites(alns)],
+                                    xlabels=['Number of sites'],
                                     path=f'{path}/hist-sites-{timestamp}'
                                          f'-{i}.png')
                 plot_hist_quantiles([nb_seqs_per_alns(alns)],
@@ -212,15 +218,26 @@ def main():
 
         # ------------------------- data preparation ------------------------- #
 
-        data = data_prepro([real_fasta_path, sim_fasta_path],
-                           config['data'], pairs, shuffle=shuffle,
-                           csv_path=(f'{result_path}/alns_stats.csv'
-                                     if args.track_stats else None))
+        alns, fastas, config['data'] = raw_alns_prepro([real_fasta_path,
+                                                        sim_fasta_path],
+                                                       config['data'],
+                                                       shuffle=shuffle)
+        fastas_real, fastas_sim = fastas.copy()
 
-        real_alns, sim_alns, fastas_real, fastas_sim, config['data'] = data
+        real_alns, sim_alns = get_representations(alns, fastas, config['data'],
+                                                  pairs,
+                                                  csv_path=(
+                                                      f'{result_path}/'
+                                                      f'alns_stats.csv'
+                                                      if args.track_stats
+                                                      else None)
+                                                  )
+        del alns, fastas
 
+        data_size = sys.getsizeof(real_alns) + sys.getsizeof(sim_alns)
+        data_size += sys.getsizeof(fastas_real) + sys.getsizeof(fastas_sim)
         print(f'Preloaded data uses : '
-              f'{sys.getsizeof(data) / 10 ** 9}GB\n')
+              f'{data_size / 10 ** 9}GB\n')
 
         if args.track_stats:
             real_alns_dict = {fastas_real[i]: real_alns[i] for i in
@@ -228,111 +245,158 @@ def main():
             sim_alns_dict = {fastas_sim[i]: sim_alns[i] for i in
                              range(len(sim_alns))}
 
-        # ------------------------- save config ------------------------- #
+        if batch_size == '' and lr == '':
+            param_space = {
+                'batch_size': [32, 64, 128, 256, 512],
+                'lr': [0.1, 0.01, 0.001, 0.0001]
+            }
+        else:
+            param_space = {
+                'batch_size': batch_size
+                if isinstance(batch_size, list)
+                else [batch_size],
+                'lr': lr if isinstance(lr, list) else [lr],
+            }
 
-        write_config_file(config,
-                          result_path if result_path is not None else '',
-                          config_path,
-                          timestamp)
+        param_combis = list(itertools.product(
+            *[np.arange(len(param_space['batch_size'])),
+              np.arange(len(param_space['lr']))]))
 
         # -------------------- k-fold cross validation -------------------- #
 
         print(f'\nCompute device: {compute_device}\n')
 
-        # init for evaluation
-        train_history_folds = []
-        val_history_folds = []
-        fold_eval = []
-        dfs = []
+        best = {'avg_acc': -np.inf}
 
-        for fold, (train_ids, val_ids) in enumerate(kfold.split(real_alns)):
+        # explore hyper-parameter-space
+        for bs_ind, lr_ind in param_combis:
 
-            print(f'FOLD {fold + 1}')
-            print(
-                '----------------------------------------------------------------')
+            print(sep_line)
+            print(f"Current Parameters:\n\tBatch size: "
+                  f"{param_space['batch_size'][bs_ind]}\n"
+                  f"\tLearning rate: {param_space['lr'][lr_ind]}")
+            print(sep_line + '\n')
 
-            # splitting dataset by alignments
-            print("Building training and validation dataset ...")
-            start = time.time()
-            train_ds = TensorDataset([real_alns[i] for i in train_ids],
-                                     [sim_alns[i] for i in train_ids],
-                                     pairs)
-            val_ds = TensorDataset([real_alns[i] for i in val_ids],
-                                   [sim_alns[i] for i in val_ids],
-                                   pairs)
-            print(f'Finished after {round(time.time() - start, 2)}s\n')
+            models = []
+            dfs = []
+            for fold, (train_ids, val_ids) in enumerate(kfold.split(real_alns)):
 
-            train_loader = DataLoader(train_ds, batch_size, shuffle=True)
-            val_loader = DataLoader(val_ds, batch_size)
+                print(f'FOLD {fold + 1}')
+                print(sep_line)
 
-            # generate model
-            model_params['input_size'] = train_ds.data.shape[2]  # seq len
-            model_params['nb_chnls'] = train_ds.data.shape[
-                1]  # 1 channel per amino acid
+                # splitting dataset by alignments
+                print("Building training and validation dataset ...")
+                start = time.time()
+                train_ds = TensorDataset([real_alns[i] for i in train_ids],
+                                         [sim_alns[i] for i in train_ids],
+                                         pairs)
+                val_ds = TensorDataset([real_alns[i] for i in val_ids],
+                                       [sim_alns[i] for i in val_ids],
+                                       pairs)
+                print(f'Finished after {round(time.time() - start, 2)}s\n')
 
-            model = ConvNet(model_params)
-            model = model.to(compute_device)
+                train_loader = DataLoader(train_ds,
+                                          param_space['batch_size'][bs_ind],
+                                          shuffle=True)
+                val_loader = DataLoader(val_ds,
+                                        param_space['batch_size'][bs_ind])
 
-            # train and validate model
-            fit(epochs, lr, model, train_loader, val_loader, optimizer)
+                # generate model
+                model_params['input_size'] = train_ds.data.shape[2]  # seq len
+                model_params['nb_chnls'] = train_ds.data.shape[
+                    1]  # 1 channel per amino acid
 
-            train_history_folds.append(model.train_history)
-            val_history_folds.append(model.val_history)
-            fold_eval.append(val_history_folds[fold][-1]['acc'])
+                model = ConvNet(model_params)
+                model = model.to(compute_device)
 
-            # saving the model and results
-            print('\nTraining process has finished.\n')
+                # train and validate model
+                fit(epochs, param_space['lr'][lr_ind],
+                    model, train_loader, val_loader, optimizer)
 
-            if result_path is not None:
-                model.save(f'{result_path}/model-fold-{fold + 1}.pth')
-                model.plot(f'{result_path}/fig-fold-{fold + 1}.png')
+                models.append(model)
 
-                print(f'Saved model and evaluation plot to {result_path} ...\n')
-            else:
-                model.plot()
+                if args.track_stats:
+                    real_pred_tr, sim_pred_tr = eval_per_align(model, real_alns,
+                                                               sim_alns,
+                                                               fastas_real,
+                                                               fastas_sim,
+                                                               train_ids)
+                    real_pred_va, sim_pred_va = eval_per_align(model, real_alns,
+                                                               sim_alns,
+                                                               fastas_real,
+                                                               fastas_sim,
+                                                               val_ids)
 
-            if args.track_stats:
-                real_pred_tr, sim_pred_tr = eval_per_align(model, real_alns,
-                                                           sim_alns,
-                                                           fastas_real,
-                                                           fastas_sim,
-                                                           train_ids)
-                real_pred_va, sim_pred_va = eval_per_align(model, real_alns,
-                                                           sim_alns,
-                                                           fastas_real,
-                                                           fastas_sim, val_ids)
+                    df = generate_eval_dict(fold, real_pred_tr, sim_pred_tr,
+                                            real_pred_va, sim_pred_va,
+                                            real_alns_dict, sim_alns_dict)
+                    dfs.append(df)
 
-                if result_path is not None:
-                    csv_path = f'{result_path}/stats-fold-{fold + 1}.csv'
-                else:
-                    csv_path = ''
+            avg_acc = np.mean([model.val_history[-1]['acc']
+                               for model in models])
 
-                df = generate_eval_dict(fold, real_pred_tr, sim_pred_tr,
-                                        real_pred_va, sim_pred_va,
-                                        real_alns_dict, sim_alns_dict, csv_path)
-                dfs.append(df)
+            if avg_acc > best['avg_acc']:
+                print(f"Improved accuracy by {avg_acc - best['avg_acc']}\n")
+                best['avg_acc'] = avg_acc
+                best['models'] = models
+                best['dfs'] = dfs
+                best['batch_size'] = param_space['batch_size'][bs_ind]
+                best['lr'] = param_space['lr'][lr_ind]
 
-        # print/save fold results
-        plot_folds(train_history_folds, val_history_folds,
+        # -------------------------- treat results -------------------------- #
+
+        # save config
+        config['hyperparameters']['batch_size'] = best['batch_size']
+        config['hyperparameters']['lr'] = best['lr']
+
+        write_config_file(config,
+                          result_path if result_path is not None else '',
+                          config_path if config_path is not None else '',
+                          timestamp)
+
+        print(f"\nBest hyper-parameters:\n\tBatch size: {best['batch_size']}\n"
+              f"\tLearning rate: {best['lr']}")
+
+        # print/save overall fold results
+        plot_folds([model.train_history for model in best['models']],
+                   [model.val_history for model in best['models']],
                    path=f'{result_path}/fig-fold-eval.png'
                    if result_path is not None else None)
 
-        if len(dfs) > 0:
-            df_c = pd.concat(dfs)
+        # save plots for each fold
+        for fold, model in enumerate(best['models']):
+            if result_path is not None:
+                model.save(f'{result_path}/model-fold-{fold + 1}.pth')
+                model.plot(f'{result_path}/fig-fold-{fold + 1}.png')
+            else:
+                model.plot()
+
+        # save statistics of training process
+        if len(best['dfs']) > 0 and result_path is not None:
+            df_c = pd.concat(best['dfs'])
             csv_string = df_c.to_csv(index=False)
             with open(result_path + '/aln_train_eval.csv', 'w') as file:
                 file.write(csv_string)
 
             print(f'Saved statistics to {result_path}/aln_train_eval.csv ...\n')
 
+        # print k-fold cross-validation evaluation
         print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
         print(
             '----------------------------------------------------------------')
 
-        for i, acc in enumerate(fold_eval):
-            print(f'Fold {(i + 1)}: {acc} %')
+        fold_eval = [model.val_history[-1]['acc'] for model in best['models']]
 
-        print(f'Average: {np.sum(fold_eval) / len(fold_eval)} %')
+        for i, acc in enumerate(fold_eval):
+            print(f'\tFold {(i + 1)}: {acc} %')
+
+        print(f'Average: {np.mean(fold_eval)} %')
+
+        if result_path is not None:
+            print(f'\nSaved models and evaluation plots to {result_path}\n')
+        else:
+            print(f'\nNot saving models and evaluation plots. Please use '
+                  f'--save and specify a directory to save your results!\n')
 
     if args.test:
         model_path = args.models
@@ -375,8 +439,11 @@ def main():
 
         # ------------------------- data preparation ------------------------- #
 
-        alns, fastas, _ = data_prepro([fasta_path], config['data'],
-                                      pairs, take_quantiles=False)
+        alns, fastas, config['data'] = raw_alns_prepro([fasta_path],
+                                                       config['data'],
+                                                       take_quantiles=False)
+
+        alns = get_representations(alns, fastas, config['data'], pairs)
 
         # ------------------ load and evaluate model(s) ------------------- #
 

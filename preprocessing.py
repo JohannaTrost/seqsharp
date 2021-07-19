@@ -295,22 +295,18 @@ class DatasetAln(Dataset):
         return self.data.size(0)
 
 
-def data_prepro(fasta_paths,
-                params,
-                pairs=False,
-                take_quantiles=True,
-                shuffle=False,
-                csv_path=None):
-    """Loads alignments and generates representations for the network
+def raw_alns_prepro(fasta_paths,
+                    params,
+                    take_quantiles=True,
+                    shuffle=False):
+    """Loads and preprocesses raw (not encoded) alignments
 
     :param take_quantiles: indicate possible reduction of number of sequences
                            per alignment
     :param fasta_paths: <path(s)/to> empirical/simulated fasta files
                         (list/tuple string)
     :param params: parameters for preprocessing (dictionary)
-    :param pairs: choose representation by pairs if true (boolean)
-    :param csv_path: <path/to> store csv file with info about alignments
-    :return: alignment representations and ids, number of sites
+    :return: ids, preprocessed raw alignments, updated param. dict.
     """
 
     nb_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
@@ -376,7 +372,26 @@ def data_prepro(fasta_paths,
 
                 alns[i][j] = [''.join([aa for aa in seq]) for seq in aln]
 
-    # generate alignment representations
+    return alns, fastas, params
+
+
+def get_representations(alns,
+                        fastas,
+                        params,
+                        pairs=False,
+                        csv_path=None):
+    """Encodes alignments and generates their representations
+
+    :param fastas: a set of lists of alignment identifiers (2D string list )
+    :param alns: preprocessed raw alignment sets (3D string list)
+    :param params: parameters for preprocessing (dictionary)
+    :param pairs: choose representation by pairs if true (boolean)
+    :param csv_path: <path/to> store csv file with info about alignments
+    :return: alignment representations
+    """
+
+    nb_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
+
     if pairs:
 
         print("Pairing sequences ...")
@@ -386,15 +401,15 @@ def data_prepro(fasta_paths,
         alns_reprs_pairs = []
         for alns_set in alns:
             alns_reprs_pairs.append([make_seq_pairs(encode_aln(
-                aln, params['nb_sites'], padding=padding)) for aln in alns_set])
+                aln, seq_len, padding=padding)) for aln in alns_set])
 
         print(f'Finished pairing after {round(start - time.time(), 2)}s\n')
 
         if csv_path is not None:
-            generate_aln_stats_df(fastas, alns, params['nb_sites'],
+            generate_aln_stats_df(fastas, alns, seq_len,
                                   None, is_sim=[0, 1] if len(alns) == 2 else [])
 
-        return (*(alns_reprs_pairs + fastas), params)
+        return alns_reprs_pairs
 
     else:
 
@@ -405,12 +420,12 @@ def data_prepro(fasta_paths,
         alns_reprs = []
         for alns_set in alns:
             alns_reprs.append([get_aln_representation(encode_aln(
-                aln, params['nb_sites'], padding=padding)) for aln in alns_set])
+                aln, seq_len, padding=padding)) for aln in alns_set])
 
         if csv_path is not None:
-            generate_aln_stats_df(fastas, alns, params['nb_sites'],
+            generate_aln_stats_df(fastas, alns, seq_len,
                                   alns_reprs,
                                   is_sim=[0, 1] if len(alns) == 2 else [],
                                   csv_path=csv_path)
 
-        return (*(alns_reprs + fastas), params)
+        return alns_reprs
