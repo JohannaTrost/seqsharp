@@ -266,7 +266,7 @@ def main():
 
         print(f'\nCompute device: {compute_device}\n')
 
-        best = {'avg_acc': -np.inf}
+        best = {'param_eval': -np.inf}
 
         # explore hyper-parameter-space
         for bs_ind, lr_ind in param_combis:
@@ -313,7 +313,7 @@ def main():
                 fit(epochs, param_space['lr'][lr_ind],
                     model, train_loader, val_loader, optimizer)
 
-                models.append(model)
+                models.append(model.to('cpu'))
 
                 if args.track_stats:
                     real_pred_tr, sim_pred_tr = eval_per_align(model, real_alns,
@@ -332,12 +332,22 @@ def main():
                                             real_alns_dict, sim_alns_dict)
                     dfs.append(df)
 
-            avg_acc = np.mean([model.val_history[-1]['acc']
-                               for model in models])
+            # evaluation index summing accuracies and
+            # substracting standard deviation
+            param_eval = np.mean([model.val_history[-1]['acc']
+                                  for model in models])
+            param_eval += np.mean([model.train_history[-1]['acc']
+                                   for model in models])
+            param_eval -= np.std([model.val_history[-1]['acc']
+                                  for model in models])
+            param_eval -= np.std([model.train_history[-1]['acc']
+                                  for model in models])
 
-            if avg_acc > best['avg_acc']:
-                print(f"Improved accuracy by {avg_acc - best['avg_acc']}\n")
-                best['avg_acc'] = avg_acc
+            if param_eval > best['param_eval']:
+                print(f"Improved eval. index by "
+                      f"{param_eval - best['param_eval']} "
+                      f"(from {best['param_eval']} to {param_eval})\n")
+                best['param_eval'] = param_eval
                 best['models'] = models
                 best['dfs'] = dfs
                 best['batch_size'] = param_space['batch_size'][bs_ind]
@@ -396,7 +406,8 @@ def main():
             print(f'\nSaved models and evaluation plots to {result_path}\n')
         else:
             print(f'\nNot saving models and evaluation plots. Please use '
-                  f'--save and specify a directory to save your results!\n')
+                  f'--save and specify a directory if you want to save your '
+                  f'results!\n')
 
     if args.test:
         model_path = args.models

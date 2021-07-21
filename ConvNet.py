@@ -89,7 +89,7 @@ class ConvNet(nn.Module):
         """
 
         super(ConvNet, self).__init__()
-
+        """
         if p['do_maxpool']:
             out_size = (int(p['input_size'] / 2 ** p['nb_conv_layer']) *
                         p['nb_chnls'] * 2 ** p['nb_conv_layer'])
@@ -118,8 +118,38 @@ class ConvNet(nn.Module):
             self.drop_out = None
         else:
             self.drop_out = nn.Dropout(p=0.25)
+        """
+        self.conv_layers = (
+            nn.Sequential
+            (
+                nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
+                          kernel_size=p['kernel_size'], stride=1,
+                          padding=p['kernel_size'] // 2),
+                nn.ReLU(),
+                nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
+                          kernel_size=p['kernel_size'], stride=1,
+                          padding=p['kernel_size'] // 2),
+                nn.ReLU(),
+                nn.MaxPool1d(kernel_size=2, stride=2),
+                nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
+                          kernel_size=p['kernel_size'], stride=1,
+                          padding=p['kernel_size'] // 2),
+                nn.ReLU(),
+                nn.Conv1d(p['nb_chnls'], p['nb_chnls'] * 2,
+                          kernel_size=p['kernel_size'], stride=1,
+                          padding=p['kernel_size'] // 2),
+                nn.ReLU(),
+                nn.Conv1d(p['nb_chnls'] * 2, p['nb_chnls'] * 2,
+                          kernel_size=p['kernel_size'], stride=1,
+                          padding=p['kernel_size'] // 2),
+                nn.ReLU(),
+                nn.MaxPool1d(kernel_size=2, stride=2),
+            )
+        )
+        self.drop_out = nn.Dropout(p=0.25)
 
         # fully connected layer(s)
+        out_size = int(p['input_size'] / 4) * p['nb_chnls'] * 2
         self.lin_layers = []
         for i in range(max(p['nb_lin_layer'] - 1, 0)):
             self.lin_layers.append(nn.Linear(out_size, out_size // 2))

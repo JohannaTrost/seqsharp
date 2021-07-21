@@ -89,7 +89,10 @@ def main():
                         help='the </path/to/> output directory or file')
     group.add_argument('-f', '--format', action='store_true',
                        help='format newick trees such that they can be '
-                            'passed to the Seq-Gen simulator')
+                            'passed to the simulator. '
+                            'Per default files are formatted for the Seq-Gen '
+                            'simulator. Use --ocaml to format for the '
+                            'ocaml-simulator')
     parser.add_argument('--ocaml', action='store_true',
                         help='Indicate reformatting for simulations with the '
                              'ocaml-simulator')
