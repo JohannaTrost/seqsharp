@@ -266,7 +266,12 @@ def main():
 
         print(f'\nCompute device: {compute_device}\n')
 
-        best = {'param_eval': -np.inf}
+        best = {'param_eval': {
+            'val_acc': -np.inf,
+            'train_acc': -np.inf,
+            'val_std': -np.inf,
+            'train_std': -np.inf,
+        }}
 
         # explore hyper-parameter-space
         for bs_ind, lr_ind in param_combis:
@@ -334,24 +339,42 @@ def main():
 
             # evaluation index summing accuracies and
             # substracting standard deviation
-            param_eval = np.mean([model.val_history[-1]['acc']
-                                  for model in models])
-            param_eval += np.mean([model.train_history[-1]['acc']
-                                   for model in models])
-            param_eval -= np.std([model.val_history[-1]['acc']
-                                  for model in models])
-            param_eval -= np.std([model.train_history[-1]['acc']
-                                  for model in models])
+            param_eval = {}
+            param_eval['val_acc'] = np.mean([model.val_history[-1]['acc']
+                                             for model in models])
+            param_eval['train_acc'] = np.mean([model.train_history[-1]['acc']
+                                               for model in models])
+            param_eval['val_std'] = np.std([model.val_history[-1]['acc']
+                                            for model in models])
+            param_eval['train_std'] = np.std([model.train_history[-1]['acc']
+                                              for model in models])
 
-            if param_eval > best['param_eval']:
-                print(f"Improved eval. index by "
-                      f"{param_eval - best['param_eval']} "
-                      f"(from {best['param_eval']} to {param_eval})\n")
-                best['param_eval'] = param_eval
-                best['models'] = models
-                best['dfs'] = dfs
-                best['batch_size'] = param_space['batch_size'][bs_ind]
-                best['lr'] = param_space['lr'][lr_ind]
+            if param_eval['val_acc'] > best['param_eval']['val_acc']:
+                if param_eval['val_acc'] - best['param_eval']['val_acc'] < 1:
+                    if param_eval['train_acc'] > best['param_eval']['train_acc']:
+                        if param_eval['val_acc'] - best['param_eval']['val_acc'] < 1:
+                            if (param_eval['train_std'] < best['param_eval'][
+                            'train_std'] and
+                                    best['param_eval']['train_std'] -
+                                    param_eval['train_std'] > 1):
+                                best['param_eval'] = param_eval
+                                best['models'] = models
+                                best['dfs'] = dfs
+                                best['batch_size'] = param_space['batch_size'][
+                                    bs_ind]
+                                best['lr'] = param_space['lr'][lr_ind]
+                        else:
+                            best['param_eval'] = param_eval
+                            best['models'] = models
+                            best['dfs'] = dfs
+                            best['batch_size'] = param_space['batch_size'][bs_ind]
+                            best['lr'] = param_space['lr'][lr_ind]
+                else:
+                    best['param_eval'] = param_eval
+                    best['models'] = models
+                    best['dfs'] = dfs
+                    best['batch_size'] = param_space['batch_size'][bs_ind]
+                    best['lr'] = param_space['lr'][lr_ind]
 
         # -------------------------- treat results -------------------------- #
 

@@ -230,14 +230,18 @@ def main():
                             param_dir = f'{sim_path.rpartition("/")[0]}/../..'
                             bash_cmd = (
                                 f'{sim_path} --tree {tree_in_path} '
-                                f'--profiles {param_dir}/263SelectedProfiles.tsv '
+                                f'--profiles {param_dir}/263-hogenom-profiles.tsv '
                                 f'--wag {param_dir}/wag.dat '
+                                f'--profile-weights {param_dir}/263-hogenom-weights.csv '
                                 f'-o {fasta_out_path} '
                                 f'--mu 0.0 --lambda 0.0 '
                                 f'--nsites {str(seq_lens[i])}')
 
                         process = subprocess.Popen(bash_cmd, shell=True,
                                                    stdout=subprocess.PIPE)
+
+                        print(f'Executed: \n "{bash_cmd}"')
+
                         output, error = process.communicate()
 
                         process.wait()
