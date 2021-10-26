@@ -121,7 +121,7 @@ def main():
     out_path = args.outdir
 
     if not os.path.exists(out_path):
-        if out_path.rpartition('.')[0] != '':  # is file
+        if out_path.rpartition('/')[-1].rpartition('.')[0] != '':  # is file
             os.makedirs(out_path.rpartition('.')[0])
             print(out_path.rpartition('.')[0])
         else:
@@ -181,8 +181,14 @@ def main():
                                     sim_path)
 
         if os.path.isdir(in_path):
-
-            tree_files = os.listdir(in_path)
+            if os.path.exists(f'{in_path}_filenames.txt'):
+                tree_files = []
+                with open(f'{in_path}_filenames.txt') as filenames:
+                    for name in filenames:
+                        tree_files.append(name[:-1])
+                print(f'Loaded tree files from {in_path}_filenames.txt')
+            else:
+                tree_files = os.listdir(in_path)
 
             seq_lens = None
             aa_freqs = None
@@ -228,6 +234,11 @@ def main():
                                         f'< {tree_in_path} > {fasta_out_path}')
                         elif sim_path.rpartition('/')[2] == 'simulator.exe':
                             param_dir = f'{sim_path.rpartition("/")[0]}/../..'
+
+                            # only one profile that are aa freqs of aln
+                            #np.savetxt(f'{param_dir}/profile.tsv',
+                            #           aa_freqs[i][:20].T, delimiter='\t')
+
                             bash_cmd = (
                                 f'{sim_path} --tree {tree_in_path} '
                                 f'--profiles {param_dir}/263-hogenom-profiles.tsv '

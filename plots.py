@@ -1,12 +1,12 @@
 import os
 
 import numpy as np
-import matplotlib.pylab as plt
-import matplotlib
+from matplotlib import pylab as plt
+# import matplotlib
 
 from utils import extract_accuary_loss
 
-matplotlib.use("Agg")
+# matplotlib.use("Agg")
 
 
 def plot_folds(train_history_folds, val_history_folds, std=True,
@@ -234,10 +234,10 @@ def plot_weights(model_path, config_path):
         sub_fig.savefig(f'{model_path}/weights/{aa}.png')
 
 """
-real_fasta_path = '/home/jtrost/beegfs/fasta_no_gaps'
-sim_fasta_path = '/home/jtrost/beegfs/ocaml_sim_fasta_1'
+real_fasta_path = '/mnt/Clusterdata/fasta_no_gaps'
+sim_fasta_path = '../../data/ocaml_fasta_263hog_w1p'
 
-config_path = '/home/jtrost/beegfs/mlaa/configs/config.json'
+config_path = '/mnt/Clusterdata/mlaa/configs/config.json'
 
 config = read_config_file(config_path)
 
@@ -245,32 +245,58 @@ alns,_,_ = raw_alns_prepro([real_fasta_path,sim_fasta_path], config['data'])
 
 real_alns, sim_alns = alns
 
-real_aa = np.array(get_aa_freqs(real_alns, dict=False)).T
-sim_aa = np.array(get_aa_freqs(sim_alns, dict=False)).T
+#real_aa = np.array(get_aa_freqs(real_alns, dict=False, gaps=False))
+#sim_aa = np.array(get_aa_freqs(sim_alns, dict=False, gaps=False))
 
-aa = list('ARNDCQEGHILKMFPSTWYVX-') + ['other']
-i = 0
-for r, s in zip(real_aa, sim_aa):
-    plot_hist_quantiles([r, s], labels = [f'real({aa[i]})', f'sim({aa[i]})'], path=f'freqs_comp/freqs-{aa[i]}.png')
-    i += 1
+aas = list('ARNDCQEGHILKMFPSTWYVX') + ['other']
+#i = 0
+#for r, s in zip(real_aa, sim_aa):
+#    plot_hist_quantiles([r, s], labels = [f'real({aa[i]})', f'sim({aa[i]})'], path=f'freqs_comp/freqs-{aa[i]}.png')
+#    i += 1
     
-real_aa_avg = np.mean(real_aa, axis=1)
-sim_aa_avg = np.mean(sim_aa, axis=1)
+#real_aa_avg = np.mean(real_aa, axis=1)
+#sim_aa_avg = np.mean(sim_aa, axis=1)
 
-x = np.arange(len(aa))  # the label locations
-width = 0.35  # the width of the bars
+# get total aa frequencies
+real_sim_freqs = []
+for aligns in alns:
+    freqs = np.zeros(22)
+    for aln in aligns:
+        for seq in aln:
+            for i, aa in enumerate(aas):
+                freqs[i] += seq.count(aa)
+            freqs[-1] += (seq.count('B') + seq.count('Z') + seq.count('J') +
+                          seq.count('U') + seq.count('O'))
+
+    freqs /= np.sum(freqs)
+    # limit to 6 digits after the comma
+    freqs = np.floor(np.asarray(freqs) * 10 ** 6) / 10 ** 6
+    real_sim_freqs.append(freqs)
+
+real_aa, sim_aa = real_sim_freqs
+
+# aa freqs from weighted sum
+profiles = np.genfromtxt('profiles_weights/263-hogenom-profiles.tsv', delimiter='\t')
+weights = np.genfromtxt('profiles_weights/263-hogenom-weights.csv', delimiter=',')
+wp = np.dot(profiles, weights)
+wp = np.concatenate((wp, [0., 0.]))
+
+x = np.arange(len(aas))  # the label locations
+width = 0.25  # the width of the bars
 
 fig, ax = plt.subplots()
-rects1 = ax.bar(x - width/2, real_aa_avg, width, label='real')
-rects2 = ax.bar(x + width/2, sim_aa_avg, width, label='sim')
+rects1 = ax.bar(x - width, real_freqs, width, label='real')
+#rects3 = ax.bar(x, freqs, width, label='sim')
+rects2 = ax.bar(x, bloom_aa, width, label='bloom\nprofiles*weights')
+
 
 # Add some text for labels, title and custom x-axis tick labels, etc.
-ax.set_ylabel('avg frequency')
+ax.set_ylabel('aa frequency')
 ax.set_xticks(x)
-ax.set_xticklabels(aa)
+ax.set_xticklabels(aas)
 ax.legend()
 
 fig.tight_layout()
 
-plt.savefig('freqs_distr_ocaml_vs_real/bar.png')
+plt.savefig('freqs_distr_ocaml_vs_real/bar_bloom_real.png')
 """

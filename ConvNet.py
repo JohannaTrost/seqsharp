@@ -4,12 +4,13 @@
 """
 
 from numpy import floor
+from matplotlib import pylab as plt
+
 import torch
 import torch.nn as nn
-import matplotlib
+# import matplotlib
 
-matplotlib.use('Agg')
-import matplotlib.pylab as plt
+# matplotlib.use('Agg')
 
 compute_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
