@@ -8,6 +8,7 @@ from matplotlib import pylab as plt
 
 import torch
 import torch.nn as nn
+
 # import matplotlib
 
 # matplotlib.use('Agg')
@@ -90,10 +91,12 @@ class ConvNet(nn.Module):
         """
 
         super(ConvNet, self).__init__()
-        """
-        if p['do_maxpool']:
+
+        if p['do_maxpool'] == 1:
             out_size = (int(p['input_size'] / 2 ** p['nb_conv_layer']) *
                         p['nb_chnls'] * 2 ** p['nb_conv_layer'])
+        elif p['do_maxpool'] == 2:  # global max pooling
+            out_size = p['nb_chnls'] * 2 ** p['nb_conv_layer']
         else:
             out_size = p['input_size'] * (
                     p['nb_chnls'] * 2 ** p['nb_conv_layer'])
@@ -108,8 +111,12 @@ class ConvNet(nn.Module):
 
             self.conv_layers += [conv1d, nn.ReLU()]
 
-            if p['do_maxpool']:  # down sampling
+            if p['do_maxpool'] == 1:  # down sampling
                 self.conv_layers.append(nn.MaxPool1d(kernel_size=2, stride=2))
+
+        if p['do_maxpool'] == 2:  # global pooling
+            self.conv_layers.append(nn.MaxPool1d(kernel_size=p['input_size'],
+                                                 stride=1))
 
         self.conv_layers = (nn.Sequential(*self.conv_layers)
                             if p['nb_conv_layer'] > 0 else None)
@@ -119,38 +126,8 @@ class ConvNet(nn.Module):
             self.drop_out = None
         else:
             self.drop_out = nn.Dropout(p=0.25)
-        """
-        self.conv_layers = (
-            nn.Sequential
-            (
-                nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
-                          kernel_size=p['kernel_size'], stride=1,
-                          padding=p['kernel_size'] // 2),
-                nn.ReLU(),
-                nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
-                          kernel_size=p['kernel_size'], stride=1,
-                          padding=p['kernel_size'] // 2),
-                nn.ReLU(),
-                nn.MaxPool1d(kernel_size=2, stride=2),
-                nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
-                          kernel_size=p['kernel_size'], stride=1,
-                          padding=p['kernel_size'] // 2),
-                nn.ReLU(),
-                nn.Conv1d(p['nb_chnls'], p['nb_chnls'] * 2,
-                          kernel_size=p['kernel_size'], stride=1,
-                          padding=p['kernel_size'] // 2),
-                nn.ReLU(),
-                nn.Conv1d(p['nb_chnls'] * 2, p['nb_chnls'] * 2,
-                          kernel_size=p['kernel_size'], stride=1,
-                          padding=p['kernel_size'] // 2),
-                nn.ReLU(),
-                nn.MaxPool1d(kernel_size=2, stride=2),
-            )
-        )
-        self.drop_out = nn.Dropout(p=0.25)
 
         # fully connected layer(s)
-        out_size = int(p['input_size'] / 4) * p['nb_chnls'] * 2
         self.lin_layers = []
         for i in range(max(p['nb_lin_layer'] - 1, 0)):
             self.lin_layers.append(nn.Linear(out_size, out_size // 2))
@@ -272,3 +249,37 @@ def accuracy(outputs, labels):
     preds = torch.round(torch.flatten(torch.sigmoid(outputs))).to(
         compute_device)
     return torch.tensor((torch.sum(preds == labels).item() / len(preds)))
+
+
+"""
+other arch.
+self.conv_layers = (
+    nn.Sequential
+    (
+        nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
+                  kernel_size=p['kernel_size'], stride=1,
+                  padding=p['kernel_size'] // 2),
+        nn.ReLU(),
+        nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
+                  kernel_size=p['kernel_size'], stride=1,
+                  padding=p['kernel_size'] // 2),
+        nn.ReLU(),
+        nn.MaxPool1d(kernel_size=2, stride=2),
+        nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
+                  kernel_size=p['kernel_size'], stride=1,
+                  padding=p['kernel_size'] // 2),
+        nn.ReLU(),
+        nn.Conv1d(p['nb_chnls'], p['nb_chnls'] * 2,
+                  kernel_size=p['kernel_size'], stride=1,
+                  padding=p['kernel_size'] // 2),
+        nn.ReLU(),
+        nn.Conv1d(p['nb_chnls'] * 2, p['nb_chnls'] * 2,
+                  kernel_size=p['kernel_size'], stride=1,
+                  padding=p['kernel_size'] // 2),
+        nn.ReLU(),
+        nn.MaxPool1d(kernel_size=2, stride=2),
+    )
+)
+self.drop_out = nn.Dropout(p=0.25)
+out_size = int(p['input_size'] / 4) * p['nb_chnls'] * 2
+"""
