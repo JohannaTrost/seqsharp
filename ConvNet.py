@@ -92,6 +92,7 @@ class ConvNet(nn.Module):
 
         super(ConvNet, self).__init__()
 
+        # determine output size after conv. layers (input size for lin. layer)
         if p['do_maxpool'] == 1:
             out_size = (int(p['input_size'] / 2 ** p['nb_conv_layer']) *
                         p['nb_chnls'] * 2 ** p['nb_conv_layer'])
@@ -114,6 +115,8 @@ class ConvNet(nn.Module):
             if p['do_maxpool'] == 1:  # down sampling
                 self.conv_layers.append(nn.MaxPool1d(kernel_size=2, stride=2))
 
+        self.conv_layers.append(nn.Dropout(p=0.25))
+
         if p['do_maxpool'] == 2:  # global pooling
             self.conv_layers.append(nn.MaxPool1d(kernel_size=p['input_size'],
                                                  stride=1))
@@ -121,17 +124,23 @@ class ConvNet(nn.Module):
         self.conv_layers = (nn.Sequential(*self.conv_layers)
                             if p['nb_conv_layer'] > 0 else None)
 
-        if (p['nb_conv_layer'] == 0 or
-                (p['nb_conv_layer'] == 1 and p['kernel_size'] == 1)):
-            self.drop_out = None
-        else:
-            self.drop_out = nn.Dropout(p=0.25)
-
         # fully connected layer(s)
         self.lin_layers = []
-        for i in range(max(p['nb_lin_layer'] - 1, 0)):
-            self.lin_layers.append(nn.Linear(out_size, out_size // 2))
+        nb_lin_layers = p['nb_lin_layer']
+
+        if nb_lin_layers > 2:
+            # if at least 3 lin layers have a first "input layer" with same
+            # number of output nodes and dropout
+            self.lin_layers += [nn.Linear(out_size, out_size),
+                                nn.ReLU(),
+                                nn.Dropout(0.25)]
+            nb_lin_layers -= 1
+
+        for i in range(max(nb_lin_layers - 1, 0)):
+            self.lin_layers += [nn.Linear(out_size, out_size // 2),
+                                nn.ReLU()]
             out_size = out_size // 2
+
         self.lin_layers.append(nn.Linear(out_size, 1))
 
         self.lin_layers = nn.Sequential(*self.lin_layers)
@@ -147,10 +156,8 @@ class ConvNet(nn.Module):
         else:
             out = x.view(x.shape[0], -1)
 
-        if self.drop_out is not None:
-            out = self.drop_out(out)
-
         out = self.lin_layers(out)
+
         return out
 
     def training_step(self, batch):
