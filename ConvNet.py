@@ -92,21 +92,25 @@ class ConvNet(nn.Module):
 
         super(ConvNet, self).__init__()
 
+        # number of filters/features per conv. layer
+        nb_features = [p['nb_chnls']] + [p['nb_chnls'] * (2 ** i)
+                                         for i in
+                                         range(1, p['nb_conv_layer'] + 1)]
+
         # determine output size after conv. layers (input size for lin. layer)
         if p['do_maxpool'] == 1:
             out_size = (int(p['input_size'] / 2 ** p['nb_conv_layer']) *
-                        p['nb_chnls'] * 2 ** p['nb_conv_layer'])
+                        nb_features[-1])
         elif p['do_maxpool'] == 2:  # global max pooling
-            out_size = p['nb_chnls'] * 2 ** p['nb_conv_layer']
-        else:
-            out_size = p['input_size'] * (
-                    p['nb_chnls'] * 2 ** p['nb_conv_layer'])
+            out_size = nb_features[-1]
+        else:  # no pooling
+            out_size = p['input_size'] * nb_features[-1]
 
         # convolutional layers
         self.conv_layers = []
         for i in range(p['nb_conv_layer']):
-            conv1d = nn.Conv1d(p['nb_chnls'] * (2 ** i),
-                               p['nb_chnls'] * (2 ** (i + 1)),
+            conv1d = nn.Conv1d(nb_features[i],
+                               nb_features[i + 1],
                                kernel_size=p['kernel_size'], stride=1,
                                padding=p['kernel_size'] // 2)
 
@@ -115,9 +119,9 @@ class ConvNet(nn.Module):
             if p['do_maxpool'] == 1:  # down sampling
                 self.conv_layers.append(nn.MaxPool1d(kernel_size=2, stride=2))
 
-        self.conv_layers.append(nn.Dropout(p=0.25))
+        self.conv_layers.append(nn.Dropout(0.25))
 
-        if p['do_maxpool'] == 2:  # global pooling
+        if p['do_maxpool'] == 2 and p['nb_lin_layer'] > 0:  # global pooling
             self.conv_layers.append(nn.MaxPool1d(kernel_size=p['input_size'],
                                                  stride=1))
 
@@ -141,22 +145,27 @@ class ConvNet(nn.Module):
                                 nn.ReLU()]
             out_size = out_size // 2
 
-        self.lin_layers.append(nn.Linear(out_size, 1))
+        if nb_lin_layers > 0:
+            self.lin_layers.append(nn.Linear(out_size, 1))
 
-        self.lin_layers = nn.Sequential(*self.lin_layers)
+        self.lin_layers = (nn.Sequential(*self.lin_layers)
+                           if p['nb_lin_layer'] > 0 else None)
 
         self.train_history = []
         self.val_history = []
 
     def forward(self, x):
-        # out = self.inpt(x)
         if self.conv_layers is not None:
             out = self.conv_layers(x)
             out = out.reshape(out.size(0), -1)  # flattening
         else:
             out = x.view(x.shape[0], -1)
 
-        out = self.lin_layers(out)
+        if self.lin_layers is not None:
+            out = self.lin_layers(out)
+        else:  # global max-pooling instead of a linear layer
+            global_maxpool = nn.AdaptiveMaxPool1d(1)
+            out = global_maxpool(out.unsqueeze(0))
 
         return out
 
