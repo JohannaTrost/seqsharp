@@ -1,7 +1,7 @@
 numpy==1.19.0
 matplotlib
 pandas==1.2.4
-torch
+torch==1.8.1
 scikit-learn
 psutil
 biopython
