@@ -93,7 +93,7 @@ class ConvNet(nn.Module):
         super(ConvNet, self).__init__()
 
         # number of filters/features per conv. layer
-        nb_features = [p['nb_chnls']] + [p['nb_chnls'] * (2 ** i)
+        nb_features = [p['nb_chnls']] + [p['nb_chnls'] * (2 ** i) * 2
                                          for i in
                                          range(1, p['nb_conv_layer'] + 1)]
 
@@ -121,7 +121,7 @@ class ConvNet(nn.Module):
 
         self.conv_layers.append(nn.Dropout(0.25))
 
-        if p['do_maxpool'] == 2 and p['nb_lin_layer'] > 0:  # global pooling
+        if p['do_maxpool'] == 2 and p['nb_conv_layer'] > 0:  # global pooling
             self.conv_layers.append(nn.MaxPool1d(kernel_size=p['input_size'],
                                                  stride=1))
 
@@ -163,9 +163,9 @@ class ConvNet(nn.Module):
 
         if self.lin_layers is not None:
             out = self.lin_layers(out)
-        else:  # global max-pooling instead of a linear layer
-            global_maxpool = nn.AdaptiveMaxPool1d(1)
-            out = global_maxpool(out.unsqueeze(0))
+        else:  # global avg-pooling instead of a linear layer
+            global_avgpool = nn.AdaptiveAvgPool1d(1)
+            out = global_avgpool(out.unsqueeze(0))
 
         return out
 
