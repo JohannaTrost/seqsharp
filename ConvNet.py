@@ -151,6 +151,9 @@ class ConvNet(nn.Module):
         self.lin_layers = (nn.Sequential(*self.lin_layers)
                            if p['nb_lin_layer'] > 0 else None)
 
+        self.global_avgpool = (nn.AdaptiveAvgPool1d(1)
+                               if p['nb_lin_layer'] == 0 else None)
+
         self.train_history = []
         self.val_history = []
 
@@ -164,8 +167,7 @@ class ConvNet(nn.Module):
         if self.lin_layers is not None:
             out = self.lin_layers(out)
         else:  # global avg-pooling instead of a linear layer
-            global_avgpool = nn.AdaptiveAvgPool1d(1)
-            out = global_avgpool(out.unsqueeze(0))
+            out = self.global_avgpool(out.unsqueeze(0))
 
         return out
 
@@ -225,7 +227,7 @@ class ConvNet(nn.Module):
             axs[0].plot(accuracies_train, '-x', label='training',
                         color=train_col)
             axs[0].plot(accuracies_val, '-x', label='validation', color=val_col)
-            axs[0].set_ylim([floor(plt.ylim()[0] * 100) / 100, 1.0])
+            # axs[0].set_ylim([floor(plt.ylim()[0] * 100) / 100, 1.0])
             axs[0].set_xlabel('epoch')
             axs[0].set_ylabel('accuracy')
             axs[0].set_title(f'Accuracy vs. No. of epochs')
