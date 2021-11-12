@@ -93,9 +93,14 @@ class ConvNet(nn.Module):
         super(ConvNet, self).__init__()
 
         # number of filters/features per conv. layer
-        nb_features = [p['nb_chnls']] + [p['nb_chnls'] * (2 ** i) * 2
-                                         for i in
-                                         range(1, p['nb_conv_layer'] + 1)]
+        if p['kernel_size'] == 0:
+            nb_features = [p['nb_chnls']] + [p['nb_chnls'] * (2 ** i) * 5
+                                             for i in
+                                             range(1, p['nb_conv_layer'] + 1)]
+        else:
+            nb_features = [p['nb_chnls']] + [p['nb_chnls'] * (2 ** i) * 2
+                                             for i in
+                                             range(1, p['nb_conv_layer'] + 1)]
 
         # determine output size after conv. layers (input size for lin. layer)
         if p['do_maxpool'] == 1:
