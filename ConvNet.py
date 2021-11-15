@@ -95,7 +95,7 @@ class ConvNet(nn.Module):
         # number of filters/features per conv. layer
         nb_features = [p['nb_chnls']]
         for i in range(1, p['nb_conv_layer'] + 1):
-            if p['kernel_size'] == 0:
+            if p['kernel_size'] == 1:
                 #  achieve nb. of parameters similar to nb. when kernel size 5
                 nb_features.append(p['nb_chnls'] * (2 ** i) * 5)
             else:
