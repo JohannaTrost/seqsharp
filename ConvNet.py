@@ -93,17 +93,12 @@ class ConvNet(nn.Module):
         super(ConvNet, self).__init__()
 
         # number of filters/features per conv. layer
-        nb_features = [p['nb_chnls']]
-        for i in range(1, p['nb_conv_layer'] + 1):
-            if p['kernel_size'] == 1:
-                #  achieve nb. of parameters similar to nb. when kernel size 5
-                nb_features.append(p['nb_chnls'] * (2 ** i) * 5)
-            else:
-                nb_features.append(p['nb_chnls'] * (2 ** i))
+        nb_features = p['channels']
+        nb_conv_layer = len(p['channels']) - 1
 
         # determine output size after conv. layers (input size for lin. layer)
         if p['do_maxpool'] == 1:
-            out_size = (int(p['input_size'] / 2 ** p['nb_conv_layer']) *
+            out_size = (int(p['input_size'] / 2 ** nb_conv_layer) *
                         nb_features[-1])
         elif p['do_maxpool'] == 2:  # global max pooling
             out_size = nb_features[-1]
@@ -112,7 +107,7 @@ class ConvNet(nn.Module):
 
         # convolutional layers
         self.conv_layers = []
-        for i in range(p['nb_conv_layer']):
+        for i in range(nb_conv_layer):
             conv1d = nn.Conv1d(nb_features[i],
                                nb_features[i + 1],
                                kernel_size=p['kernel_size'], stride=1,
@@ -125,12 +120,12 @@ class ConvNet(nn.Module):
 
         self.conv_layers.append(nn.Dropout(0.25))
 
-        if p['do_maxpool'] == 2 and p['nb_conv_layer'] > 0:  # global pooling
+        if p['do_maxpool'] == 2 and nb_conv_layer > 0:  # global pooling
             self.conv_layers.append(nn.MaxPool1d(kernel_size=p['input_size'],
                                                  stride=1))
 
         self.conv_layers = (nn.Sequential(*self.conv_layers)
-                            if p['nb_conv_layer'] > 0 else None)
+                            if nb_conv_layer > 0 else None)
 
         # fully connected layer(s)
         self.lin_layers = []
