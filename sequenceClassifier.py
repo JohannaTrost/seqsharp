@@ -477,7 +477,7 @@ def main():
                                                        config['data'],
                                                        take_quantiles=False)
 
-        alns = get_representations(alns, fastas, config['data'], pairs)
+        alns = get_representations(alns, fastas, config['data'], pairs)[0]
 
         # ------------------ load and evaluate model(s) ------------------- #
 
