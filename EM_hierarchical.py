@@ -119,30 +119,6 @@ def eval_preds(profiles, profiles_weights, gamma, profiles_pred, weights_pred,
     return acc, mse_profiles, mse_weights
 
 
-def dice(prob_lst, rolls=100, trials=100):
-    data = []
-    for probs in prob_lst:
-        base = 1
-        for ip in set([1 / p for p in probs]):
-            base *= ip
-        vals = sum([[n + 1] * int(base * p) for n, p in enumerate(probs)], [])
-        len_vals = len(vals)
-        mult = 1 if rolls // len_vals == 0 else rolls // len_vals + 1
-        vals *= mult
-        random.shuffle(vals)
-        vals = vals[:rolls]
-        noise = 0.05
-        newdata = (np.atleast_2d(
-            [[vals.count(val) for val in set(vals)]] * trials) *
-                   (1 - (np.random.random((trials, 6)) * noise))).astype(int)
-
-        if len(data) > 1:
-            data = np.concatenate((data, newdata))
-        else:
-            data = newdata + 0
-    return data
-
-
 class MultinomialExpectationMaximizer:
     def __init__(self, C, K, rtol=1e-3, max_iter=100, restarts=10):
         self._n_clusters = C
@@ -430,7 +406,7 @@ print(f'{n_trials} trials\n{n_alns} MSAs\n{n_seqs} sequences per MSA\n'
       f'{n_clusters} clusters \n{n_profiles} profiles\n')
 
 # in evaluation values
-accs = np.zeros((n_trials))
+accs = np.zeros((n_trials, 2))
 # mses_profiles = np.zeros((n_trials))
 # mses_weights = np.zeros((n_trials))
 
@@ -458,18 +434,31 @@ for i in range(n_trials):
                           profiles)
     em_profile_choice = [gamma[i][:, cluster_choices[i], :].argmax(axis=-1) for
                          i in range(n_alns)]
-    accs_per_aln = [(profile_choices[i] == em_profile_choice[i]).sum() / n_sites
-                    for i in range(n_alns)]
-    print(f'\nMSAs mean acc. : {np.mean(accs_per_aln)}')
-    print(f'min acc. : {np.min(accs_per_aln)}')
-    print(f'max acc. : {np.max(accs_per_aln)}')
 
-    accs[i] = np.mean(accs_per_aln)
+    accs_site_prof = [(profile_choices[i] == em_profile_choice[i]).sum() /
+                      n_sites for i in range(n_alns)]
+    accs_aln_cluster = [(gamma[i].sum(axis=2).argmax(axis=1) ==
+                         cluster_choices[i]).sum() / n_sites
+                        for i in range(n_alns)]
+
+    print(f'\nSite-profile-association accuracy')
+    print(f'\t avg. : {np.mean(accs_site_prof)}')
+    print(f'\tmin. : {np.min(accs_site_prof)}')
+    print(f'\tmax. : {np.max(accs_site_prof)}')
+    print(f'MSA-cluster-association avg. accuracy : '
+          f'{np.mean(accs_aln_cluster)}\n')
+
+    accs[i] = np.asarray([np.mean(accs_site_prof), np.mean(accs_aln_cluster)])
 
 print(f'\n--------- FOR {n_trials} TRIALS ---------')
-print(f'mean acc. : {np.mean(accs)}')
-print(f'min trial acc. : {np.min(accs)}')
-print(f'max trial acc. : {np.max(accs)}')
+print(f'MSA-cluster-association accuracy : ')
+print(f'\t avg.{accs[:,1].mean()}')
+print(f'\t min.{accs[:,1].min()}')
+print(f'\t max.{accs[:,1].max()}')
+print(f'Site-profile-association accuracy : ')
+print(f'\t avg.{accs[:,0].mean()}')
+print(f'\t min.{accs[:,0].min()}')
+print(f'\t max.{accs[:,0].max()}')
 
 """
     best_train_loss, best_alpha, best_beta, best_gamma = model.fit(
