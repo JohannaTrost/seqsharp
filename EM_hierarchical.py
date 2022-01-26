@@ -1,5 +1,6 @@
 import os
 import time
+from itertools import permutations
 
 from scipy.stats import multinomial, dirichlet
 from matplotlib import pylab as plt
@@ -70,12 +71,12 @@ def generate_msa_aa_counts(n_alns, n_seqs, n_sites, profiles, profiles_weights,
         aln = np.zeros((n_sites, n_aas), dtype=int)
         for j in range(n_sites):
             # pick amino acids
-            site_profile = profiles[profile_indices[j]]
-            aln[j] = np.round(site_profile * n_seqs, 0).astype(int)
-            # aa_indices = np.random.choice(n_aas, size=n_seqs,
-            #                               p=profiles[profile_indices[j]])
-            # aln[j] = np.bincount(np.sort(aa_indices),
-            #                      minlength=n_aas)  # counts
+            #site_profile = profiles[profile_indices[j]]
+            #aln[j] = np.round(site_profile * n_seqs, 0).astype(int)
+            aa_indices = np.random.choice(n_aas, size=n_seqs,
+                                          p=profiles[profile_indices[j]])
+            aln[j] = np.bincount(np.sort(aa_indices),
+                                 minlength=n_aas)  # counts
 
         profile_choices.append(profile_indices)
         alns.append(aln)
@@ -150,59 +151,6 @@ class MultinomialExpectationMaximizer:
         classification_entropy = -(np.log(gamma.max(axis=1))).sum()
         return bic - classification_entropy
 
-    def _remaining_sites_prob(self, counts, n_aas_sites, beta, alpha):
-        n_sites = counts.shape[0]
-        n_profiles = beta.shape[0]
-
-        # mutinomial probabilities for all sites and all profiles
-        probs = [multinomial.pmf(counts, n_aas_sites, profile) * alpha[j]
-                 for j, profile in enumerate(beta)]
-        probs = np.asarray(probs)
-
-        # dynamic computation of probability for all remaining sites
-        memo_mat = np.zeros((n_sites, n_profiles))  # memoization matrix
-        for site in range(len(counts)):
-            prev_sum = memo_mat[site - 1, :].sum() if site > 0 else 1
-            for profile in range(len(beta)):
-                memo_mat[site, profile] = prev_sum * probs[site, profile]
-
-        return memo_mat[-1, :].sum()
-
-    def _multinomial_prob_aln_sites(self, counts, beta, alpha, profile,
-                                    log=False):
-
-        """Evaluates the multinomial probabilities for given sites (aa counts)
-        counts: (N x C), matrix of aa counts per site of one MSA
-        beta: (K x C), vector of multinomial parameters, profiles
-        alpha: (K x C), profile weights for a given cluster
-        profile: (C), index of a profile in beta
-        Returns:
-        p: (N), scalar values for the probabilities of observing each site
-                given a profile
-        """
-        n_sites = len(counts)
-
-        probs_sites = np.zeros((n_sites))
-
-        for j, site in enumerate(counts):
-            sites_mask = np.asarray(range(n_sites)) != j
-            n = site.sum(axis=-1)
-
-            # compute probability per site considering the rest of the alignment
-            other_sites_prob = self._remaining_sites_prob(counts[sites_mask],
-                                                          beta, alpha)
-            if log:
-                site_prob = multinomial.logpmf(site, n, beta[profile])
-                # avoid division by zero
-                if other_sites_prob == 0:
-                    other_sites_prob = np.finfo(float).eps
-                probs_sites[j] = site_prob + np.log(other_sites_prob)
-            else:
-                site_prob = multinomial.pmf(site, n, beta[profile])
-                probs_sites[j] = site_prob * other_sites_prob
-
-        return probs_sites
-
     def _e_step(self, aa_counts, alpha_profiles, alpha_clusters, beta):
         """
         Performs E-step on MNMM model
@@ -239,7 +187,10 @@ class MultinomialExpectationMaximizer:
                 for not_site, sites_mask in enumerate(sites_masks):
                     probs_not_site = sites_profile_probs[:, sites_mask]
                     other_sites_clusters[not_site, c] = np.prod(
-                        probs_not_site.T@alpha_profiles[c, :])
+                        probs_not_site.T @ alpha_profiles[c, :])
+
+                other_sites_clusters[other_sites_clusters[:, c] == 0, c] = \
+                    np.finfo(float).eps
 
                 for k in range(K):
                     aln_weighted_probs[:, c, k] = (sites_profile_probs[k, :]
@@ -286,21 +237,16 @@ class MultinomialExpectationMaximizer:
         return alpha_clusters, alpha_profiles, beta
 
     def _m_step_alpha(self, gamma):
-        # n_sites = np.sum([probs.sum() for probs in gamma])
 
         # average over probabilities per site per cluster
         cluster_weights = np.mean([probs.sum(axis=2).mean(axis=0)
                                    for probs in gamma],
                                   axis=0)
-        # trying to sum in denominator start from a single site !!
-        # for i in range(len(gamma[0])):
-        #     cluster_prob_sum = gamma[i][:, :, :].sum(axis=1)
-        #     clw0 = [[gamma[0][i, j, :] / cl_sum[i] for j in range(n_clusters)]
-        #             for i in range(len(gamma[0]))]
 
         sum_profile_porbs = [probs.sum(axis=2) for probs in gamma]
-        sum_profile_porbs = [np.repeat(probs[:, :, np.newaxis], n_profiles, axis=2)
-                             for probs in sum_profile_porbs]
+        sum_profile_porbs = [
+            np.repeat(probs[:, :, np.newaxis], n_profiles, axis=2)
+            for probs in sum_profile_porbs]
         profile_weights = np.mean(
             [(gamma[i] / sum_profile_porbs[i]).mean(axis=0)
              for i in range(len(gamma))],
@@ -335,15 +281,14 @@ class MultinomialExpectationMaximizer:
         # compute lower bound of full likelihood
         loss = 0
         for i in range(n_alns):
-            cluster_aln_prob = gamma[i].sum(axis=2).mean(axis=0)
-            loss += cluster_aln_prob.T.dot(np.log(cluster_weights))
-
             # P(A_i | v_k) for all sites
             n_aas_site = aa_counts[i].sum(axis=-1)
             sites_profile_probs = [multinomial.pmf(aa_counts[i], n_aas_site,
                                                    beta[k])
                                    for k in range(n_profiles)]
             sites_profile_probs = np.asarray(sites_profile_probs)
+            # avoid division by zero
+            sites_profile_probs[sites_profile_probs == 0] = np.finfo(float).eps
             log_sites_profile_probs = np.log(sites_profile_probs)
 
             # site masks - inverse Eigenmatrix n_sites x n_sites
@@ -359,9 +304,13 @@ class MultinomialExpectationMaximizer:
 
                 for k in range(n_profiles):
                     weights = (gamma[i][:, c, k])
-                    loss += np.sum(weights * log_sites_profile_probs)
-                    loss += np.sum(weights * log_other_sites_clusters[:, c])
-                    loss += np.sum(weights * np.log(alpha_profiles[c, k]))
+                    loss += np.sum(weights *
+                                   (log_sites_profile_probs[k]
+                                    + log_other_sites_clusters[:, c]
+                                    + np.log(alpha_profiles[c, k])
+                                    + np.log(alpha_clusters[c])))
+                    loss -= np.sum(weights * np.log(weights))
+
         return loss
 
     def _init_params(self, X):
@@ -403,22 +352,18 @@ class MultinomialExpectationMaximizer:
         else:
             beta, alpha_profiles, alpha_clusters = init_qpv
 
-        loss = -float('inf')
-        mae_cluster_weights = float('inf')
-        mae_profile_weights = float('inf')
-        mae_profiles = float('inf')
         gamma = None
         losses = []
-        maes = {'cl.w.': [], 'pro.w.': [], 'pro.': []}
+        parameters = []
 
         for it in range(self._max_iter):
-
             print(it)
 
-            prev_loss = loss
-            prev_mae_cluster_weights = mae_cluster_weights
-            prev_mae_profile_weights = mae_profile_weights
-            prev_mae_profiles = mae_profiles
+            # beta = target_profiles
+            alpha_profiles = target_alpha_profiles
+            alpha_clusters = target_alpha_clusters
+
+            parameters.append([alpha_clusters, alpha_profiles, beta])
 
             gamma = self._e_step(alns_aa_counts, alpha_profiles, alpha_clusters,
                                  beta)
@@ -430,40 +375,14 @@ class MultinomialExpectationMaximizer:
             loss = self._compute_vlb_fl(alns_aa_counts, alpha_clusters,
                                         alpha_profiles, beta, gamma)
 
-            mae_cluster_weights = np.abs(target_alpha_clusters
-                                         - alpha_clusters).mean()
-            mae_profile_weights = np.abs(target_alpha_profiles
-                                         - alpha_profiles).mean()
-            mae_profiles = np.abs(target_profiles - beta).mean()
-
-            if loss < prev_loss:
-                print(f'loss ({loss}) < prev_loss ({prev_loss})')
-            if mae_cluster_weights > prev_mae_cluster_weights:
-                print(f'cl.w.mae ({mae_cluster_weights}) > prev.cl.w.mae '
-                      f'({prev_mae_cluster_weights})')
-            if mae_profile_weights > prev_mae_profile_weights:
-                print(
-                    f'pro.w.mae. ({mae_profile_weights}) > prev.pro.w.mae ({prev_mae_profile_weights})')
-            if mae_profiles > prev_mae_profiles:
-                print(
-                    f'pro.mae ({mae_profiles}) > prev.pro.mae ({prev_mae_profiles})')
-
             losses.append(loss)
-            maes['cl.w.'].append(mae_cluster_weights)
-            maes['pro.w.'].append(mae_profile_weights)
-            maes['pro.'].append(mae_profiles)
 
-            print('Loss: %f' % loss)
+            print(f'Loss: {loss}')
             # if it > 0 and np.abs((prev_loss - loss) / prev_loss) < self._rtol:
             #     print(f'Finished after {it + 1} training cycles')
             #     break
 
-        maes['cl.w.'] = np.asarray(maes['cl.w.'])
-        maes['pro.w.'] = np.asarray(maes['pro.w.'])
-        maes['pro.'] = np.asarray(maes['pro.'])
-
-        return alpha_clusters, alpha_profiles, beta, gamma, np.asarray(
-            losses), maes
+        return parameters, gamma, np.asarray(losses)
 
     def fit(self, alns_aa_counts, profiles, target_alpha_profiles,
             target_alpha_clusters):
@@ -489,9 +408,9 @@ class MultinomialExpectationMaximizer:
 
         for it in range(self._restarts):
             print('iteration %i' % it)
-            alpha_cluster, alpha_profiles, beta, gamma, loss, maes = \
-                self._train_once(alns_aa_counts, profiles,
-                                 target_alpha_profiles, target_alpha_clusters)
+            estimates, gamma, loss = self._train_once(alns_aa_counts, profiles,
+                                                      target_alpha_profiles,
+                                                      target_alpha_clusters)
 
             if maes['cluster'][-1] < best_mae_cluster:
                 print(
@@ -523,14 +442,15 @@ class MultinomialExpectationMaximizer:
 
 
 # init simulation parameters
-n_sim = 10
+n_sim = 1
 n_trials = 5
-n_alns = 50
+max_iter = 15
+n_alns = 100
 n_seqs = 100
-n_clusters = 3
-n_profiles = 6
+n_clusters = 2
+n_profiles = 4
 n_sites = 30
-n_aas = 4
+n_aas = 6
 
 print(f'{n_sim} simulations\n{n_trials} trials\n{n_alns} MSAs\n{n_seqs} '
       f'sequences per MSA\n{n_sites} sites per MSA\n{n_aas} amino acids\n'
@@ -550,19 +470,37 @@ for ind_sim in range(n_sim):
     np.random.seed(ind_sim)
 
     # geneate profiles and weights
-    profiles, profiles_weights, cluster_weights = init_params(n_aas,
-                                                              n_profiles,
-                                                              n_clusters,
-                                                              n_sites)
+    # profiles, profiles_weights, cluster_weights = init_params(n_aas,
+    #                                                          n_profiles,
+    #                                                          n_clusters,
+    #                                                          n_sites)
+    cluster_weights = np.asarray([0.2, 0.8])
+    profiles_weights = np.asarray([[1 / 2, 1 / 4, 1 / 8, 1 / 8],
+                                  [1 / 4, 1 / 4, 1 / 4, 1 / 4]])
+    profiles = np.asarray([[1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6],
+                           [0.005, 0.005, 0.005, 0.005, 0.49, 0.49],
+                           [0.2, 0.1, 0.2, 0.15, 0.2, 0.15],
+                           [0.02, 0.02, 0.9, 0.02, 0.02, 0.02]])
+
     # generate alignments
     simulation = generate_msa_aa_counts(n_alns, n_seqs, n_sites, profiles,
                                         profiles_weights, cluster_weights)
+
+    train_aa_counts, profile_choices, cluster_choices = simulation
 
     print('_________________________________________________')
     print(f'Simulation {ind_sim + 1}')
 
     maes_trials = {'cl.w.': [], 'pro.w.': [], 'pro.': []}
     losses_trials = []
+
+    # compute full log-likelihood with given parameters
+    gamma_given_params = model._e_step(train_aa_counts, profiles_weights,
+                                       cluster_weights, profiles)
+    given_params_loss = model._compute_vlb_fl(train_aa_counts,
+                                              cluster_weights,
+                                              profiles_weights, profiles,
+                                              gamma_given_params)
 
     np.random.seed(72)
 
@@ -571,33 +509,42 @@ for ind_sim in range(n_sim):
         print('_________________________________________________')
         print(f'\tTrial {ind_trial + 1}')
 
-        train_aa_counts, profile_choices, cluster_choices = simulation
-
         model = MultinomialExpectationMaximizer(n_clusters, n_profiles,
                                                 restarts=10, rtol=1e-8,
-                                                max_iter=15)
+                                                max_iter=max_iter)
 
-        if ind_trial != 0:
-            alpha_clusters, alpha_profiles, beta, gamma, train_losses, maes = \
-                model._train_once(train_aa_counts, profiles, profiles_weights,
-                                  cluster_weights)
-        else:
+        if ind_trial == 0:
             alpha_clusters = np.ones((n_clusters)) / n_clusters
             alpha_profiles = np.ones((n_clusters, n_profiles)) / n_profiles
             beta = np.ones((n_profiles, n_aas)) / n_aas
             init_qpv = [beta, alpha_profiles, alpha_clusters]
+            estimates, gamma, train_losses = model._train_once(train_aa_counts,
+                                                               profiles,
+                                                               profiles_weights,
+                                                               cluster_weights,
+                                                               init_qpv)
+        elif ind_trial == 1:
+            init_qpv = [profiles, profiles_weights, cluster_weights]
+            estimates, gamma, train_losses = model._train_once(train_aa_counts,
+                                                               profiles,
+                                                               profiles_weights,
+                                                               cluster_weights,
+                                                               init_qpv)
+        else:
+            estimates, gamma, train_losses = model._train_once(train_aa_counts,
+                                                               profiles,
+                                                               profiles_weights,
+                                                               cluster_weights)
 
-            alpha_clusters, alpha_profiles, beta, gamma, train_losses, maes = \
-                model._train_once(train_aa_counts, profiles, profiles_weights,
-                                  cluster_weights, init_qpv)
+        alpha_clusters, alpha_profiles, beta = estimates[-1]
 
         # best_train_loss, best_train_maes, alpha_clusters, alpha_profiles, best_beta, gamma, alphas_cluster, alphas_profiles, gammas = model.fit(
         #    train_aa_counts, profiles, profiles_weights, cluster_weights)
         # test e-step and m-step
-        #gamma = model._e_step(train_aa_counts, profiles_weights, cluster_weights,
+        # gamma = model._e_step(train_aa_counts, profiles_weights, cluster_weights,
         #                       profiles)
-        #alpha_clusters, alpha_profiles, beta = model._m_step(train_aa_counts, gamma)
-
+        # alpha_clusters, alpha_profiles, beta = model._m_step(train_aa_counts, gamma)
+        """
         em_profile_choice = [
             gamma[i][:, cluster_choices[i], :].argmax(axis=-1)
             for i in range(n_alns)]
@@ -608,11 +555,110 @@ for ind_sim in range(n_sim):
         accs_aln_cluster = [(gamma[i].sum(axis=2).argmax(axis=1) ==
                              cluster_choices[i]).sum() / n_sites
                             for i in range(n_alns)]
+        """
+        """
+        # get optimal profile and cluster order
+        # weighted profiles for given profiles and weights
+        weighted_profile_weights = (profiles_weights
+                                    * np.repeat(cluster_weights[:, np.newaxis],
+                                                n_profiles, axis=1))
+        weighted_profiles = profiles * np.repeat(weighted_profile_weights
+                                                 [:, :, np.newaxis],
+                                                 n_aas, axis=2)
 
-        maes_trials['cl.w.'].append(maes['cl.w.'])
-        maes_trials['pro.w.'].append(maes['pro.w.'])
-        maes_trials['pro.'].append(maes['pro.'])
+        # weighted profiles for estimated profiles and weights
+        weighted_alpha_profiles = (alpha_profiles
+                                   * np.repeat(alpha_clusters[:, np.newaxis],
+                                               n_profiles, axis=1))
+        weighted_beta = beta * np.repeat(weighted_alpha_profiles
+                                         [:, :, np.newaxis],
+                                         n_aas, axis=2)
+
+        # find best cluster and profile order to match given parameters
+        clusters_inds = list(range(n_clusters))
+        clusters_permuts = np.asarray(list(set(permutations(clusters_inds))))
+        profiles_inds = list(range(n_profiles))
+        profiles_permuts = np.asarray(list(set(permutations(profiles_inds))))
+
+        best_mae_weighted_profiles = np.inf
+        best_cluster_order = None
+        best_profile_order = None
+        for cluster_order in clusters_permuts:
+            reorderd_params = weighted_beta[cluster_order]
+            for profile_order in profiles_permuts:
+                rep_order = np.repeat(profile_order[np.newaxis],
+                                      n_clusters, axis=0)
+                rep_order = np.repeat(rep_order[:, :, np.newaxis], n_aas,
+                                      axis=2)
+                reorderd_params = np.take_along_axis(reorderd_params, rep_order,
+                                                     axis=1)
+                mae = np.mean(np.abs(weighted_profiles - reorderd_params))
+                if mae < best_mae_weighted_profiles:
+                    best_mae_weighted_profiles = mae
+                    best_cluster_order = cluster_order
+                    best_profile_order = profile_order
+        """
+        profiles_inds = list(range(n_profiles))
+        profiles_permuts = np.asarray(list(set(permutations(profiles_inds))))
+
+        mae_profiles = np.zeros((len(profiles_permuts)))
+        mae_profile_weights = np.zeros((len(profiles_permuts)))
+
+        for i, order in enumerate(profiles_permuts):
+            # profile order according to profiles
+            mae_profiles[i] = np.mean(np.abs(profiles - beta[order, :]))
+
+        ind_min_mae = np.argmin(mae_profiles)
+        best_profile_order = profiles_permuts[ind_min_mae, :]
+
+        # mae for profile weights given order obtained by profile maes
+        sorted_alpha_profiles = np.take_along_axis(
+            alpha_profiles,
+            np.repeat(best_profile_order[np.newaxis], n_clusters, axis=0),
+            axis=1)
+
+        # get optimal cluster order
+        clusters_inds = list(range(n_clusters))
+        clusters_permuts = np.asarray(list(set(permutations(clusters_inds))))
+
+        mae_profile_weights = np.zeros((len(clusters_permuts)))
+
+        for i, order in enumerate(clusters_permuts):
+            # cluster order according to profile weights
+            mae_profile_weights[i] = np.mean(np.abs(profiles_weights -
+                                                    sorted_alpha_profiles[
+                                                        order]))
+        ind_min_mae = np.argmin(mae_profile_weights)
+        best_cluster_order = clusters_permuts[ind_min_mae, :]
+
+        # compute errors for all iterations given best profile and cluster order
+        maes_profiles, maes_profile_weights, maes_cluster_weights = [], [], []
+        for clw, prow, pro in estimates:
+            # compute profiles error
+            mae_profiles = np.mean(np.abs(profiles
+                                          - pro[best_profile_order, :]))
+            # compute profiles weights error
+            reorderd_alpha_profiles = prow[best_cluster_order]
+            reorderd_alpha_profiles = np.take_along_axis(
+                reorderd_alpha_profiles,
+                np.repeat(best_profile_order[np.newaxis], n_clusters, axis=0),
+                axis=1)
+            mae_profile_weights = np.mean(np.abs(profiles_weights
+                                                 - reorderd_alpha_profiles))
+            # compute cluster weights error
+            mae_cluster_weights = np.mean(np.abs(cluster_weights
+                                                 - clw[best_cluster_order]))
+
+            maes_profiles.append(mae_profiles)
+            maes_profile_weights.append(mae_profile_weights)
+            maes_cluster_weights.append(mae_cluster_weights)
+
+        maes_trials['cl.w.'].append(maes_cluster_weights)
+        maes_trials['pro.w.'].append(maes_profile_weights)
+        maes_trials['pro.'].append(maes_profiles)
+
         losses_trials.append(train_losses)
+
         accs[ind_sim, ind_trial] = np.asarray([np.mean(accs_site_prof),
                                                np.mean(accs_aln_cluster)])
 
@@ -623,61 +669,42 @@ for ind_sim in range(n_sim):
 
     ######### PLOT RESULTS #########
 
-    best_loss_ind = np.argmax([trial_loss[-1]
-                               for trial_loss in losses_trials])
+    best_loss_ind = np.argmax([trial_loss[-1] for trial_loss in losses_trials])
+    n_rows, n_cols = n_trials, 2
 
-    fig, axs = plt.subplots(ncols=2, nrows=2, sharex=True,
-                            figsize=(12., 6.))
+    fig, axs = plt.subplots(ncols=n_cols, nrows=n_rows, sharex=True,
+                            figsize=(12., 12.))
+    for trial in range(n_trials):
+        axs[trial, 0].plot(losses_trials[trial])
+        axs[trial, 0].hlines(y=given_params_loss, color='red',
+                             xmin=0,
+                             xmax=max_iter)  # loss with given parameters
 
-    axs[0, 0].plot(losses_trials[0], label=f'uniform init. param.',
-                   linewidth=3.0)
-    axs[0, 1].plot(maes_trials["cl.w."][0],
-                   label=f'uniform init. param.',
-                   linewidth=3.0)
-    axs[1, 0].plot(maes_trials["pro.w."][0],
-                   label=f'uniform init. param.',
-                   linewidth=3.0)
-    axs[1, 1].plot(maes_trials["pro."][0],
-                   label=f'uniform init. param.',
-                   linewidth=3.0)
+        axs[trial, 1].plot(maes_trials['cl.w.'][trial], label='cluster weights')
+        axs[trial, 1].plot(maes_trials['pro.w.'][trial], label='profiles '
+                                                               'weights')
+        axs[trial, 1].plot(maes_trials['pro.'][trial], label='profiles')
 
-    for trial in range(1, n_trials):
-        if trial == best_loss_ind:
-            axs[0, 0].plot(losses_trials[trial], label=f'{trial} best loss',
-                           linewidth=3.0)
-            axs[0, 1].plot(maes_trials["cl.w."][trial],
-                           label=f'{trial} best loss',
-                           linewidth=3.0)
-            axs[1, 0].plot(maes_trials["pro.w."][trial],
-                           label=f'{trial} best loss',
-                           linewidth=3.0)
-            axs[1, 1].plot(maes_trials["pro."][trial],
-                           label=f'{trial} best loss',
-                           linewidth=3.0)
+        # x and y axis labels, y-limit
+        axs[trial, 0].set_ylabel('Loss')
+        axs[trial, 1].set_ylabel('MAE')
+        for col in range(n_cols):
+            axs[trial, col].set_xlabel('Iterations')
+
+        axs[trial, 1].legend()
+
+        # titles
+        if trial == 0:
+            axs[trial, 0].set_title('Run with uniform initial params.')
+        elif trial == 1:
+            axs[trial, 0].set_title('Run with correct params. as initial '
+                                    'weights')
         else:
-            axs[0, 0].plot(losses_trials[trial], label=trial)
-            axs[0, 1].plot(maes_trials["cl.w."][trial], label=trial)
-            axs[1, 0].plot(maes_trials["pro.w."][trial], label=trial)
-            axs[1, 1].plot(maes_trials["pro."][trial], label=trial)
+            axs[trial, 0].set_title(f'Run {trial + 1}')
 
     fig.suptitle(f'Test EM : {n_trials} trials for simulation {ind_sim}')
-    axs[0, 0].set_title('Loss (lower bound of log-likelihood)')
-    axs[0, 1].set_title(f'MAE cluster weights {cluster_weights}')
-    axs[1, 0].set_title('MAE profile weights')
-    axs[1, 1].set_title('MAE profiles')
-
-    max_ylim = np.max(list(maes_trials.values()))
-    max_ylim = np.true_divide(np.ceil(max_ylim * 10), 10)
-    ylims = (0, max_ylim)
-
-    axs[0, 1].set_ylim(ylims)
-    axs[1, 0].set_ylim(ylims)
-    axs[1, 1].set_ylim(ylims)
 
     fig.tight_layout()
-
-    handles, labels = axs[0, 0].get_legend_handles_labels()
-    fig.legend(handles, labels)
 
     fig.savefig(f'{save_path}/{ind_sim}sim_eval_em.png')
 
