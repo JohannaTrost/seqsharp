@@ -1,5 +1,3 @@
-import os
-
 import numpy as np
 from matplotlib import pylab as plt
 # import matplotlib
@@ -9,7 +7,7 @@ from utils import extract_accuary_loss
 # matplotlib.use("Agg")
 
 
-def plot_folds(train_history_folds, val_history_folds, std=True,
+def plot_folds(train_history_folds, val_history_folds, std=True, same_col=False,
                plot=None, plotname='', path=None):
     """Plots validation and training history over folds
 
@@ -51,17 +49,17 @@ def plot_folds(train_history_folds, val_history_folds, std=True,
     # 1. subplot: accuracy
     axs[0].set_xlabel('epoch')
     axs[0].set_ylabel('accuracy')
-    axs[0].set_title(f'Accuracy vs. No. of epochs over {nb_folds} folds')
+    axs[0].set_title(f'Avg. accuracy vs. No. of epochs over {nb_folds} folds')
 
     line_val, = axs[0].plot(avg_accs_v, '-',
-                            label=f'validation {plotname}(mean)')
+                            label=f'validation {plotname}')
 
-    if std:
+    if not same_col:
         line_train, = axs[0].plot(avg_accs_t, '-',
-                                  label=f'training {plotname}(mean)')
+                                  label=f'training {plotname}')
     else:  # usually in case of multiple models for easier comparison
         line_train, = axs[0].plot(avg_accs_t, '-',
-                                  label=f'training {plotname}(mean)',
+                                  label=f'training {plotname}',
                                   color=line_val.get_color(), alpha=0.3)
 
     if std:
@@ -80,14 +78,15 @@ def plot_folds(train_history_folds, val_history_folds, std=True,
 
     # 2. subplot: loss
     val_loss_line, = axs[1].plot(avg_losses_v, '-')
-    if std:
+    if not same_col:
         axs[1].plot(avg_losses_t, '-')
     else:  # makes comparison of multiple models easier
         axs[1].plot(avg_losses_t, '-', color=val_loss_line.get_color(),
                     alpha=0.3)
+
     axs[1].set_xlabel('epoch')
     axs[1].set_ylabel('loss')
-    axs[1].set_title(f'Loss vs. No. of epochs over {nb_folds} folds')
+    axs[1].set_title(f'Avg. loss vs. No. of epochs over {nb_folds} folds')
 
     plt.subplots_adjust(bottom=0.25)
 

@@ -8,6 +8,54 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+def count_aas(data, level, save=True):
+    # pid = os.getpid()
+    # print(f'starting process {pid}')
+
+    aas = 'ARNDCQEGHILKMFPSTWYV'
+    aa_counts_genes = []
+    nb_sites = 0
+
+    for aln in data:
+        nb_seqs = len(aln)
+        seq_len = len(aln[0])
+
+        # transform alignment into array to make sites accessible
+        aln_arr = np.empty((nb_seqs, seq_len), dtype='<U1')
+        for j in range(nb_seqs):
+            aln_arr[j, :] = np.asarray([aa for aa in aln[j]])
+
+        if level == 'sites':
+            aa_counts = np.zeros((len(aas), seq_len))
+            # count aa at each site
+            for site_ind in range(seq_len):
+                site = ''.join([aa for aa in aln_arr[:, site_ind]])
+                for i, aa in enumerate(aas):
+                    aa_counts[i, site_ind] = site.count(aa)
+            nb_sites += seq_len
+        elif level == 'genes':
+            aa_counts = np.zeros((len(aas), nb_seqs))
+            # count aa for each gene
+            for gene_ind in range(nb_seqs):
+                gene = ''.join([aa for aa in aln_arr[gene_ind, :]])
+                for i, aa in enumerate(aas):
+                    aa_counts[i, gene_ind] = gene.count(aa)
+        if len(aa_counts_genes) == 0:
+            aa_counts_genes = aa_counts
+        else:
+            aa_counts_genes = np.concatenate((aa_counts_genes, aa_counts),
+                                             axis=1)
+
+    if save:
+        np.savetxt(f'../counts/{os.getpid()}-counts-{nb_sites}sites.csv',
+                   np.asarray(aa_counts),
+                   delimiter=',',
+                   fmt='%1.1f')
+        print(f'Successfully saved {nb_sites} sites.\n')
+    else:
+        return aa_counts_genes
+
+
 class MultinomialExpectationMaximizer:
     def __init__(self, K=263, rtol=1e-3, max_iter=100, restarts=10):
         self._K = K
@@ -52,7 +100,7 @@ class MultinomialExpectationMaximizer:
         """
         Performs E-step on MNMM model
         Each input is numpy array:
-        X: (N x C), matrix of counts
+        alns_aa_counts: (N x C), matrix of counts
         alpha: (K) or (NxK) in the case of individual weights, mixture component weights
         beta: (K x C), multinomial categories weights
         Returns:
@@ -80,7 +128,7 @@ class MultinomialExpectationMaximizer:
         """
         Performs M-step on MNMM model
         Each input is numpy array:
-        X: (N x C), matrix of counts
+        alns_aa_counts: (N x C), matrix of counts
         gamma: (N x K), posterior probabilities for objects clusters assignments
         Returns:
         alpha: (K), mixture component weights
@@ -106,7 +154,7 @@ class MultinomialExpectationMaximizer:
     def _compute_vlb(self, X, alpha, beta, gamma):
         """
         Computes the variational lower bound
-        X: (N x C), data points
+        alns_aa_counts: (N x C), data points
         alpha: (K) or (NxK) with individual weights, mixture component weights
         beta: (K x C), multinomial categories weights
         gamma: (N x K), posterior probabilities for objects clusters assignments
@@ -123,7 +171,7 @@ class MultinomialExpectationMaximizer:
 
     def _init_params(self, X):
         C = X.shape[1]
-        weights = np.random.randint(1, 6, self._K)
+        weights = np.random.randint(1, 20, self._K)
         alpha = weights / weights.sum()
         beta = dirichlet.rvs([2 * C] * C, self._K)
         return alpha, beta
@@ -200,50 +248,37 @@ def save_profiles(best_beta, best_alpha, losses, result_path):
 
 
 def main():
+    aa_freqs = np.genfromtxt('../../data/aafreqs_real_sites.csv', delimiter=',')
+    aa_freqs = aa_freqs[0:100000, :20]
+    np.random.shuffle(aa_freqs)
 
-    nb_cores = 32  # psutil.cpu_count(logical=False)
+    train_size = int(len(aa_freqs) * 0.9)
+    train = aa_freqs[:train_size]
+    test = aa_freqs[train_size:]
 
-    p_dir = '/beegfs/data/jtrost/mlaa/profile_estimation'
+    ks = list(range(1, 11))
+    bics = []
+    best_betas = []
+    for k in ks:
+        model = MultinomialExpectationMaximizer(k, restarts=10, rtol=1e-4)
+        best_train_loss, best_alpha, best_beta, best_gamma = model.fit(train)
+        alpha_test = best_alpha
 
-    counts_files = os.listdir(f'{p_dir}/counts')
+        log_likelihood = model.compute_log_likelihood(test, alpha_test,
+                                                      best_beta)
+        # basian information content
+        bic = model.compute_bic(test, best_alpha, best_beta, log_likelihood)
+        icl_bic = model.compute_icl_bic(bic, best_gamma)
 
-    start = time.time()
+        bics.append(bic)
+        best_betas.append(best_beta)
 
-    process_pool = multiprocessing.Pool(nb_cores)
-    result = process_pool.starmap(np.genfromtxt,
-                                  [(f'{p_dir}/counts/{file}', float, '#', ',')
-                                   for
-                                   file in counts_files])
+    print('ideal number of distributions=%i' % (np.argmin(bics) + 1))
+    print('betas for this selection: \n', best_betas[np.argmin(bics)])
 
-    print(
-        f'Get counts per site in {np.round((time.time() - start) / 60, 4)} min.')
-
-    aa_counts_sites = np.empty((np.sum([len(res) for res in result]), 20))
-
-    i = 0
-    nb_sites_nan = 0
-    for j, chunk in enumerate(result):
-        for site_freqs in chunk:
-            if not np.any(np.isnan(site_freqs)):
-                aa_counts_sites[i] = site_freqs
-                i += 1
-            else:
-                nb_sites_nan += 1
-                print(
-                    f'Chunk {j + 1} {i}th site contains nan. Counts: {site_freqs}')
-    if nb_sites_nan > 0:
-        aa_counts_sites = aa_counts_sites[:-nb_sites_nan]
-
-    model = MultinomialExpectationMaximizer(restarts=1, rtol=1e-10)
-    model.fit(aa_counts_sites)
-    # alpha_test = best_alpha
-
-    # log_likelihood = model.compute_log_likelihood(test, alpha_test, best_beta)
-    # bic = model.compute_bic(test, best_alpha, best_beta, log_likelihood)
-    # icl_bic = model.compute_icl_bic(bic, best_gamma)
-
-    # print('ideal number of distributions=%i' % (np.argmin(bics) + 1))
-    # print('betas for this selection: \n', best_betas[np.argmin(bics)])
+    plt.figure()
+    plt.plot(ks, bics)
+    plt.show()
 
 if __name__ == '__main__':
     main()

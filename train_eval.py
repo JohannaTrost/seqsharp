@@ -18,7 +18,7 @@ gc.collect()
 
 
 def evaluate(model, val_loader):
-    """Feeds the model with data and gets its performance
+    """Feeds the model with data and returns its performance
 
     :param model: ConvNet object
     :param val_loader: networks input data (DataLoader object)
@@ -39,6 +39,7 @@ def evaluate(model, val_loader):
         loss = criterion(out, torch.reshape(labels_batch, out.shape))
 
         losses.append(loss.detach())
+
         outputs = (out if len(outputs) == 0
                    else torch.cat((outputs, out)).to(compute_device))
         labels = (labels_batch if len(labels) == 0

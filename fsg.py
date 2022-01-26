@@ -173,7 +173,8 @@ def main():
         print('Starting sequence simulations...')
 
         sim_path, hogenom_fasta_path = args.simulator
-        min_nb_seqs, max_nb_seqs = args.numberseqs if args.numberseqs else (4, 300)
+        min_nb_seqs, max_nb_seqs = args.numberseqs if args.numberseqs else (
+            4, 300)
         nb_aligns = args.numberaligns if args.numberaligns else 100
 
         if not os.path.exists(sim_path):
@@ -204,6 +205,7 @@ def main():
                     seq_lens = [len(algn[0]) for algn in alignments]
                     seq_lens = generate_data_from_dist(seq_lens)
                     aa_freqs = get_aa_freqs(alignments, gaps=False, dict=False)
+
                 else:
                     raise ValueError(
                         f'Not enough input trees({len(tree_files)})'
@@ -227,6 +229,15 @@ def main():
                         freqs = np.array2string(aa_freqs[i], separator=',')
                         freqs = freqs.replace('\n ', '')[1:-1]
 
+                        aas = 'ARNDCQEGHILKMFPSTWYV'
+                        aa_freqs_aln = np.zeros((20, len(alignments[i][0])))
+                        aln_arr = np.asarray(
+                            [list(seq) for seq in alignments[i]])
+                        for j in range(aln_arr.shape[1]):
+                            for k, aa in enumerate(aas):
+                                aa_count = list(aln_arr[:, j]).count(aa)
+                                aa_freqs_aln[k, j] = aa_count / aln_arr.shape[0]
+
                         if sim_path.rpartition('/')[2] == 'seq-gen':
                             bash_cmd = (f'{sim_path} '
                                         f'-mWAG -l{str(seq_lens[i])} '
@@ -235,15 +246,19 @@ def main():
                         elif sim_path.rpartition('/')[2] == 'simulator.exe':
                             param_dir = f'{sim_path.rpartition("/")[0]}/../..'
 
-                            # only one profile that are aa freqs of aln
-                            #np.savetxt(f'{param_dir}/profile.tsv',
-                            #           aa_freqs[i][:20].T, delimiter='\t')
+                            # one profile per site
+                            np.savetxt(f'{param_dir}/profile.tsv',
+                                       aa_freqs_aln, delimiter='\t')
+                            np.savetxt(f'{param_dir}/weights.csv',
+                                       np.ones((aa_freqs_aln.shape[1])) /
+                                       aa_freqs_aln.shape[1],
+                                       delimiter=',')
 
                             bash_cmd = (
                                 f'{sim_path} --tree {tree_in_path} '
-                                f'--profiles {param_dir}/263-hogenom-profiles.tsv '
+                                f'--profiles {param_dir}/profile.tsv '
                                 f'--wag {param_dir}/wag.dat '
-                                f'--profile-weights {param_dir}/263-hogenom-weights.csv '
+                                f'--profile-weights {param_dir}/weights.csv '
                                 f'-o {fasta_out_path} '
                                 f'--mu 0.0 --lambda 0.0 '
                                 f'--nsites {str(seq_lens[i])}')
@@ -342,4 +357,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

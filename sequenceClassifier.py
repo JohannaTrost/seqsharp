@@ -506,7 +506,7 @@ def main():
                 accs_after_train.append(model.val_history[-1]['acc'])
 
                 print(f"model {i + 1}, accuracy: {np.round(result['acc'], 4)}"
-                      f"({np.round(accs_after_train[i], 4)})")
+                      f"(val. of trained model {np.round(accs_after_train[i], 4)})")
 
         if len(accs) > 1:
             print(f'\nAverage: {np.round(np.mean(accs), 4)}, '

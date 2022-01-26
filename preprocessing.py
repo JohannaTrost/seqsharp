@@ -29,11 +29,11 @@ arginine      : R |  glutamic acid : E | lysine        : K | threonine : T |
 asparagine    : N |  glycine       : G | methionine    : M | tryptophan: W |
 aspartic acid : D |  histidine     : H | phenylalanine : F | tyrosine  : Y |
 cysteine      : C |  isoleucine    : I | proline       : P | valine    : V |
-unknown : X 
+unknown : alns_aa_counts 
 gap/indel : - 
 """
 
-ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'X-',
+ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'alns_aa_counts-',
                         '\x00' * 5 + '\x01\x02\x03\x04\x05\x06\x07\x08\t\n'
                                      '\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14' +
                         '\x15\x16')

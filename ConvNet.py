@@ -19,7 +19,7 @@ compute_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 def init_weights(m):
     """Initializes weights with values according to the method
        described in “Understanding the difficulty of training
-       deep feedforward neural networks” - Glorot, X.
+       deep feedforward neural networks” - Glorot, alns_aa_counts.
 
     :param m: convolutional or linear layer
     """

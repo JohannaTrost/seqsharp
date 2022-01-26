@@ -141,7 +141,7 @@ def compute_vlb(X, freqs, profiles, weights):
     :param X: (N x C), data points
     :param freqs: frequencies of profiles
     :param profiles: (263 x 20) given profiles
-    :param weights: relative weight of profile z for count vector X[j]
+    :param weights: relative weight of profile z for count vector alns_aa_counts[j]
     :return: value of variational lower bound
     """
 
