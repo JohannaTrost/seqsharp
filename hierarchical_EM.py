@@ -4,7 +4,7 @@ import warnings
 
 from itertools import permutations
 from scipy.stats import multinomial, dirichlet
-from matplotlib import pylab as plt
+from matplotlib import pylab as plt, rcParams
 
 import numpy as np
 
@@ -85,7 +85,7 @@ def e_step(data, profs, pro_w, cl_w):
             max_logs = np.repeat(max_logs[:, np.newaxis], n_clusters, axis=1)
             max_logs = np.repeat(max_logs[:, :, np.newaxis], n_profiles, axis=2)
 
-            pi[aln] = np.exp(log_pi[aln] - max_logs)
+            pi[aln] = np.exp(log_pi[aln] + np.abs(max_logs))
 
     # normalization
     sum_over_profiles = [pi[i].sum(axis=2).sum(axis=1) for i in range(n_alns)]
@@ -161,13 +161,13 @@ def compute_vlb_fl(data, alpha_clusters, alpha_profiles,
 
 # ******************************** PARAMETERS ******************************** #
 
-n_iter = 10
-n_runs = 5
+n_iter = 15
+n_runs = 8
 
 n_alns = 100
 n_sites = 40
-n_seqs = 30
-#n_seqs = 1200
+n_seqs = 40
+# n_seqs = 1200
 n_aas = 6
 
 n_profiles = 4
@@ -175,12 +175,12 @@ n_clusters = 2
 
 cluster_weights = np.asarray([0.2, 0.8])
 profile_weights = np.asarray([[1 / 2, 1 / 4, 1 / 8, 1 / 8],
-                              [1 / 4, 1 / 4, 1 / 4, 1 / 4]])
+                              [0.05, 0.05, 0.8, 0.1]])
 profiles = np.asarray([[0., 0., 0.25, 0.25, 0.5, 0.],
                        [0.05, 0.05, 0.05, 0.05, 0.4, 0.4],
                        [0.2, 0.1, 0.2, 0.15, 0.2, 0.15],
                        [0.05, 0.05, 0.7, 0.05, 0.05, 0.1]])
-#profiles = np.asarray([[1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6],
+# profiles = np.asarray([[1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6],
 #                       [0.005, 0.005, 0.005, 0.005, 0.49, 0.49],
 #                       [0.2, 0.1, 0.2, 0.15, 0.2, 0.15],
 #                       [0.02, 0.02, 0.9, 0.02, 0.02, 0.02]])
@@ -268,49 +268,30 @@ for run in range(n_runs):
             for cl in range(n_clusters):
                 weighted_counts = pi[aln][:, cl, :].T.dot(aa_counts[aln])
                 aln_cl_profiles[aln, cl] = weighted_counts
-                aln_cl_profiles[aln, cl] /= weighted_counts.sum(
-                    axis=-1).reshape(-1, 1)
+                #aln_cl_profiles[aln, cl] /= weighted_counts.sum(
+                #    axis=-1).reshape(-1, 1)
 
         estim_profiles = aln_cl_profiles.mean(axis=0).mean(axis=0)
+        # ensure that profil sum is <= 1
+        estim_profiles /= np.repeat(estim_profiles.sum(axis=1)[:, np.newaxis],
+                                    n_aas, axis=1)
 
         # profile weights
         cluster_probs_aln = np.asarray(
             [np.mean(np.sum(pi[aln], axis=2), axis=0) for aln in range(n_alns)])
-        estim_cluster_alns_asso = \
-            np.asarray([np.where(aln_cl_prob == np.max(aln_cl_prob))[0]
-                        for aln_cl_prob in cluster_probs_aln]).T[0]
+        cluster_probs_aln_rep = np.repeat(cluster_probs_aln[:, :, np.newaxis],
+                                          n_profiles, axis=2)
 
-        sum_profile_porbs = [probs.sum(axis=2) for probs in pi]
-        sum_profile_porbs = [
-            np.repeat(probs[:, :, np.newaxis], n_profiles, axis=2)
-            for probs in sum_profile_porbs]
-        estim_profile_weights = np.mean(
-            [(pi[i] / sum_profile_porbs[i]).mean(axis=0)
-             for i in range(n_alns)],
-            axis=0)
-        """
-        estim_profile_weights_alns = [np.mean(pi[aln], axis=0) for aln in
-                                      range(n_alns)]
         estim_profile_weights_alns = np.asarray(
-            [estim_profile_weights_alns[aln] /
-             np.repeat(np.sum(
-                 estim_profile_weights_alns[aln],
-                 axis=1)[:, np.newaxis],
-                       n_profiles, axis=1)
-             for aln in range(n_alns)])
+            [np.mean(pi[aln], axis=0) for aln in
+             range(n_alns)])
 
-        estim_profile_weights = np.zeros((n_clusters, n_profiles))
-        for cl in range(n_clusters):
-            estim_pro_w_cl = estim_profile_weights_alns[
-                np.where(estim_cluster_alns_asso == cl)]
-
-            if len(estim_pro_w_cl) > 0:
-                estim_profile_weights[cl] = np.mean(np.mean(estim_pro_w_cl,
-                                                            axis=0),
-                                                    axis=0)
-            else:
-                estim_profile_weights[cl] = np.zeros(n_profiles)
-        """
+        estim_profile_weights = np.sum(cluster_probs_aln_rep *
+                                       estim_profile_weights_alns,
+                              axis=0)
+        estim_profile_weights /= np.repeat(
+            np.sum(estim_profile_weights, axis=1)[:, np.newaxis], n_profiles,
+            axis=1)
 
         # cluster weights
         estim_cluster_weights = cluster_probs_aln
@@ -319,15 +300,27 @@ for run in range(n_runs):
                                            n_clusters, axis=1)
         estim_cluster_weights = np.mean(estim_cluster_weights, axis=0)
 
-        ''' 2. option
-        estim_cluster_weights = np.bincount(estim_cluster_alns_asso) / n_alns
-        '''
         # *************************** likelihood *************************** #
 
         likelihoods[run, iter * 2 + 1] = compute_vlb_fl(aa_counts,
                                                         estim_cluster_weights,
                                                         estim_profile_weights,
                                                         estim_profiles, pi)
+        if likelihoods[run, iter * 2 + 1] < likelihoods[run, iter * 2] - 10:
+            print(f'{likelihoods[run, iter * 2 + 1]} < {likelihoods[run, iter * 2]}')
+            print('current cluster weights')
+            print(estim_cluster_weights)
+            print('previous cluster weights')
+            print(estimates_iter[iter - 1][2])
+            print('current profile weights')
+            print(estim_profile_weights)
+            print('previous profile weights')
+            print(estimates_iter[iter - 1][1])
+            print('current profiles')
+            print(estim_profiles)
+            print('previous profiles')
+            print(estimates_iter[iter - 1][0])
+
 
         estimates_iter.append(
             [estim_profiles, estim_profile_weights, estim_cluster_weights])
@@ -372,7 +365,9 @@ for run in range(n_runs):
     # compute errors for all iterations given best profile and cluster order
     maes_profiles, maes_profile_weights, maes_cluster_weights = [], [], []
 
-    for pro, prow, clw in estimates_iter:
+    for iter, params in enumerate(estimates_iter):
+        pro, prow, clw = params
+
         # compute profiles error
         mae_profiles = np.mean(np.abs(profiles
                                       - pro[best_profile_order, :]))
@@ -392,57 +387,116 @@ for run in range(n_runs):
         maes_profile_weights.append(mae_profile_weights)
         maes_cluster_weights.append(mae_cluster_weights)
 
+        # update saved parameters applying best parameter order
+        estimates_iter[iter] = [pro[best_profile_order, :],
+                                reorderd_alpha_profiles,
+                                clw[best_cluster_order]]
+
     maes_runs['cl.w.'].append(maes_cluster_weights)
     maes_runs['pro.w.'].append(maes_profile_weights)
     maes_runs['pro.'].append(maes_profiles)
 
 # ****************************** PLOT RESULTS ******************************* #
 
-# timestamp = time.time()
-# save_path = f'../results/{timestamp}'
-# os.mkdir(save_path)
+timestamp = time.time()
+save_path = f'../results'
 
 likelihoods[likelihoods == -np.inf] = np.min(likelihoods[likelihoods > -np.inf])
 
-best_likelihood_ind = np.argmax(likelihoods, axis=0)
-n_rows, n_cols = n_runs, 2
+best_likelihood_ind = np.argmax(likelihoods[:, -1], axis=0)
+n_rows, n_cols = 2, int(n_runs / 2)
 
 fig, axs = plt.subplots(ncols=n_cols, nrows=n_rows, sharex=True,
-                        figsize=(8., 8.))
-for run in range(n_runs):
-    axs[run, 0].plot(np.arange(0, n_iter, 0.5), likelihoods[run])
-    axs[run, 0].hlines(y=optimal_likelihood, color='red',
-                       xmin=0,
-                       xmax=n_iter - 1)  # likelihood with given
-    # parameters
+                        figsize=(n_cols * 8, n_rows * 8))
+for col in range(n_cols):
+    for row in range(n_rows):
+        run = (row * (n_cols)) + col
+        axs[row, col].plot(np.arange(0, n_iter, 0.5), likelihoods[run],
+                           marker='*', mfc='green', mec='green', markevery=2)
+        axs[row, col].hlines(y=optimal_likelihood, color='red',
+                             xmin=0,
+                             xmax=n_iter - 1)  # likelihood with given
 
-    axs[run, 1].plot(maes_runs['cl.w.'][run], label='cluster weights')
-    axs[run, 1].plot(maes_runs['pro.w.'][run], label='profiles weights')
-    axs[run, 1].plot(maes_runs['pro.'][run], label='profiles')
+        axs[row, col].set_xlabel('Iterations')
+        axs[row, col].set_xticks(np.arange(0, n_iter))
+        axs[row, col].set_ylabel('likelihood')
 
-    # x and y axis labels, y-limit
-    axs[run, 0].set_xticks(np.arange(0, n_iter))
-    axs[run, 1].set_xticks(np.arange(0, n_iter))
-    axs[run, 0].set_ylabel('likelihood')
-    axs[run, 1].set_ylabel('MAE')
-    for col in range(n_cols):
-        axs[run, col].set_xlabel('Iterations')
-
-    axs[run, 1].legend()
+        axs[row, col].set_title(f'Run {run + 1}')
 
     # titles
-    if run == 0:
-        axs[run, 0].set_title('Run with uniform initial params.')
-    elif run == 1:
-        axs[run, 0].set_title('Run with correct params. as initial '
+    if col == 0:
+        axs[0, col].set_title('Run with uniform initial params.')
+    elif col == 1:
+        axs[0, col].set_title('Run with correct params. as initial '
                               'weights')
-    else:
-        axs[run, 0].set_title(f'Run {run + 1}')
 
 fig.suptitle(f'Test EM : {n_runs} runs')
 
 fig.tight_layout()
 
-# fig.savefig(f'{save_path}/sim_eval_em.png')
+fig.savefig(f'{save_path}/{timestamp}_sim_eval_em.png')
 
-# plt.close(fig)
+plt.close(fig)
+
+likelihoods = np.asarray(likelihoods)
+lh_diff = likelihoods[:, 1:] - likelihoods[:, :-1]
+min_diff, max_diff = np.min(lh_diff), np.max(lh_diff)
+
+dips_inds = [np.asarray(np.where(lh_diff[run] < 0)) for run in range(n_runs)]
+dip_iters_m = [(dips_inds[run][dips_inds[run] % 2 == 0] / 2).astype(int)
+               for run in range(n_runs)]
+
+for run in range(n_runs):
+    maes_runs['cl.w.'] = np.asarray(maes_runs['cl.w.'])
+    maes_runs['pro.w.'] = np.asarray(maes_runs['pro.w.'])
+    maes_runs['pro.'] = np.asarray(maes_runs['pro.'])
+    clw_mae_diff = maes_runs['cl.w.'][:, 1:] - maes_runs['cl.w.'][:, :-1]
+    pw_mae_diff = maes_runs['pro.w.'][:, 1:] - maes_runs['pro.w.'][:, :-1]
+    prof_mae_diff = maes_runs['pro.'][:, 1:] - maes_runs['pro.'][:, :-1]
+
+    plt.plot(clw_mae_diff[run], label='cluster weights err. diff.')
+    plt.plot(pw_mae_diff[run], label='profile weights err. diff.')
+    plt.plot(prof_mae_diff[run], label='profiles err. diff.')
+    if len(dip_iters_m[run]) > 0:
+        plt.scatter(dip_iters_m[run][dip_iters_m[run] != 0] - 1,
+                    clw_mae_diff[run][dip_iters_m[run][dip_iters_m[run] != 0] - 1])
+        plt.scatter(dip_iters_m[run][dip_iters_m[run] != 0] - 1,
+                    pw_mae_diff[run][dip_iters_m[run][dip_iters_m[run] != 0] - 1])
+        plt.scatter(dip_iters_m[run][dip_iters_m[run] != 0] - 1,
+                    prof_mae_diff[run][dip_iters_m[run][dip_iters_m[run] != 0] - 1])
+    plt.legend()
+    plt.savefig(f'{save_path}/param_err_diff_run{run+1}.png')
+    plt.close()
+
+fig, axs = plt.subplots(ncols=n_cols, nrows=n_rows, sharex=True,
+                        figsize=(n_cols * 6, n_rows * 6))
+#marker_size = rcParams['lines.markersize'] ** 2 / 2
+for col in range(n_cols):
+    for row in range(n_rows):
+        run = (row * (n_cols)) + col
+
+        e2m = lh_diff[run][np.arange(0, n_iter * 2 - 1, 2)]
+        m2nexte = lh_diff[run][np.arange(1, n_iter * 2 - 1, 2)]
+
+        edgecol_e2m = np.asarray(['blue'] * n_iter)
+        edgecol_e2m[np.where(e2m < 0)] = 'red'
+        edgecol_m2nexte = np.asarray(['orange'] * n_iter)
+        edgecol_m2nexte[np.where(m2nexte < 0)] = 'red'
+
+        axs[row, col].plot(np.arange(0.5, n_iter, 0.5), lh_diff[run],
+                           color='grey')
+        axs[row, col].scatter(np.arange(0.5, n_iter), e2m, c='blue',
+                              edgecolors=edgecol_e2m,
+                              label='m-step lh. i - e-step lh. i')
+        axs[row, col].scatter(np.arange(1, n_iter), m2nexte, c='orange',
+                              edgecolors=edgecol_m2nexte,
+                              label='e-step lh. i+1 - m-step lh. i')
+        axs[row, col].set_xticks(np.arange(0, n_iter))
+        axs[row, col].set_ylim(min_diff, max_diff)
+        axs[row, col].hlines(y=0, color='grey', linestyles='dashed',
+                             xmin=0, xmax=n_iter, linewidth=0.5)
+        axs[row, col].legend(loc='upper center')
+
+fig.tight_layout()
+fig.savefig(f'{save_path}/{timestamp}_em_lh_diffs.png')
+plt.close(fig)
