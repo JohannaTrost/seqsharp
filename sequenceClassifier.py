@@ -475,7 +475,7 @@ def main():
 
         alns, fastas, config['data'] = raw_alns_prepro([fasta_path],
                                                        config['data'],
-                                                       take_quantiles=False)
+                                                       take_quantiles=[False])
 
         alns = get_representations(alns, fastas, config['data'], pairs)[0]
 

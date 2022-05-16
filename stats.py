@@ -1,3 +1,4 @@
+import os
 import warnings
 
 import numpy as np
@@ -223,3 +224,57 @@ def generate_data_from_dist(data):
     new_data = [max(x, np.min(data)) for x in new_data]  # set lower limit
 
     return new_data
+
+
+def count_aas(data, level='msa', save=''):
+    # pid = os.getpid()
+    # print(f'starting process {pid}')
+
+    aas = 'ARNDCQEGHILKMFPSTWYV'
+    aa_counts_alns = []
+    nb_sites = 0
+
+    for aln in data:
+        nb_seqs = len(aln)
+        seq_len = len(aln[0])
+
+        if level == 'sites':
+            # transform alignment into array to make sites accessible
+            aln_arr = np.empty((nb_seqs, seq_len), dtype='<U1')
+            for j in range(nb_seqs):
+                aln_arr[j, :] = np.asarray([aa for aa in aln[j]])
+
+            aa_counts = np.zeros((len(aas), seq_len))
+            # count aa at each site
+            for site_ind in range(seq_len):
+                site = ''.join([aa for aa in aln_arr[:, site_ind]])
+                for i, aa in enumerate(aas):
+                    aa_counts[i, site_ind] = site.count(aa)
+            nb_sites += seq_len
+        elif level == 'genes':
+            aa_counts = np.zeros((len(aas), nb_seqs))
+            # count aa for each gene
+            for gene_ind in range(nb_seqs):
+                for i, aa in enumerate(aas):
+                    aa_counts[i, gene_ind] = aln[gene_ind].count(aa)
+        elif level == 'msa':
+            aa_counts = np.zeros((1, len(aas)))
+            # count aa for each gene
+            for gene_ind in range(nb_seqs):
+                for i, aa in enumerate(aas):
+                    aa_counts[0, i] += aln[gene_ind].count(aa)
+
+        if len(aa_counts_alns) == 0:
+            aa_counts_alns = aa_counts
+        else:
+            aa_counts_alns = np.concatenate((aa_counts_alns, aa_counts),
+                                            axis=(0 if level == 'msa' else 1))
+
+    if save != '':
+        np.savetxt(save,
+                   np.asarray(aa_counts),
+                   delimiter=',',
+                   fmt='%1.1f')
+        print(f'Successfully saved {nb_sites} sites.\n')
+    else:
+        return aa_counts_alns

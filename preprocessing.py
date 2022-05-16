@@ -18,7 +18,8 @@ import numpy as np
 from Bio import SeqIO
 from torch.utils.data import Dataset
 
-from stats import generate_aln_stats_df, get_nb_sites, nb_seqs_per_alns
+from stats import generate_aln_stats_df, get_nb_sites, nb_seqs_per_alns, \
+    count_aas
 from utils import split_lst, flatten_lst
 
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -29,11 +30,11 @@ arginine      : R |  glutamic acid : E | lysine        : K | threonine : T |
 asparagine    : N |  glycine       : G | methionine    : M | tryptophan: W |
 aspartic acid : D |  histidine     : H | phenylalanine : F | tyrosine  : Y |
 cysteine      : C |  isoleucine    : I | proline       : P | valine    : V |
-unknown : alns_aa_counts 
+unknown : X 
 gap/indel : - 
 """
 
-ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'alns_aa_counts-',
+ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'X-',
                         '\x00' * 5 + '\x01\x02\x03\x04\x05\x06\x07\x08\t\n'
                                      '\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14' +
                         '\x15\x16')
@@ -75,7 +76,7 @@ def index2code(index_seq):
     return seq_enc
 
 
-def aln_from_fasta(filename, nb_seqs):
+def aln_from_fasta(filename):
     """Gets aligned sequences from given file
 
     :param filename: <path/to/> alignments (string)
@@ -84,39 +85,90 @@ def aln_from_fasta(filename, nb_seqs):
     """
 
     alned_seqs_raw = [str(seq_record.seq) for seq_record in
-                      SeqIO.parse(filename, "fasta")][:nb_seqs]
+                      SeqIO.parse(filename, "fasta")]
     return alned_seqs_raw
 
 
-def alns_from_fastas(fasta_dir, min_nb_seqs, max_nb_seqs, nb_alns):
+def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None):
     """Extracts alignments from fasta files in given directory
 
     :param fasta_dir: <path/to/> fasta files
-    :param min_nb_seqs: min. required number of aligned sequences
-    :param max_nb_seqs: max. number of aligned sequences taken
     :param nb_alns: number of alignments
     :return: list of aligned sequences (string list),
              list of alignment identifiers (strings)
     """
 
-    fasta_files = os.listdir(fasta_dir)
-    random.shuffle(fasta_files)
-    alns = []
-    fastas = []
-    i = 0
+    fasta_files = np.asarray(os.listdir(fasta_dir))
+    # shuffle
+    fasta_files = fasta_files[np.random.permutation(
+        np.arange(0, len(fasta_files)))]
 
-    while len(alns) < nb_alns and i < len(fasta_files):
-        seqs = aln_from_fasta(fasta_dir + '/' + fasta_files[i], max_nb_seqs)
-        if len(seqs) >= min_nb_seqs:
-            alns.append(seqs)
-            fastas.append(fasta_files[i].split('.')[0])
-        i += 1
+    nb_seqs = np.zeros(len(fasta_files))
+    seq_lens = np.zeros(len(fasta_files))
 
-    if (nb_alns - len(alns)) != 0:
-        print('Only {} / {} fasta files taken into account.'.format(
-            len(alns), nb_alns))
+    for i, file in enumerate(fasta_files):
+        aln = aln_from_fasta(fasta_dir + '/' + file)
+        nb_seqs[i] = len(aln)
+        if len(aln) > 0:
+            seq_lens[i] = len(aln[0])
 
-    return alns, fastas
+    inds_non0 = np.where(nb_seqs != 0)[0][np.where(nb_seqs != 0)[0] ==
+                                          np.where(seq_lens != 0)[0]]
+    neq_nb_len = np.where(nb_seqs != 0)[0] != np.where(seq_lens != 0)[0]
+    inds_non0 = np.concatenate((inds_non0,
+                                np.where(nb_seqs != 0)[0][neq_nb_len],
+                                np.where(seq_lens != 0)[0][neq_nb_len]))
+    # filter MSAs without sequences
+    fasta_files = fasta_files[inds_non0]
+    nb_seqs = nb_seqs[inds_non0]
+    seq_lens = seq_lens[inds_non0]
+
+    if take_quantiles:
+        # such that min = 4 for 6000 MSAs and max < 400
+        q_ns = (np.quantile(nb_seqs, 0.39), np.quantile(nb_seqs, 0.998))
+        q_sl = (np.quantile(seq_lens, 0.05), np.quantile(seq_lens, 0.95))
+
+        print(f'\nq_ns : {q_ns} (0.25, 0.998)\nq_sl : {q_sl} (0.05, 0.95)\n')
+
+        ind_q_ns = np.where((q_ns[0] <= nb_seqs) & (nb_seqs <= q_ns[1]))[0]
+        ind_q_sl = np.where((q_sl[0] <= seq_lens[ind_q_ns]) &
+                            (seq_lens[ind_q_ns] <= q_sl[1]))[0]
+
+        # filter : keep MSAs with seq. len. and n.seq. within above quantiles
+        nb_seqs = nb_seqs[ind_q_ns][ind_q_sl]
+        seq_lens = seq_lens[ind_q_ns][ind_q_sl]
+        fasta_files = fasta_files[ind_q_ns][ind_q_sl]
+
+    if nb_alns is not None:
+        if (nb_alns - len(fasta_files)) > 0:  # we get less MSAs than wanted
+            print('Only {} / {} fasta files taken into account.'.format(
+                len(fasta_files), nb_alns))
+        else:  # restrict number of MSAs as demanded
+            fasta_files = fasta_files[:nb_alns]
+            nb_seqs = nb_seqs[:nb_alns]
+            seq_lens = seq_lens[:nb_alns]
+
+    alns, fastas = [], []
+    for file in fasta_files:
+        seqs = aln_from_fasta(fasta_dir + '/' + file)
+        alns.append(seqs)
+        fastas.append(file.split('.')[0])
+
+    if len(alns) > 0:
+        out_stats = {'n_seqs_min': nb_seqs.min(),
+                     'n_seqs_max': nb_seqs.max(),
+                     'n_seqs_avg': nb_seqs.mean(),
+                     'seq_lens_min': seq_lens.min(),
+                     'seq_lens_max': seq_lens.max(),
+                     'seq_lens_avg': seq_lens.mean()}
+    else:
+        out_stats = {}
+
+    if take_quantiles:
+        print('After filtering quantiles:')
+    print(out_stats)
+
+    return alns, fastas, out_stats
 
 
 def remove_gaps(alns):
@@ -183,7 +235,7 @@ def encode_aln(alned_seqs_raw, seq_len, padding=''):
                                    for _ in range(seqs_shape[0])])
         elif padding == 'gaps':
             seqs_new = np.asarray([index2code(seq2index(seq)).T
-                           for seq in ['-' * seq_len] * seqs_shape[1]])
+                                   for seq in ['-' * seq_len] * seqs_shape[1]])
 
         seqs_new[:, :, pad_before:-pad_after] = seqs + 0
         return seqs_new
@@ -251,7 +303,6 @@ class TensorDataset(Dataset):
     """
 
     def __init__(self, real_alns, sim_alns, pairs=False):
-
         nb_real = len(real_alns)
         nb_sim = len(sim_alns)
 
@@ -297,7 +348,7 @@ class DatasetAln(Dataset):
 
 def raw_alns_prepro(fasta_paths,
                     params,
-                    take_quantiles=True,
+                    take_quantiles=None,
                     shuffle=False):
     """Loads and preprocesses raw (not encoded) alignments
 
@@ -309,55 +360,75 @@ def raw_alns_prepro(fasta_paths,
     :return: ids, preprocessed raw alignments, updated param. dict.
     """
 
+    if take_quantiles is None:
+        take_quantiles = [False] * len(fasta_paths)
+
     nb_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
 
     print("Loading alignments ...")
 
     # load sets of multiple alned sequences
-    alns, fastas = [], []
-    for path in fasta_paths:
-        raw_data = alns_from_fastas(path, min_nb_seqs, max_nb_seqs, nb_alns)
+    alns, fastas, lims = [], [], []
+    for i, path in enumerate(fasta_paths):
+        sim_cl_dirs = [dir for dir in os.listdir(path)
+                       if os.path.isdir(os.path.join(path, dir))]
+        if len(sim_cl_dirs) > 0:  # there are multiple clusters
+            sim_alns, sim_fastas, sim_lims = [], [], {}
+            for dir in sim_cl_dirs:
+                sim_data = alns_from_fastas(f'{path}/{dir}', take_quantiles[i],
+                                            nb_alns)
+                sim_alns += sim_data[0]
+                sim_fastas += sim_data[1]
+                if len(sim_lims) == 0:
+                    for k, v in sim_data[2].items():
+                        sim_lims[k] = [v]
+                else:
+                    sim_lims_tmp = {}
+                    for k in sim_lims.keys():
+                        sim_lims_tmp[k] = sim_lims[k] + [sim_data[2][k]]
+                    sim_lims = sim_lims_tmp.copy()
+            if len(sim_alns) > nb_alns:
+                inds = np.random.choice(np.arange(len(sim_alns)), size=nb_alns,
+                                        replace=False)
+                raw_data = [[sim_alns[ind] for ind in inds],
+                            [sim_fastas[ind] for ind in inds],
+                            sim_lims]
+            else:
+                raw_data = [sim_alns, sim_fastas, sim_lims]
+        else:
+            raw_data = alns_from_fastas(path, take_quantiles[i], nb_alns)
         alns.append(raw_data[0])
         fastas.append(raw_data[1])
+        lims.append(raw_data[2])
 
-    if take_quantiles:
-        # removing sequences where length is < 0.25 quantile or > 0.75 quantile
-        seq_lens = np.asarray(get_nb_sites(alns[0]))
-        q1 = np.quantile(seq_lens, 0.25)
-        q2 = np.quantile(seq_lens, 0.75)
+    if len(alns) == 2 and len(fastas) == 2:  # if there is simulated data
+        print(f"avg. seqs. len. : {lims[1]['seq_lens_avg']} (sim.) vs. "
+              f"{lims[0]['seq_lens_avg']} (emp.)")
+        print(f"avg. n.seqs. : {lims[1]['n_seqs_avg']} (sim.) vs. "
+              f"{lims[0]['n_seqs_avg']} (emp.)")
 
-        alns[0] = [alns[0][i] for i in range(len(seq_lens))
-                   if q1 <= seq_lens[i] <= q2]
-        fastas[0] = [fastas[0][i] for i in range(len(seq_lens))
-                     if q1 <= seq_lens[i] <= q2]
+        assert len(alns[0]) == len(alns[1]), f' {len(alns[0])} == {len(alns[1])}'
+        """
+        # sort simulated data by sequence length
+        ind_s = np.argsort(get_nb_sites(alns[1]))
 
-        if len(alns) == 2 and len(fastas) == 2:  # if there is simulated data
+        alns[1] = [alns[1][i] for i in ind_s]
+        fastas[1] = [fastas[1][i] for i in ind_s]
 
-            # sort simulated data by sequence length
-            ind_s = np.argsort(get_nb_sites(alns[1]))
+        # keeping same amount of simulated alns from the "middle"(regarding
+        # lengths)
+        start = len(alns[0]) // 2
+        alns[1] = alns[1][start:start + len(alns[0])]
+        fastas[1] = fastas[1][start:start + len(alns[0])]
 
-            alns[1] = [alns[1][i] for i in ind_s]
-            fastas[1] = [fastas[1][i] for i in ind_s]
+        # shuffling the sorted simulated alignments and their ids
+        indices = np.arange(len(alns[1]))
+        np.random.shuffle(indices)
+        alns[1] = [alns[1][i] for i in indices]
+        fastas[1] = [fastas[1][i] for i in indices]
+        """
 
-            # keeping same amount of simulated alns from the "middle"(regarding
-            # lengths)
-            start = len(alns[0]) // 2
-
-            alns[1] = alns[1][start:start + len(alns[0])]
-            fastas[1] = fastas[1][start:start + len(alns[0])]
-
-            assert len(alns[0]) == len(alns[1]), (f'{len(alns[1])} simulated '
-                                                  f'alignments vs. '
-                                                  f'{len(alns[0])} '
-                                                  f'empirical alignments ')
-
-            # shuffling the sorted simulated alignments and their ids
-            indices = np.arange(len(alns[1]))
-            np.random.shuffle(indices)
-            alns[1] = [alns[1][i] for i in indices]
-            fastas[1] = [fastas[1][i] for i in indices]
-
-        params['nb_sites'] = int(min(seq_len, np.max(get_nb_sites(alns))))
+    params['nb_sites'] = int(min(seq_len, lims[0]['seq_lens_max']))
 
     nb_seqs = nb_seqs_per_alns(alns)
     params['max_seqs_per_align'] = int(np.max(nb_seqs))
@@ -429,3 +500,97 @@ def get_representations(alns,
                                   csv_path=csv_path)
 
         return alns_reprs
+
+
+def aa_freq_samples(in_dir, out_dir, data_dirs, sample_prop, n_alns, levels):
+    if not os.path.exists(out_dir):
+        os.mkdir(out_dir)
+
+    for i in range(len(data_dirs)):
+        data_dir = data_dirs[i]
+        print(data_dir)
+
+        if os.path.exists(f'{in_dir}/{data_dir}'):
+            cl_dirs = ['/' + name for name in os.listdir(f'{in_dir}/{data_dir}')
+                       if
+                       os.path.isdir(
+                           os.path.join(f'{in_dir}/{data_dir}', name))]
+            alns_samples, cl_assign = [], []
+            if len(cl_dirs) == 0:
+                alns = alns_from_fastas(f'{in_dir}/{data_dir}',
+                                        take_quantiles=True
+                                        if data_dir == 'fasta_no_gaps'
+                                        else False, nb_alns=n_alns)[0]
+                # sampling
+                sample_size = np.round(sample_prop * len(alns)).astype(int)
+                sample_inds = np.random.randint(0, len(alns), sample_size)
+                alns_samples = [alns[ind] for ind in sample_inds]
+                cl_assign = [1] * sample_size
+            else:
+                for cl, cl_dir in enumerate(cl_dirs):
+                    alns = alns_from_fastas(f'{in_dir}/{data_dir}{cl_dir}',
+                                            take_quantiles=False,
+                                            nb_alns=n_alns)[0]
+                    # sampling
+                    sample_size = np.round(sample_prop * len(alns)).astype(int)
+                    sample_inds = np.random.randint(0, len(alns), sample_size)
+                    alns_samples += [alns[ind] for ind in sample_inds]
+                    cl_assign += [cl + 1] * sample_size
+
+            seq_lens = np.asarray([len(aln[0]) for aln in alns_samples])
+            n_seqs = np.asarray([len(aln) for aln in alns_samples])
+
+            # frequency vectors on MSA level
+            if 'msa' in levels:
+                counts_alns = count_aas(alns_samples, level='msa')
+                counts_alns /= np.repeat(counts_alns.sum(axis=1)[:, np.newaxis],
+                                         20,
+                                         axis=1)
+                freqs_alns = np.round(counts_alns, 8)
+                cl_assign = np.asarray(cl_assign).reshape(-1, 1)
+
+                table = np.concatenate((freqs_alns, cl_assign), axis=1)
+                np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_alns.csv",
+                           table,
+                           delimiter=",",
+                           header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,cl',
+                           comments='')
+
+            # frequency vectors on gene level
+            if 'genes' in levels:
+                counts_genes = count_aas(alns_samples, level='genes')
+                div_seq_lens = np.repeat(np.asarray(seq_lens), n_seqs)
+                freqs_genes = np.round(counts_genes / div_seq_lens, 8)
+
+                aln_assign = np.repeat(np.arange(1, len(alns_samples) + 1),
+                                       n_seqs).reshape(1, -1)
+                cl_assign = np.repeat(cl_assign, n_seqs).reshape(1, -1)
+
+                table = np.concatenate((freqs_genes, aln_assign, cl_assign),
+                                       axis=0)
+                np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_genes.csv",
+                           table.T,
+                           delimiter=",",
+                           header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,aln,cl',
+                           comments='')
+
+            # frequency vectors on site level
+            if 'sites' in levels:
+                counts_sites = count_aas(alns_samples, level='sites')
+                div_n_seqs = np.repeat(np.asarray(n_seqs), seq_lens)
+                freqs_sites = np.round(counts_sites / div_n_seqs, 8)
+
+                aln_assign = np.repeat(np.arange(1, len(alns_samples) + 1),
+                                       seq_lens).reshape(1, -1)
+                cl_assign = np.repeat(cl_assign, seq_lens).reshape(1, -1)
+
+                table = np.concatenate((freqs_sites, aln_assign, cl_assign),
+                                       axis=0)
+                np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_sites.csv",
+                           table.T,
+                           delimiter=",",
+                           header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,'
+                                  'aln,cl',
+                           comments='')
+        else:
+            warnings.warn(f'{in_dir}/{data_dir} does not exist')
