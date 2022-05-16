@@ -1,3 +1,4 @@
 /.idea/*
 /__pycache__/*
 /unused_fcts.py
+/data2csv4pca.py
