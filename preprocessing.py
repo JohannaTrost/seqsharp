@@ -370,6 +370,7 @@ def raw_alns_prepro(fasta_paths,
     # load sets of multiple alned sequences
     alns, fastas, lims = [], [], []
     for i, path in enumerate(fasta_paths):
+        path = str(path)
         sim_cl_dirs = [dir for dir in os.listdir(path)
                        if os.path.isdir(os.path.join(path, dir))]
         if len(sim_cl_dirs) > 0:  # there are multiple clusters
@@ -397,6 +398,7 @@ def raw_alns_prepro(fasta_paths,
                 raw_data = [sim_alns, sim_fastas, sim_lims]
         else:
             raw_data = alns_from_fastas(path, take_quantiles[i], nb_alns)
+        nb_alns = len(raw_data[0])
         alns.append(raw_data[0])
         fastas.append(raw_data[1])
         lims.append(raw_data[2])
@@ -428,12 +430,17 @@ def raw_alns_prepro(fasta_paths,
         fastas[1] = [fastas[1][i] for i in indices]
         """
 
+    # ensure same number of MSAs for all data sets
+    for i in range(len(alns)):
+        inds = np.random.choice(range(len(alns[i])), nb_alns, replace = False)
+        alns[i] = [alns[i][ind] for ind in inds]
+
     params['nb_sites'] = int(min(seq_len, lims[0]['seq_lens_max']))
 
-    nb_seqs = nb_seqs_per_alns(alns)
-    params['max_seqs_per_align'] = int(np.max(nb_seqs))
-    params['min_seqs_per_align'] = int(np.min(nb_seqs))
-    params['nb_alignments'] = len(alns[0])
+    nb_seqs = np.asarray(nb_seqs_per_alns(alns))
+    params['max_seqs_per_align'] = np.max(nb_seqs, axis=1).astype(int)
+    params['min_seqs_per_align'] = np.min(nb_seqs, axis=1).astype(int)
+    params['nb_alignments'] = nb_alns
 
     if shuffle:  # shuffle sites/columns of alignments
         for i in range(len(alns)):

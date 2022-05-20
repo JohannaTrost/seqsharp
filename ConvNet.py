@@ -15,6 +15,8 @@ import torch.nn as nn
 
 compute_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+print(f'\ncompute device: {compute_device}\n')
+
 
 def init_weights(m):
     """Initializes weights with values according to the method
