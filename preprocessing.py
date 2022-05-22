@@ -438,8 +438,8 @@ def raw_alns_prepro(fasta_paths,
     params['nb_sites'] = int(min(seq_len, lims[0]['seq_lens_max']))
 
     nb_seqs = np.asarray(nb_seqs_per_alns(alns))
-    params['max_seqs_per_align'] = np.max(nb_seqs, axis=1).astype(int)
-    params['min_seqs_per_align'] = np.min(nb_seqs, axis=1).astype(int)
+    params['max_seqs_per_align'] = np.max(nb_seqs, axis=1).astype(int).tolist()
+    params['min_seqs_per_align'] = np.min(nb_seqs, axis=1).astype(int).tolist()
     params['nb_alignments'] = nb_alns
 
     if shuffle:  # shuffle sites/columns of alignments
