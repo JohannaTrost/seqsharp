@@ -36,8 +36,11 @@ def multi_dens(data, profiles):
         # -------- P(A_i | v_k) for all sites
         n_aas_site = data[i].sum(axis=-1)
         sites_profile_probs.append(
-            np.asarray([multinomial.pmf(data[i], n_aas_site, profiles[k])
-            # np.asarray([np.prod(profiles[k]**data[i], axis=1)
+            np.asarray([multinomial.pmf(data[i], n_aas_site,
+                                        profiles[k] / profiles[k].sum()
+                                        if profiles[k].sum() > 1
+                                        else profiles[k])
+                        # np.asarray([np.prod(profiles[k]**data[i], axis=1)
                         for k in range(n_profiles)]).T)
         sites_profile_probs[i][sites_profile_probs[i] == 0] = MINPOSFLOAT
     return sites_profile_probs
@@ -75,7 +78,7 @@ def e_step(data, profs, pro_w, cl_w, probs_sites=None):
     n_alns = len(data)
     n_profiles = profs.shape[0]
     n_clusters = cl_w.shape[0]
-    ax_p, ax_c, ax_s = 2, 1, 0
+    ax_p, ax_c, ax_s = 2, 1, 1
 
     # ******************************* E-STEP  ******************************* #
     # pi : probability for profile z and cluster c at site j of alignment i
