@@ -2,7 +2,6 @@
 /__pycache__/*
 /unused_fcts.py
 /data2csv4pca.py
-/data/*
 /configs/*
 /tmp_scripts/*
 /pipeline_no_em.sh
