@@ -350,31 +350,11 @@ def main():
                                               for model in models])
 
             if param_eval['val_acc'] > best['param_eval']['val_acc']:
-                if param_eval['val_acc'] - best['param_eval']['val_acc'] < 1:
-                    if param_eval['train_acc'] > best['param_eval']['train_acc']:
-                        if param_eval['val_acc'] - best['param_eval']['val_acc'] < 1:
-                            if (param_eval['train_std'] < best['param_eval'][
-                            'train_std'] and
-                                    best['param_eval']['train_std'] -
-                                    param_eval['train_std'] > 1):
-                                best['param_eval'] = param_eval
-                                best['models'] = models
-                                best['dfs'] = dfs
-                                best['batch_size'] = param_space['batch_size'][
-                                    bs_ind]
-                                best['lr'] = param_space['lr'][lr_ind]
-                        else:
-                            best['param_eval'] = param_eval
-                            best['models'] = models
-                            best['dfs'] = dfs
-                            best['batch_size'] = param_space['batch_size'][bs_ind]
-                            best['lr'] = param_space['lr'][lr_ind]
-                else:
-                    best['param_eval'] = param_eval
-                    best['models'] = models
-                    best['dfs'] = dfs
-                    best['batch_size'] = param_space['batch_size'][bs_ind]
-                    best['lr'] = param_space['lr'][lr_ind]
+                best['param_eval'] = param_eval
+                best['models'] = models
+                best['dfs'] = dfs
+                best['batch_size'] = param_space['batch_size'][bs_ind]
+                best['lr'] = param_space['lr'][lr_ind]
 
         # -------------------------- treat results -------------------------- #
 
