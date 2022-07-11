@@ -108,9 +108,9 @@ def e_step(data, profs, pro_w, cl_w, probs_sites=None):
         log_aln_cl[aln] += np.log(cl_w)
 
         # part of the formula can be replaced by dot product(/matmul)
-        alter_dot = np.sum([p_sites_profs[aln] * pro_w[c]
-                            for c in range(n_clusters)], axis=2)
-        dot = np.dot(pro_w, p_sites_profs[aln].T)
+        # alter_dot = np.sum([p_sites_profs[aln] * pro_w[c]
+        #                    for c in range(n_clusters)], axis=2)
+        # dot = np.dot(pro_w, p_sites_profs[aln].T)
         # np.all(alter_dot == dot)
 
         # -------- lk on site level : pi
@@ -484,8 +484,13 @@ def init_estimates(n_runs, n_clusters, n_profiles, n_aas, n_alns, test,
             prof = dirichlet.rvs([2 * n_aas] * n_aas, n_profiles)
 
             # init profile probabilities per cluster
-            pro_w = dirichlet.rvs([2 * n_profiles] * n_profiles, n_clusters,
-                                  random_state=run)
+            # pro_w = dirichlet.rvs([2 * n_profiles] * n_profiles, n_clusters)
+            pro_w = np.zeros((n_clusters, n_profiles))
+            for cl in range(n_clusters):
+                alphas = np.random.gamma(np.random.uniform(0.5, 5),
+                                         np.random.randint(1, 3), n_profiles)
+                pro_w[cl] = dirichlet.rvs(alphas)[0]
+
             # init cluster probabilities
             weights = np.random.randint(1, n_alns, n_clusters)
             cl_w = weights / weights.sum()
@@ -627,6 +632,47 @@ def main(args):
                                  true_params=[cluster_weights, profile_weights,
                                               profiles]
                                  if test else None)
+
+    for run in range(n_runs):  # TODO remove
+        #for cl_aln in range(n_clusters):
+        #    init_params[run][1][cl_aln] = \
+        #        init_estimates(1, 1, n_profiles, n_aas, n_alns, test,
+        #                       true_params=None)[0][1][0]
+        init_params[run][2] = np.ones(n_clusters) / n_clusters
+
+    # set first two cluster weights with the help of kmean on PCs
+    n_runs_select = 0
+    msa_inds4pro_w_init = np.zeros((n_runs_select, n_clusters))
+    msa_freqs = count_aas(alns, level='msa')
+    msa_freqs /= np.repeat(msa_freqs.sum(axis=1)[:, np.newaxis], 20, axis=1)
+    msa_freqs = np.round(msa_freqs, 8)
+
+    pca = PCA(n_components=2)
+    pca_msa_freqs = pca.fit_transform(msa_freqs)
+    pca_msa_freqs_c = pca_msa_freqs - pca_msa_freqs.mean(axis=0)
+
+    # kmeans on PC1 and 2
+    seeds = [3874, 98037]
+    for run in range(int(n_runs_select)):
+        kmeans_pcs = KMeans(n_clusters=n_clusters, random_state=seeds[run]).fit(
+            pca_msa_freqs_c)
+        cl_coord = kmeans_pcs.cluster_centers_
+        for i, target in enumerate(cl_coord):
+            dists = np.sum((pca_msa_freqs_c - target) ** 2, axis=1) ** 0.5
+            msa_inds4pro_w_init[run, i] = int(np.argmin(dists))
+        # set em init cluster weights
+        init_params[run][2] = np.asarray([sum(kmeans_pcs.labels_ == i) / n_alns
+                                          for i in range(n_clusters)])
+        # EM on msa for init profile weights
+        init_pro_w = np.zeros((n_clusters, n_profiles))
+        for cl, aln in enumerate(msa_inds4pro_w_init[run]):
+            rand_params = [profiles, np.array([init_params[run][1][cl]]),
+                           np.ones(1)]
+            init_pro_w[cl] = em(rand_params, profiles, [aa_counts[int(aln)]],
+                                n_iter)[0][1]
+
+        init_params[run][1] = init_pro_w
+
     # TODO don't forget to delete this later
     # iem_path = '../results/profiles_weights/iEM_30cl_30aln_30runs'
     # for run in range(n_runs):
