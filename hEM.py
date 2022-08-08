@@ -303,34 +303,43 @@ def lk_per_site(aln_counts, profiles, weights):
     return prob_site_prof.T @ weights
 
 
-def lks_alns_given_cls(alns_counts, pro_w, p_sites_profs):
+def lks_alns_given_cls(alns_counts, pro_w, p_sites_profs, log=False):
     n_alns, n_cl = len(alns_counts), len(pro_w)
     lk_aln_cl = np.zeros((n_alns, n_cl))
+    log_lk_aln_cl = np.zeros((n_alns, n_cl))
     consts = np.zeros(n_alns)
     for aln in range(n_alns):
         p_sites_cl = pro_w @ p_sites_profs[aln].T
-        log_lk_aln_cl = np.sum(np.log(p_sites_cl), axis=1)
-        consts[aln] = np.abs(np.max(log_lk_aln_cl))
-        lk_aln_cl[aln] = np.exp(log_lk_aln_cl + consts[aln])
-    return lk_aln_cl, consts
+        log_lk_aln_cl[aln] = np.sum(np.log(p_sites_cl), axis=1)
+        consts[aln] = np.abs(np.max(log_lk_aln_cl[aln]))
+        lk_aln_cl[aln] = np.exp(log_lk_aln_cl[aln] + consts[aln])
+
+    if log:
+        return log_lk_aln_cl + consts
+    else:
+        return lk_aln_cl, consts
 
 
 def theoretical_cl_freqs(profiles, weights):
     return weights @ profiles
 
 
-# using normalized lk P(aln_i | cl_j) -> normalization first
+# using log lk P(aln_i | cl_j) -> normalization last
 def expected_sim_freqs(counts, profiles, pro_w):
     p_sites_profs = multi_dens(counts, profiles)
-    lk_aln_cl, consts = lks_alns_given_cls(counts, iem_pro_w_runs[0],
-                                           p_sites_profs)
+    log_lk_aln_cl = lks_alns_given_cls(counts, pro_w, p_sites_profs, log=True)
 
     th_freqs = np.asarray(
         [theoretical_cl_freqs(profiles, weights) for weights in
          iem_pro_w_runs[0]])
 
     expected_sim_freqs = np.asarray(
-        [aln_i_lk_cls @ th_freqs for aln_i_lk_cls in lk_aln_cl])
+        [aln_i_lk_cls @ th_freqs for aln_i_lk_cls in log_lk_aln_cl])
+
+    sum_over_cls = log_lk_aln_cl.sum(axis=1)
+    sum_over_cls = np.repeat(sum_over_cls[:, np.newaxis], 20, axis=1)
+
+    expected_sim_freqs /= sum_over_cls
 
     return expected_sim_freqs
 
@@ -352,6 +361,8 @@ from utils import load_weights
 iem_cl_w_runs, iem_pro_w_runs = load_weights(
     'results/profiles_weights/iEM_30cl_30aln_30runs', 30, 30, 64)
 
+exp_sim_freqs_norm_last = expected_sim_freqs(counts, profiles,
+                                              iem_pro_w_runs[0])
 exp_sim_freqs_norm_first = expected_sim_freqs(counts, profiles,
                                               iem_pro_w_runs[0])
 emp_freqs = count_aas(raw_data, level='msa')
@@ -364,6 +375,16 @@ mse = np.mean(np.abs(exp_sim_freqs_norm_first - emp_freqs), axis=1)
 # check if expected aln and emp. aln pair has lowest distances
 print([np.argmin(np.sum((exp_sim_freqs_norm_first - np.repeat(emp_freqs[i][np.newaxis], 30, axis=0))**2, axis=1)) for i in range(30)])
 print([np.argmin(np.mean(np.abs(exp_sim_freqs_norm_first - np.repeat(emp_freqs[i][np.newaxis], 30, axis=0)), axis=1)) for i in range(30)])
+
+# for function with normalization in the end
+sq_dist_norm_last = np.sum((exp_sim_freqs_norm_last - emp_freqs)**2, axis=1)
+mse_norm_last = np.mean(np.abs(exp_sim_freqs_norm_last - emp_freqs), axis=1)
+
+print([np.argmin(np.sum((exp_sim_freqs_norm_last - np.repeat(emp_freqs[i][np.newaxis], 30, axis=0))**2, axis=1)) for i in range(30)])
+print([np.argmin(np.mean(np.abs(exp_sim_freqs_norm_last - np.repeat(emp_freqs[i][np.newaxis], 30, axis=0)), axis=1)) for i in range(30)])
+
+print(sq_dist_norm_last > sq_dist)
+print(mse_norm_last > mse)
 
 
 def full_log_lk(data, profs, pro_w, cl_w=None):
