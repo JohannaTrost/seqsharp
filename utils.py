@@ -280,30 +280,48 @@ def growth_rate(a, b):
     return np.abs(a - b) / min(np.abs(a), np.abs(b)) * 100
 
 
-def load_weights(weights_path, n_runs, n_clusters, n_profiles):
-    cl_w_runs = np.zeros((n_runs, n_clusters))
-    pro_w_runs = np.zeros((n_runs, n_clusters, n_profiles))
+def load_weights(weights_path, n_clusters, n_profiles, n_runs, best=True):
+    cl_w_runs = np.zeros(n_clusters) if best else np.zeros((n_runs, n_clusters))
+    pro_w_runs = (np.zeros((n_clusters, n_profiles)) if best
+                  else np.zeros((n_runs, n_clusters, n_profiles)))
+
     for run in range(n_runs):
-        if os.path.exists(f'{weights_path}/cl_weights_{run+1}.csv'):
+        if (os.path.exists(f'{weights_path}/cl_weights_{run+1}.csv')
+                and not best):
             cl_w_runs[run] = np.genfromtxt(f'{weights_path}/cl_weights_{run+1}'
                                            f'.csv', delimiter=',')
         elif os.path.exists(f'{weights_path}/cl_weights_best{run+1}.csv'):
-            cl_w_runs[run] = np.genfromtxt(f'{weights_path}/cl_weights_best'
-                                           f'{run+1}.csv', delimiter=',')
+            if best:
+                cl_w_runs = np.genfromtxt(f'{weights_path}/cl_weights_best'
+                                          f'{run + 1}.csv', delimiter=',')
+            else:
+                cl_w_runs[run] = np.genfromtxt(f'{weights_path}/cl_weights_best'
+                                               f'{run+1}.csv', delimiter=',')
         else:
-            warnings.warn(f'No cluster weights for run {run+1}')
+            if not best:
+                warnings.warn(f'No cluster weights for run {run+1}')
 
         for cl in range(n_clusters):
-            if os.path.exists(f'{weights_path}/cl{cl+1}_pro_weights_{run+1}.csv'):
+            if (not best and os.path.exists(
+                    f'{weights_path}/cl{cl+1}_pro_weights_{run+1}.csv')):
+
                 pro_w_runs[run, cl] = np.genfromtxt(
                     f'{weights_path}/cl{cl+1}_pro_weights_{run+1}'
                     f'.csv', delimiter=',')
+
             elif os.path.exists(f'{weights_path}/cl{cl+1}_pro_weights_best{run+1}'
                                 f'.csv'):
-                pro_w_runs[run, cl] = np.genfromtxt(f'{weights_path}/cl{cl+1}'
-                                                    f'_pro_weights_best'
-                                                    f'{run+1}.csv', delimiter=',')
+                if best:
+                    pro_w_runs = np.genfromtxt(
+                        f'{weights_path}/cl{cl + 1}'
+                        f'_pro_weights_best'
+                        f'{run + 1}.csv', delimiter=',')
+                else:
+                    pro_w_runs[run, cl] = np.genfromtxt(
+                        f'{weights_path}/cl{cl+1}_pro_weights_best{run+1}.csv',
+                        delimiter=',')
             else:
-                warnings.warn(f'No cluster weights for run {run+1}')
+                if not best:
+                    warnings.warn(f'No profile weights for run {run+1}')
 
     return cl_w_runs, pro_w_runs
