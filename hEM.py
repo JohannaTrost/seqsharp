@@ -319,6 +319,53 @@ def theoretical_cl_freqs(profiles, weights):
     return weights @ profiles
 
 
+# using normalized lk P(aln_i | cl_j) -> normalization first
+def expected_sim_freqs(counts, profiles, pro_w):
+    p_sites_profs = multi_dens(counts, profiles)
+    lk_aln_cl, consts = lks_alns_given_cls(counts, iem_pro_w_runs[0],
+                                           p_sites_profs)
+
+    th_freqs = np.asarray(
+        [theoretical_cl_freqs(profiles, weights) for weights in
+         iem_pro_w_runs[0]])
+
+    expected_sim_freqs = np.asarray(
+        [aln_i_lk_cls @ th_freqs for aln_i_lk_cls in lk_aln_cl])
+
+    return expected_sim_freqs
+
+# ---------------- TEST
+
+# load data
+from preprocessing import alns_from_fastas
+data_path = 'data/real_fasta_sample_30'
+raw_data = alns_from_fastas(data_path)[0]
+counts = [count_aas([aln], 'sites').T for aln in raw_data]
+
+# load profiles
+profiles = np.genfromtxt(
+    f'results/profiles_weights/profiles/64-edcluster-profiles.tsv',
+    delimiter='\t').T
+
+# load weights
+from utils import load_weights
+iem_cl_w_runs, iem_pro_w_runs = load_weights(
+    'results/profiles_weights/iEM_30cl_30aln_30runs', 30, 30, 64)
+
+exp_sim_freqs_norm_first = expected_sim_freqs(counts, profiles,
+                                              iem_pro_w_runs[0])
+emp_freqs = count_aas(raw_data, level='msa')
+emp_freqs /= np.repeat(emp_freqs.sum(axis=1)[:, np.newaxis], 20, axis=1)
+emp_freqs = np.round(emp_freqs, 8)
+
+sq_dist = np.sum((exp_sim_freqs_norm_first - emp_freqs)**2, axis=1)
+mse = np.mean(np.abs(exp_sim_freqs_norm_first - emp_freqs), axis=1)
+
+# check if expected aln and emp. aln pair has lowest distances
+print([np.argmin(np.sum((exp_sim_freqs_norm_first - np.repeat(emp_freqs[i][np.newaxis], 30, axis=0))**2, axis=1)) for i in range(30)])
+print([np.argmin(np.mean(np.abs(exp_sim_freqs_norm_first - np.repeat(emp_freqs[i][np.newaxis], 30, axis=0)), axis=1)) for i in range(30)])
+
+
 def full_log_lk(data, profs, pro_w, cl_w=None):
     ax_s = 1
     p_sites_profs = multi_dens(data, profs)
