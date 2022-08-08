@@ -4,6 +4,7 @@ import json
 import os
 import errno
 import math
+import warnings
 
 import numpy as np
 import matplotlib.transforms as transforms
@@ -259,3 +260,50 @@ def confidence_ellipse(x, y, ax, n_std=3.0, facecolor='none', **kwargs):
 
     ellipse.set_transform(transf + ax.transData)
     return ax.add_patch(ellipse)
+
+
+def pred_runtime(n_alns, n_cl):
+    """Factors stem from least-square regression on
+    number of MSAs: [20, 40, 60, 80, 100]
+    number of clusters: [1, 2, 4, 6, 8]
+    average number of sites: [517.25, 498.0, 392.1333333333333, 445.1625, 443.66]
+    given the runtime for all combinations of the above
+
+    :param n_alns: array or single values
+    :param n_cl: array or single value
+    :return: predicted runtimes
+    """
+    return 0.24943235 * n_alns + 1.20771259 * n_cl # 0.03476806 * n_avg_sites
+
+
+def growth_rate(a, b):
+    return np.abs(a - b) / min(np.abs(a), np.abs(b)) * 100
+
+
+def load_weights(weights_path, n_runs, n_clusters, n_profiles):
+    cl_w_runs = np.zeros((n_runs, n_clusters))
+    pro_w_runs = np.zeros((n_runs, n_clusters, n_profiles))
+    for run in range(n_runs):
+        if os.path.exists(f'{weights_path}/cl_weights_{run+1}.csv'):
+            cl_w_runs[run] = np.genfromtxt(f'{weights_path}/cl_weights_{run+1}'
+                                           f'.csv', delimiter=',')
+        elif os.path.exists(f'{weights_path}/cl_weights_best{run+1}.csv'):
+            cl_w_runs[run] = np.genfromtxt(f'{weights_path}/cl_weights_best'
+                                           f'{run+1}.csv', delimiter=',')
+        else:
+            warnings.warn(f'No cluster weights for run {run+1}')
+
+        for cl in range(n_clusters):
+            if os.path.exists(f'{weights_path}/cl{cl+1}_pro_weights_{run+1}.csv'):
+                pro_w_runs[run, cl] = np.genfromtxt(
+                    f'{weights_path}/cl{cl+1}_pro_weights_{run+1}'
+                    f'.csv', delimiter=',')
+            elif os.path.exists(f'{weights_path}/cl{cl+1}_pro_weights_best{run+1}'
+                                f'.csv'):
+                pro_w_runs[run, cl] = np.genfromtxt(f'{weights_path}/cl{cl+1}'
+                                                    f'_pro_weights_best'
+                                                    f'{run+1}.csv', delimiter=',')
+            else:
+                warnings.warn(f'No cluster weights for run {run+1}')
+
+    return cl_w_runs, pro_w_runs
