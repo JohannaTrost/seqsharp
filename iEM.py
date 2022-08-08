@@ -159,6 +159,35 @@ th_cl_w = theoretical_cl_freqs(profiles, hem_pro_w)
 p_aln_given_cl = np.asarray([[lk_per_site(aln, profiles, cl_pro_w)
                               for cl_pro_w in hem_pro_w] for aln in counts])
 
+# iEM vs. hEM
+
+# load data
+iem_path = 'results/profiles_weights/iEM_10cl10aln_15runs_originit'
+hem_path = 'results/profiles_weights/hEM_10cl10aln_15runs_originit'
+raw_10alns = alns_from_fastas(f"{hem_path}/init_weights/real_fastanames4estim"
+                              f".txt")[0]
+counts = [count_aas([aln], 'sites').T for aln in raw_10alns]
+
+# load iEM & hEM weights
+_, iem_pro_w = load_weights(iem_path, n_clusters=10, n_profiles=64,
+                                   n_runs=15, best=True)
+hem_cl_w, hem_pro_w = load_weights(hem_path, n_clusters=10, n_profiles=64,
+                                   n_runs=15, best=True)
+
+# expected frequencies
+from hEM import expected_sim_freqs
+exp_sim_hem = expected_sim_freqs(counts, profiles, hem_pro_w)
+exp_sim_iem = theoretical_cl_freqs(profiles, iem_pro_w)
+# empirical frequencies
+emp_freqs = count_aas(raw_10alns, level='msa')
+emp_freqs /= np.repeat(emp_freqs.sum(axis=1)[:, np.newaxis], 20, axis=1)
+emp_freqs = np.round(emp_freqs, 8)
+
+# squared diff
+sq_dist_iem = np.sum((emp_freqs - iem_pro_w)**2, axis=1)
+sq_dist_hem = np.sum((emp_freqs - hem_pro_w)**2, axis=1)
+
+
 """ init parameter set to circle on PCA etc.
 
 # estimate init profile weights from selected MSAs
