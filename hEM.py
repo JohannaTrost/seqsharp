@@ -303,6 +303,22 @@ def lk_per_site(aln_counts, profiles, weights):
     return prob_site_prof.T @ weights
 
 
+def lks_alns_given_cls(alns_counts, pro_w, p_sites_profs):
+    n_alns, n_cl = len(alns_counts), len(pro_w)
+    lk_aln_cl = np.zeros((n_alns, n_cl))
+    consts = np.zeros(n_alns)
+    for aln in range(n_alns):
+        p_sites_cl = pro_w @ p_sites_profs[aln].T
+        log_lk_aln_cl = np.sum(np.log(p_sites_cl), axis=1)
+        consts[aln] = np.abs(np.max(log_lk_aln_cl))
+        lk_aln_cl[aln] = np.exp(log_lk_aln_cl + consts[aln])
+    return lk_aln_cl, consts
+
+
+def theoretical_cl_freqs(profiles, weights):
+    return weights @ profiles
+
+
 def full_log_lk(data, profs, pro_w, cl_w=None):
     ax_s = 1
     p_sites_profs = multi_dens(data, profs)
@@ -311,15 +327,7 @@ def full_log_lk(data, profs, pro_w, cl_w=None):
         return np.sum([np.sum(np.log(pro_w @ p_sites_profs[aln].T), axis=ax_s)
                        for aln in range(len(data))])
     else:  # consider all cluster-MSA combinations
-        n_alns, n_cl = len(data), len(cl_w)
-        lk_aln_cl = np.zeros((n_alns, n_cl))
-        consts = np.zeros(n_alns)
-        for aln in range(n_alns):
-            p_sites_cl = pro_w @ p_sites_profs[aln].T
-            log_lk_aln_cl = np.sum(np.log(p_sites_cl), axis=1)
-            consts[aln] = np.abs(np.max(log_lk_aln_cl))
-            lk_aln_cl[aln] = np.exp(log_lk_aln_cl + consts[aln])
-
+        lk_aln_cl, consts = lks_alns_given_cls(data, pro_w, p_sites_profs)
         log_lk = np.sum(np.log(np.sum(cl_w * lk_aln_cl, axis=1)) - consts)
 
         return log_lk

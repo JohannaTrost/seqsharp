@@ -8,19 +8,19 @@ from matplotlib import pylab as plt
 
 from preprocessing import alns_from_fastas
 from stats import count_aas
-from hEM import init_estimates, em, full_log_lk
+from hEM import init_estimates, em, full_log_lk, theoretical_cl_freqs, \
+    lk_per_site
 
 # load alignments
 from utils import load_weights
 
-data_path = '../results/profiles_weights/hEM_30cl_30aln_30runs_orig_init/' \
-            'init_weights/real_fastanames4estim.txt'
+data_path = 'data/real_fasta_sample_30'
 raw_data = alns_from_fastas(data_path)[0]
 counts = [count_aas([aln], 'sites').T for aln in raw_data]
 
 # load profiles
 profiles = np.genfromtxt(
-    f'../results/profiles_weights/profiles/64-edcluster-profiles.tsv',
+    f'results/profiles_weights/profiles/64-edcluster-profiles.tsv',
     delimiter='\t').T
 
 # set params
@@ -40,8 +40,8 @@ init_cl_w = np.zeros((n_runs, n_clusters))
 for run in range(n_runs):
     for cl_aln in range(n_clusters):
         init_pro_w[run, cl_aln] = \
-        init_estimates(1, 1, n_profiles, n_aas, n_alns, test,
-                       true_params=None)[0][1]
+            init_estimates(1, 1, n_profiles, n_aas, n_alns, test,
+                           true_params=None)[0][1]
         weights = np.random.randint(1, n_alns, n_clusters)
         init_cl_w[run] = weights / weights.sum()
 
@@ -106,7 +106,8 @@ plt.savefig('../results/hem_hem_iem_params_plt_other_init_5runs.png', dpi=100)
 plt.close('all')
 
 # run hem with iem params as inits and uniform cluster weights
-iem_cl_w_runs, iem_pro_w_runs = load_weights('../results/profiles_weights/iEM_30cl_30aln_30runs', 30, 30, 64)
+iem_cl_w_runs, iem_pro_w_runs = load_weights(
+    '../results/profiles_weights/iEM_30cl_30aln_30runs', 30, 30, 64)
 
 lks_hem_iem_init = np.zeros(n_runs)
 n_proc = n_runs
@@ -117,7 +118,8 @@ if not os.path.exists(save_path_hem):
 
 process_pool = multiprocessing.Pool(n_proc)
 result = process_pool.starmap(em,
-                              zip([[profiles, iem_pro_w_runs[run], iem_cl_w_runs[run]]
+                              zip([[profiles, iem_pro_w_runs[run],
+                                    iem_cl_w_runs[run]]
                                    for run in range(n_runs)],
                                   [profiles] * n_proc,
                                   [counts] * n_proc,
@@ -128,7 +130,8 @@ for proc, run in zip(range(n_proc), runs):
     lks_hem_iem_init[run] = result[proc][3][-1]
 
 # hEM with iEM inits -> nans after 10th iteration
-iem_cl_w_runs, iem_pro_w_runs = load_weights('../results/profiles_weights/iEM_30cl_30aln_30runs', 30, 30, 64)
+iem_cl_w_runs, iem_pro_w_runs = load_weights(
+    '../results/profiles_weights/iEM_30cl_30aln_30runs', 30, 30, 64)
 n_iter = 10
 
 np.random.seed(72)
@@ -139,7 +142,22 @@ res = em([profiles, iem_pro_w_runs[0], rand_params[0][2]],
 
 pi, p_aln_cl = e_step(counts, res[0][0], res[0][1], res[0][2])
 estim_cluster_weights, estim_profile_weights, estim_profiles = m_step(
-                pi, p_aln_cl, counts)
+    pi, p_aln_cl, counts)
+
+# load weights hem
+
+hem_weights_path = "results/profiles_weights/hEM_10cl10aln_15runs_originit"
+run = 'best3'
+
+hem_pro_w = np.asarray(
+    [np.genfromtxt(f'{hem_weights_path}/cl{cl}_pro_weights_{run}.csv',
+                   delimiter=',') for cl in range(1, 11)])
+hem_cl_w = np.genfromtxt(f'{hem_weights_path}/cl_weights_{run}.csv',
+                         delimiter=',')
+
+th_cl_w = theoretical_cl_freqs(profiles, hem_pro_w)
+p_aln_given_cl = np.asarray([[lk_per_site(aln, profiles, cl_pro_w)
+                              for cl_pro_w in hem_pro_w] for aln in counts])
 
 """ init parameter set to circle on PCA etc.
 
