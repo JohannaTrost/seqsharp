@@ -10,9 +10,13 @@ import argparse
 import numpy as np
 from Bio import Phylo, SeqIO, Seq
 
-from preprocessing import alns_from_fastas
-from simulation import enough_leaves
-from stats import get_aa_freqs, generate_data_from_dist
+from preprocessing import alns_from_fastas, aa_freq_samples
+from simulation import get_leaves_count
+from stats import get_aa_freqs, generate_data_from_dist, nb_seqs_per_alns
+from utils import largest_remainder_method
+from tqdm import tqdm
+
+np.random.seed(72)
 
 
 def rearrange_tree(root):
@@ -82,6 +86,8 @@ def main():
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
     sim_params = parser.add_argument_group('arguments for simulation')
+    freq_params = parser.add_argument_group(
+        'arguments for AA frequency samples')
 
     parser.add_argument('indir', type=str,
                         help='the </path/to/> input directory or file')
@@ -96,8 +102,9 @@ def main():
     parser.add_argument('--ocaml', action='store_true',
                         help='Indicate reformatting for simulations with the '
                              'ocaml-simulator')
-    group.add_argument('-s', '--simulator', type=str, nargs=2,
-                       metavar=('simulator path', 'hogenom fasta path'),
+    group.add_argument('-s', '--simulator', type=str, nargs=3,
+                       metavar=('simulator path', 'hogenom fasta path',
+                                'parameters path'),
                        help='simulate sequences from newick trees. Requires '
                             '</path/to/> seq-gen or ocaml-sim executable.')
     group.add_argument('-r', '--removegaps', action='store_true',
@@ -114,6 +121,18 @@ def main():
     sim_params.add_argument('-a', '--numberaligns', type=int,
                             default=100,
                             help='the number of alignments to be simulated')
+    sim_params.add_argument('--profiles', type=str,
+                            help="<path/to> tsv file containing AA frequency "
+                                 "profiles used by Philippe's simulator")
+    group.add_argument('-fs', '--freqsample', type=str, nargs='+',
+                       help='directory names for MSA data sets for which '
+                            'frequency samples shall be extracted. Directories'
+                            ' must be present in "indir"')
+    freq_params.add_argument('-l', '--levels', type=str, nargs='+',
+                             help='Specify "msa", "sites" and/or "genes" for '
+                                  'the level of AA frequency extraction')
+    freq_params.add_argument('-p', '--proportion', type=float,
+                             help='Sample size as proportion of given data set')
 
     args = parser.parse_args()
 
@@ -124,16 +143,14 @@ def main():
         if out_path.rpartition('/')[-1].rpartition('.')[0] != '':  # is file
             os.makedirs(out_path.rpartition('.')[0])
             print(out_path.rpartition('.')[0])
-        else:
-            os.makedirs(out_path)
+        # else:
+        # os.makedirs(out_path) TODO
 
     if args.format:
-
         if args.ocaml:
             print('Adapting format to fit Ocaml-Sim format requirements...')
 
             if os.path.isfile(in_path):
-
                 tree = Phylo.read(in_path, 'newick')
                 tree_remove_confidence(tree.root)
                 Phylo.write(tree, out_path, 'newick')
@@ -172,185 +189,230 @@ def main():
 
         print('Starting sequence simulations...')
 
-        sim_path, hogenom_fasta_path = args.simulator
+        sim_path, hogenom_fasta_path, param_dir = args.simulator
+        profile_path = args.profiles
+        n_profiles = np.genfromtxt(profile_path, delimiter='\t').shape[1]
         min_nb_seqs, max_nb_seqs = args.numberseqs if args.numberseqs else (
             4, 300)
-        nb_aligns = args.numberaligns if args.numberaligns else 100
+        n_alns = args.numberaligns if args.numberaligns else 100
 
         if not os.path.exists(sim_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     sim_path)
+        if not os.path.isdir(in_path):
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                    in_path)
+        if not os.path.exists(hogenom_fasta_path):
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                    hogenom_fasta_path)
 
-        if os.path.isdir(in_path):
-            if os.path.exists(f'{in_path}_filenames.txt'):
-                tree_files = []
-                with open(f'{in_path}_filenames.txt') as filenames:
-                    for name in filenames:
-                        tree_files.append(name[:-1])
-                print(f'Loaded tree files from {in_path}_filenames.txt')
-            else:
-                tree_files = os.listdir(in_path)
+        if sim_path.rpartition('/')[2] == 'simulator.exe':
+            fix_param_dir = f'{sim_path.rpartition("/")[0]}/../..'
 
-            seq_lens = None
-            aa_freqs = None
+        # load alignments
+        print(hogenom_fasta_path)
+        alignments, fastas, lims = alns_from_fastas(hogenom_fasta_path,
+                                               nb_alns=n_alns)
+        # get lengths and frequences from hogenom aligned sequences
+        seq_lens = [len(aln[0]) for aln in alignments]
+        seq_lens = generate_data_from_dist(seq_lens)
+        n_seqs = np.asarray(nb_seqs_per_alns(alignments))
+        aa_freqs = get_aa_freqs(alignments, gaps=False, dict=False)
 
-            if os.path.exists(hogenom_fasta_path):
-                alignments, _ = alns_from_fastas(hogenom_fasta_path,
-                                                 min_nb_seqs,
-                                                 max_nb_seqs,
-                                                 nb_aligns)
+        # get em run "ids" from parameter directory
+        estim_files = [file for file in os.listdir(param_dir)
+                       if os.path.isfile(f'{param_dir}/{file}') and
+                       'best' in file]
+        em_runs = np.unique([file.split('/')[-1].split('.')[0].split('_')[-1]
+                             for file in estim_files])
+        print(f'param dir : {param_dir}')
+        print(f'em runs : {em_runs}')
 
-                if len(alignments) <= len(tree_files):
-                    # get lengths and frequences from hogenom aligned sequences
-                    seq_lens = [len(algn[0]) for algn in alignments]
-                    seq_lens = generate_data_from_dist(seq_lens)
-                    aa_freqs = get_aa_freqs(alignments, gaps=False, dict=False)
-
+        files_sim_fail = []
+        for em_run in em_runs:
+            if not os.path.exists(f'{out_path}_{em_run}'):
+                os.makedirs(f'{out_path}_{em_run}')
+            # prepare cluster repartition
+            if sim_path.rpartition('/')[2] == 'simulator.exe':
+                if os.path.exists(f'{param_dir}/cl_weights_{em_run}.csv'):
+                    cl_w = np.genfromtxt(f'{param_dir}/cl_weights_{em_run}.csv',
+                                         delimiter=',')
+                    cl_sizes = largest_remainder_method(cl_w, n_alns)
+                    cl_assign = np.repeat(np.arange(1, len(cl_w) + 1), cl_sizes)
+                    for cl in np.arange(1, len(cl_w) + 1):
+                        os.mkdir(f'{out_path}_{em_run}/cl{cl}')
                 else:
-                    raise ValueError(
-                        f'Not enough input trees({len(tree_files)})'
-                        f'for {len(alignments)} simulations')
-            else:
-                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                        hogenom_fasta_path)
+                    cl_assign = None
 
-            print(f'number of hogenom alignments used: {len(alignments)}')
-            print(f'number of input trees used: {len(tree_files)}')
+                # draw quantiles form beta for zeroing weights
+                #mu = 0.4
+                #var = 0.025
+                #alpha = ((1 - mu) / var - 1 / mu) * mu ** 2
+                #beta = alpha * (1 / mu - 1)
+                #q_zeros = np.random.beta(a=alpha, b=beta, size=n_alns)
 
-            i = 0  # number of simulated alns
-            files_sim_fail = []
-            for file in tree_files:
-                if file.rpartition('.')[2] == 'tree':
-                    fasta_out_path = out_path + '/' + \
-                                     file.rpartition('.')[0] + '.fasta'
-                    tree_in_path = in_path + '/' + file
+            print(f'Simulations for parameters from run {em_run}\n')
 
-                    if enough_leaves(tree_in_path, min_nb_seqs):
-                        freqs = np.array2string(aa_freqs[i], separator=',')
-                        freqs = freqs.replace('\n ', '')[1:-1]
+            for i, fasta_file in tqdm(enumerate(fastas)):
+                file = f'coretree_{fasta_file.strip("fasta")}.tree'
 
-                        aas = 'ARNDCQEGHILKMFPSTWYV'
-                        aa_freqs_aln = np.zeros((20, len(alignments[i][0])))
-                        aln_arr = np.asarray(
-                            [list(seq) for seq in alignments[i]])
-                        for j in range(aln_arr.shape[1]):
-                            for k, aa in enumerate(aas):
-                                aa_count = list(aln_arr[:, j]).count(aa)
-                                aa_freqs_aln[k, j] = aa_count / aln_arr.shape[0]
-
-                        if sim_path.rpartition('/')[2] == 'seq-gen':
-                            bash_cmd = (f'{sim_path} '
-                                        f'-mWAG -l{str(seq_lens[i])} '
-                                        f'-f{freqs} -of '
-                                        f'< {tree_in_path} > {fasta_out_path}')
-                        elif sim_path.rpartition('/')[2] == 'simulator.exe':
-                            param_dir = f'{sim_path.rpartition("/")[0]}/../..'
-
-                            # one profile per site
-                            np.savetxt(f'{param_dir}/profile.tsv',
-                                       aa_freqs_aln, delimiter='\t')
-                            np.savetxt(f'{param_dir}/weights.csv',
-                                       np.ones((aa_freqs_aln.shape[1])) /
-                                       aa_freqs_aln.shape[1],
-                                       delimiter=',')
-
-                            bash_cmd = (
-                                f'{sim_path} --tree {tree_in_path} '
-                                f'--profiles {param_dir}/profile.tsv '
-                                f'--wag {param_dir}/wag.dat '
-                                f'--profile-weights {param_dir}/weights.csv '
-                                f'-o {fasta_out_path} '
-                                f'--mu 0.0 --lambda 0.0 '
-                                f'--nsites {str(seq_lens[i])}')
-
-                        process = subprocess.Popen(bash_cmd, shell=True,
-                                                   stdout=subprocess.PIPE)
-
-                        print(f'Executed: \n "{bash_cmd}"')
-
-                        output, error = process.communicate()
-
-                        process.wait()
-
-                        if (os.path.exists(fasta_out_path) and
-                                os.stat(fasta_out_path).st_size > 0):
-                            i += 1
-                            print(
-                                '\tSaved ' + fasta_out_path.rpartition('/')[2] +
-                                ' to ' + out_path)
-                            print(
-                                '______________________________________________'
-                                '___________________________________________\n')
-                        else:
-                            if os.path.exists(fasta_out_path):
-                                os.remove(fasta_out_path)
-                            files_sim_fail.append(
-                                fasta_out_path.rpartition('/')[2])
-
-                        if error is not None:
-                            print(error)
-
-                    if i == len(alignments):
-                        break
-
+                if sim_path.rpartition('/')[2] != 'simulator.exe':
+                    cl_dir = ""
                 else:
-                    print(f'skipped file {file},because it is not a ".tree" '
-                          f'file.')
+                    if cl_assign is None:
+                        cl_dir = ""
+                    else:
+                        cl_dir = f"/cl{cl_assign[i]}"
+
+                fasta_out_path = (f'{out_path}_{em_run}{cl_dir}/'
+                                  f'{file.rpartition(".")[0]}.fasta')
+
+                tree_in_path = in_path + '/' + file
+                if not os.path.exists(tree_in_path):
+                    raise FileNotFoundError(errno.ENOENT,
+                                            os.strerror(errno.ENOENT),
+                                            tree_in_path)
+                elif tree_in_path.rpartition('.')[2] != 'tree':
+                    raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                     f'File extension for a tree needs to be '
+                                     f'.tree given: {tree_in_path}')
+
+                freqs = np.array2string(aa_freqs[i], separator=',')
+                freqs = freqs.replace('\n ', '')[1:-1]
+
+                # aas = 'ARNDCQEGHILKMFPSTWYV'
+                # aa_freqs_aln = np.zeros((20, len(alignments[i][0])))
+                # aln_arr = np.asarray(
+                #    [list(seq) for seq in alignments[i]])
+                # for j in range(aln_arr.shape[1]):
+                #    for k, aa in enumerate(aas):
+                #        aa_count = list(aln_arr[:, j]).count(aa)
+                #        aa_freqs_aln[k, j] = aa_count / aln_arr.shape[0]
+
+                if sim_path.rpartition('/')[2] == 'seq-gen':
+                    bash_cmd = (f'{sim_path} '
+                                f'-mWAG -l{str(seq_lens[i])} '
+                                # f'-f{freqs} '
+                                f'-of '
+                                f'< {tree_in_path} > {fasta_out_path}')
+                elif sim_path.rpartition('/')[2] == 'simulator.exe':
+
+                    # one profile per site
+                    # np.savetxt(f'{param_dir}/profile.tsv',
+                    #            aa_freqs_aln, delimiter='\t')
+                    # np.savetxt(f'{param_dir}/weights.csv',
+                    #            np.ones((aa_freqs_aln.shape[1])) /
+                    #            aa_freqs_aln.shape[1],
+                    #            delimiter=',')
+                    if cl_assign is not None:
+                        pro_w_file = (f'cl{cl_assign[i]}_pro_weights_{em_run}'
+                                      f'.csv')
+                    else:
+                        pro_w_file = f'pro_weights_{em_run}.csv'
+
+                    # force sparse weights (concentrate weights)
+                    # weights = np.genfromtxt(f'{param_dir}/{pro_w_file}',
+                    #                       delimiter=',')
+                    # weights[weights < np.quantile(weights, q_zeros[0])] = 0
+                    # weights = weights / weights.sum()
+                    # np.savetxt(f'{param_dir}/sparse_weights.csv', weights,
+                    #           delimiter=',')
+                    # pro_w_file = 'sparse_weights.csv'
+
+                    bash_cmd = (
+                        f'{sim_path} --tree {tree_in_path} '
+                        f'--profiles {profile_path} '
+                        f'--wag {fix_param_dir}/wag.dat '
+                        f'--profile-weights {param_dir}/{pro_w_file} '
+                        f'-o {fasta_out_path} '
+                        f'--mu 0.0 --lambda 0.0 '
+                        f'--nsites {str(seq_lens[i])}')
+
+                process = subprocess.Popen(bash_cmd, shell=True,
+                                           stdout=subprocess.PIPE)
+
+                # print(f'Executed: \n "{bash_cmd}"')
+
+                output, error = process.communicate()
+
+                process.wait()
+
+                if (os.path.exists(fasta_out_path) and
+                        os.stat(fasta_out_path).st_size > 0):
+                    i += 1
+                    # print(
+                    #    '\tSaved ' + fasta_out_path.rpartition('/')[2] +
+                    #   ' to ' + out_path)
+                    # print(
+                    #     '______________________________________________'
+                    #     '___________________________________________\n')
+                else:
+                    if os.path.exists(fasta_out_path):
+                        os.remove(fasta_out_path)
+                    files_sim_fail.append(
+                        fasta_out_path.rpartition('/')[2])
+
+                if error is not None:
+                    print(error)
+
+                if i == len(alignments):
+                    break
 
             if len(files_sim_fail) > 0:
                 print(f'Simulation failed for:{files_sim_fail}\n')
 
             # Varify number of simulated files
-            aligns_sim, _ = alns_from_fastas(out_path,
-                                             min_nb_seqs, max_nb_seqs,
-                                             nb_aligns)
-            if seq_lens is not None:
-                sim_seqs_lens = [len(align[0]) for align in aligns_sim]
-                sim_seqs_lens.sort()
-                seq_lens.sort()
-
-                if len(sim_seqs_lens) == len(seq_lens):
-                    print(f'Number of real alignments: {len(alignments)}')
-                    print(f'Number of inputted trees: '
-                          f'{len(tree_files[:len(alignments)])}')
-                    print(f'Newly simulated alignments: {len(aligns_sim)}')
+            if cl_dir != "":
+                if cl_assign is not None:
+                    aligns_sim = []
+                    for cl in np.arange(1, len(cl_w) + 1):
+                        aligns_sim += \
+                            alns_from_fastas(f'{out_path}_{em_run}/cl{cl}',
+                                             False, n_alns)[0]
                 else:
-                    print(f'Nb. sites (simulated): {len(sim_seqs_lens)}')
-                    print(f'Nb. sites (empirical): {len(seq_lens)}')
-                    print(f'Number of inputted trees: '
-                          f'{len(tree_files[:len(alignments)])}')
+                    aligns_sim, _, _ = alns_from_fastas(f'{out_path}_{em_run}',
+                                                        False, n_alns)
+
+                if seq_lens is not None:
+                    sim_seqs_lens = [len(align[0]) for align in aligns_sim]
+                    sim_seqs_lens.sort()
+                    seq_lens.sort()
+                    if len(sim_seqs_lens) == len(seq_lens):
+                        print(f'Number of real alignments: {len(alignments)}')
+                        print(f'Newly simulated alignments: {len(aligns_sim)}')
+                    else:
+                        print(f'Nb. sites (simulated): {len(sim_seqs_lens)}')
+                        print(f'Nb. sites (empirical): {len(seq_lens)}')
+                        print(f'Newly simulated alignments: {len(aligns_sim)}')
+                else:
                     print(f'Newly simulated alignments: {len(aligns_sim)}')
-            else:
-                print(f'Number of inputted trees: {len(tree_files)}')
-                print(f'Newly simulated alignments: {len(aligns_sim)}')
-        else:
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    in_path)
 
     if args.removegaps:
 
         print('Removing gaps ...')
 
         if os.path.isfile(in_path):
-
             remove_gaps(in_path, out_path)
 
         elif os.path.isdir(in_path):
-
             fasta_files = os.listdir(in_path)
-
             for file in fasta_files:
-
                 if file.rpartition('.')[2] == 'fasta':
-
                     remove_gaps(in_path + '/' + file, out_path + '/' + file)
-
                 else:
                     print('skipped file ' + file + ',because it is not a '
                                                    'fasta file')
         else:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     in_path)
+
+    if args.freqsample:
+        levels = args.levels
+        n_alns = args.numberaligns
+        sample_prop = args.proportion
+        data_dirs = args.freqsample
+        aa_freq_samples(in_path, data_dirs, sample_prop, n_alns, levels,
+                        out_path)
 
     print('Process finished 0')
 
