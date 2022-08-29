@@ -4,18 +4,15 @@ import sys
 import time
 import warnings
 
-from itertools import permutations
+import numpy as np
 from scipy.stats import multinomial, dirichlet
-from matplotlib import pylab as plt, rcParams
+from matplotlib import pylab as plt
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
-
-import numpy as np
 from tqdm import tqdm
-from sklearn.manifold import TSNE
 
 from preprocessing import raw_alns_prepro
-from utils import read_config_file, split_lst, pol2cart
+from utils import read_config_file, pol2cart
 from stats import count_aas
 
 np.random.seed(72)
@@ -36,14 +33,18 @@ def multi_dens(data, profiles):
     for i in range(n_alns):
         # -------- P(A_i | v_k) for all sites
         n_aas_site = data[i].sum(axis=-1)
-        sites_profile_probs.append(
-            np.asarray([multinomial.pmf(data[i], n_aas_site,
-                                        profiles[k] / profiles[k].sum()
-                                        if profiles[k].sum() > 1
-                                        else profiles[k])
-                        # np.asarray([np.prod(profiles[k]**data[i], axis=1)
-                        for k in range(n_profiles)]).T)
-        sites_profile_probs[i][sites_profile_probs[i] == 0] = MINPOSFLOAT
+        aln_probs = np.zeros((n_aas_site, n_profiles))
+        for k in range(n_profiles):
+            if profiles[k].sum() > 1: # condition for pmf function
+                prof = profiles[k] / profiles[k].sum()
+            else:
+                prof = profiles[k]
+
+            aln_probs[:, k] = multinomial.pmf(data[i], n_aas_site, prof)
+
+        aln_probs[aln_probs == 0] = MINPOSFLOAT # EM requires probs >0
+        sites_profile_probs.append(aln_probs)
+
     return sites_profile_probs
 
 
@@ -325,6 +326,14 @@ def full_log_lk(data, profs, pro_w, cl_w=None):
         return log_lk
 
 
+def th_cl_freq(profiles, weights):
+    return weights @ profiles
+
+
+th_cls_freqs = np.asarray([th_cl_freq(profiles,
+                                      orig_iem_pro_w_runs[0][i]) for i in range(10)])
+
+
 def em(init_params, profiles, aa_counts, n_iter, run=None,
        test=False,
        save_path=""):
@@ -487,12 +496,12 @@ def init_estimates(n_runs, n_clusters, n_profiles, n_aas, n_alns, test,
             # pro_w = dirichlet.rvs([2 * n_profiles] * n_profiles, n_clusters)
             pro_w = np.zeros((n_clusters, n_profiles))
             for cl in range(n_clusters):
-                alphas = np.random.gamma(np.random.uniform(0.5, 5),
-                                         np.random.randint(1, 3), n_profiles)
-                pro_w[cl] = dirichlet.rvs(alphas)[0]
+                pro_w[cl] = np.random.randint(1, n_profiles, n_profiles)
+                pro_w[cl] /= pro_w[cl].sum()
 
             # init cluster probabilities
-            weights = np.random.randint(1, n_alns, n_clusters)
+            weights = np.random.gamma(np.random.uniform(0.3, 8), size=n_clusters)
+            # weights = np.random.randint(1, n_alns, n_clusters)
             cl_w = weights / weights.sum()
 
         params.append([prof, pro_w, cl_w])
@@ -633,12 +642,12 @@ def main(args):
                                               profiles]
                                  if test else None)
 
-    for run in range(n_runs):  # TODO remove
+    #for run in range(n_runs):  # TODO remove
         #for cl_aln in range(n_clusters):
         #    init_params[run][1][cl_aln] = \
         #        init_estimates(1, 1, n_profiles, n_aas, n_alns, test,
         #                       true_params=None)[0][1][0]
-        init_params[run][2] = np.ones(n_clusters) / n_clusters
+        #init_params[run][2] = np.ones(n_clusters) / n_clusters
 
     # set first two cluster weights with the help of kmean on PCs
     n_runs_select = 0
