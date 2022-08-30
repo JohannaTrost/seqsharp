@@ -26,42 +26,60 @@ RTOL = 1e-5
 STARTTIME = time.time()
 
 
-def multi_dens(data, profiles):
+def multi_dens(data, profs):
+    """Computes the multinomial likelihood per site for a given a set of profiles
+    for a set of MSAs
+
+    :param data: list (n_alns) of arrays with site-wise amino acid counts
+    :param profs: (n_profiles x 20) multinomial amino acid mixture weights
+    :return: list (n_alns) with (n_sites x n_profiles) containing multinomial
+    probabilities for a site given a profile
+    """
+
     n_alns = len(data)
-    n_profiles = profiles.shape[0]
-    sites_profile_probs = []
+    n_profiles = profs.shape[0]
+    p_sites_profiles = []
     for i in range(n_alns):
         # -------- P(A_i | v_k) for all sites
         n_aas_site = data[i].sum(axis=-1)
-        aln_probs = np.zeros((n_aas_site, n_profiles))
+        n_sites = data[i].shape[0]
+        p_aln_sites_profiles = np.zeros((n_sites, n_profiles))
         for k in range(n_profiles):
-            if profiles[k].sum() > 1: # condition for pmf function
-                prof = profiles[k] / profiles[k].sum()
+            if profs[k].sum() > 1:  # condition for pmf function
+                prof = profs[k] / profs[k].sum()
             else:
-                prof = profiles[k]
+                prof = profs[k]
 
-            aln_probs[:, k] = multinomial.pmf(data[i], n_aas_site, prof)
+            p_aln_sites_profiles[:, k] = multinomial.pmf(data[i], n_aas_site,
+                                                         prof)
 
-        aln_probs[aln_probs == 0] = MINPOSFLOAT # EM requires probs >0
-        sites_profile_probs.append(aln_probs)
+        # EM requires probs >0
+        p_aln_sites_profiles[p_aln_sites_profiles == 0] = MINPOSFLOAT
+        p_sites_profiles.append(p_aln_sites_profiles)
 
-    return sites_profile_probs
+    return p_sites_profiles
 
 
-def log_probs_rems(p_sites_profs, pro_w):
-    n_sites = p_sites_profs.shape[0]
+def log_probs_remaining_sites(p_aln_sites_profiles, pro_w):
+    """Log probability for an MSA excluding site j per given profiles and profile
+    weights for each cluster
+
+    :param p_aln_sites_profiles: array of size n_sites x n_profiles with
+    probability for a site given a profile
+    :param pro_w: (n_clusters x n_profiles) mixture component weights
+    (profile weights)
+    :return: (n_sites x n_clusters) probability for remaining sites
+    (all sites except site j) given a cluster
+    """
+
+    n_sites = p_aln_sites_profiles.shape[0]
     n_clusters = pro_w.shape[0]
-    n_profiles = pro_w.shape[1]
 
-    # site_masks = ~np.eye(n_sites, dtype=bool)
     log_rems_cl = np.zeros((n_sites, n_clusters))
 
-    p_sites_profs_rep = np.repeat(p_sites_profs[np.newaxis, :, :], n_sites,
-                                  axis=0)
-
-    # p_sites_profs_rep_masked = (p_sites_profs_rep *
-    #                            np.repeat(site_masks[:, :, np.newaxis],
-    #                                      n_profiles, axis=2))
+    # (n_sites x n_sites x n_profiles)
+    p_sites_profs_rep = np.repeat(p_aln_sites_profiles[np.newaxis, :, :],
+                                  n_sites, axis=0)
 
     # set diagonal to 0 to exclude a site
     diag_inds = np.diag_indices(n_sites, 2)
@@ -70,32 +88,49 @@ def log_probs_rems(p_sites_profs, pro_w):
     for cl in range(n_clusters):
         # prob. for remaining sites
         weighted_sites_notj = p_sites_profs_rep @ pro_w[cl]
-        weighted_sites_notj[diag_inds] = 1  # from 0 to 1 such that log(1) = 0
+        weighted_sites_notj[diag_inds] = 1  # set 0s to 1 such that log(1) = 0
+        # sum over sites for log prob. for the entire MSA
         log_rems_cl[:, cl] = np.sum(np.log(weighted_sites_notj), axis=1)
 
     return log_rems_cl
 
 
 def e_step(data, profs, pro_w, cl_w, probs_sites=None):
+    """Expectation step
+    Compute posterior distribution for a cluster c and a profile z to generate
+    a site of an alignment and posterior distribution for a cluster c to
+    generate an alignment.
+
+    :param data: list (n_alns) of arrays with site-wise amino acid counts
+    :param profs: (n_profiles x 20) multinomial amino acid mixture weights
+    :param pro_w: (n_clusters x n_profiles) mixture component weights
+    (profile weights)
+    :param cl_w: (n_clusters) MSA cluster probability (cluster weights)
+    :param probs_sites: (n_sites x n_profiles) probability for a site given
+    a profile
+    :return: posterior probabilities for profile and cluster assignments
+    n_alns elements list with arrays of size n_sites x n_clusters xn_profiles,
+    n_alns elements list with arrays of size n_clusters
+    """
+
     n_alns = len(data)
     n_profiles = profs.shape[0]
     n_clusters = cl_w.shape[0]
-    ax_p, ax_c, ax_s = 2, 1, 1
+    ax_p, ax_c, ax_s = 2, 1, 1  # profile-, cluster-, site-axis
 
-    # ******************************* E-STEP  ******************************* #
     # pi : probability for profile z and cluster c at site j of alignment i
     #      given weights and profiles and aa counts
-    log_pi = [np.zeros((data[aln].shape[0], n_clusters, n_profiles))
-              for aln in range(n_alns)]
-    pi = [np.zeros((data[aln].shape[0], n_clusters, n_profiles))
-          for aln in range(n_alns)]
-    log_aln_cl = np.zeros((n_alns, n_clusters))
+    log_site_pi = [np.zeros((data[aln].shape[0], n_clusters, n_profiles))
+                   for aln in range(n_alns)]
+    site_pi = [np.zeros((data[aln].shape[0], n_clusters, n_profiles))
+               for aln in range(n_alns)]
+    log_aln_pi = np.zeros((n_alns, n_clusters))
 
     if probs_sites is None:
         p_sites_profs = multi_dens(data, profs)
-        log_rems_alns = [log_probs_rems(p_sites_profs[aln], pro_w)
+        log_rems_alns = [log_probs_remaining_sites(p_sites_profs[aln], pro_w)
                          for aln in range(n_alns)]
-    else:
+    else:  # is forwarded from previous vlb computation
         log_rems_alns = probs_sites[1]
         p_sites_profs = probs_sites[0]
 
@@ -103,37 +138,40 @@ def e_step(data, profs, pro_w, cl_w, probs_sites=None):
 
         n_sites = data[aln].shape[0]
 
-        # -------- lk on alignment level
-        log_aln_cl[aln] = np.sum(np.log(np.dot(pro_w, p_sites_profs[aln].T)),
+        # -------- lk on alignment level: prob. of a cluster i given profiles,
+        #          profile weights and MSAs
+        log_aln_pi[aln] = np.sum(np.log(np.dot(pro_w, p_sites_profs[aln].T)),
                                  axis=ax_s)
-        log_aln_cl[aln] += np.log(cl_w)
+        log_aln_pi[aln] += np.log(cl_w)
 
-        # part of the formula can be replaced by dot product(/matmul)
-        # alter_dot = np.sum([p_sites_profs[aln] * pro_w[c]
+        # part of the formula were replaced by dot product(/matmul)
+        # alter_dot = np.sum([p_sites_profiles[aln] * pro_w[c]
         #                    for c in range(n_clusters)], axis=2)
-        # dot = np.dot(pro_w, p_sites_profs[aln].T)
+        # dot = np.dot(pro_w, p_sites_profiles[aln].T)
         # np.all(alter_dot == dot)
 
         # -------- lk on site level : pi
         log_sites_profs = np.log(p_sites_profs[aln])  # n_sites x n_profiles
 
         # (n_sites x) n_cl x n_pro
-        log_pi[aln] = np.repeat(np.log(pro_w)[np.newaxis, :, :], n_sites,
-                                axis=0)
-        # (n_sites x) n_cl (x n_pro)
-        log_pi[aln] += np.repeat(np.repeat(np.log(cl_w)[np.newaxis, :], n_sites,
-                                           axis=0)[:, :, np.newaxis],
-                                 n_profiles, axis=2)
-        # n_sites x n_cl (x n_pro)
-        log_pi[aln] += np.repeat(log_rems_alns[aln][:, :, np.newaxis],
-                                 n_profiles, axis=2)
-        # n_sites (x n_cl x) n_pro
-        log_pi[aln] += np.repeat(log_sites_profs[:, np.newaxis, :], n_clusters,
-                                 axis=1)
+        log_site_pi[aln] = np.repeat(np.log(pro_w)[np.newaxis, :, :], n_sites,
+                                     axis=0)
+        # Add log cluster weights -> (n_sites x) n_cl (x n_pro)
+        log_site_pi[aln] += np.repeat(np.repeat(np.log(cl_w)[np.newaxis, :],
+                                                n_sites,
+                                                axis=0)[:, :, np.newaxis],
+                                      n_profiles, axis=2)
+        # Add probs of remaining sites -> n_sites x n_cl (x n_pro)
+        log_site_pi[aln] += np.repeat(log_rems_alns[aln][:, :, np.newaxis],
+                                      n_profiles, axis=2)
+        # Add site probs -> n_sites (x n_cl x) n_pro
+        log_site_pi[aln] += np.repeat(log_sites_profs[:, np.newaxis, :],
+                                      n_clusters,
+                                      axis=1)
 
-        if np.any(log_pi[aln] == -np.inf):
+        if np.any(log_site_pi[aln] == -np.inf):
             warnings.warn(
-                f"In MSA {aln + 1} {np.sum(log_pi[aln] == -np.inf)}/"
+                f"In MSA {aln + 1} {np.sum(log_site_pi[aln] == -np.inf)}/"
                 f"{n_sites * n_clusters * n_profiles} log_pi's are "
                 f"-infinity")
 
@@ -142,17 +180,17 @@ def e_step(data, profs, pro_w, cl_w, probs_sites=None):
         # -------- log to prob (n_sites x n_cl x n_pro)
 
         # max log-lk per site
-        max_logs = np.max(np.max(log_pi[aln], axis=ax_p), axis=ax_c)
+        max_logs = np.max(np.max(log_site_pi[aln], axis=ax_p), axis=ax_c)
 
         # add cluster and profile axis to recover shape
         max_logs = np.repeat(max_logs[:, np.newaxis], n_clusters, axis=ax_c)
         max_logs = np.repeat(max_logs[:, :, np.newaxis], n_profiles, axis=ax_p)
 
-        pi[aln] = np.exp(log_pi[aln] + np.abs(max_logs))
-        pi[aln][pi[aln] == 0] = MINPOSFLOAT
+        site_pi[aln] = np.exp(log_site_pi[aln] + np.abs(max_logs))
+        site_pi[aln][site_pi[aln] == 0] = MINPOSFLOAT
 
-        # normalizing pi
-        sum_over_pro_cl = pi[aln].sum(axis=ax_p).sum(axis=ax_c)
+        # --- normalizing pi
+        sum_over_pro_cl = site_pi[aln].sum(axis=ax_p).sum(axis=ax_c)
 
         # add cluster and profile axis to recover shape
         sum_over_pro_cl = np.repeat(sum_over_pro_cl[:, np.newaxis], n_clusters,
@@ -160,41 +198,41 @@ def e_step(data, profs, pro_w, cl_w, probs_sites=None):
         sum_over_pro_cl = np.repeat(sum_over_pro_cl[:, :, np.newaxis],
                                     n_profiles, axis=2)
 
-        pi[aln] /= sum_over_pro_cl
-
-        # if not np.all(pi[aln].sum(axis=ax_p).sum(axis=ax_c) == 1):
-        # print(list(pi[aln].sum(axis=ax_p).sum(axis=ax_c)))
-
-        pi[aln][pi[aln] == 0] = MINPOSFLOAT
+        site_pi[aln] /= sum_over_pro_cl
+        site_pi[aln][site_pi[aln] == 0] = MINPOSFLOAT
 
     # log to prob for alignment level lk
-    max_logs = np.max(log_aln_cl, axis=ax_c)  # per MSA
+    max_logs = np.max(log_aln_pi, axis=ax_c)  # per MSA
     max_logs = np.repeat(max_logs[:, np.newaxis], n_clusters, axis=ax_c)
-    aln_pi = np.exp(log_aln_cl + np.abs(max_logs))
+    aln_pi = np.exp(log_aln_pi + np.abs(max_logs))
     # normalize
     aln_pi = aln_pi / np.repeat(np.sum(aln_pi, axis=1)[:, np.newaxis],
                                 n_clusters, axis=1)
 
-    # if not np.all(aln_pi.sum(axis=ax_c) == 1):
-    # print(list(aln_pi.sum(axis=ax_c)))
-
-    """
-    # verify pi & aln_pi
-    if np.all(aln_pi.argmax(axis=ax_c) == cluster_alns_asso):
-        # (n_aln, n_sites, n_cl, !n_pro!)
-        pro_site_inds = np.argmax(np.asarray(pi), axis=3)
-
-        for aln, cl in enumerate(cluster_alns_asso):
-            if not np.all(pro_site_inds[aln, :, cl] == profile_site_asso[cl, :]):
-                print(list(pro_site_inds[aln, :, cl]
-                           == profile_site_asso[cl, :]))
-    """
-    return pi, aln_pi
+    return site_pi, aln_pi
 
 
 def m_step(site_pi, aln_pi, data):
-    ax_c, ax_p = 1, 2
-    ax_s, ax_aa = 0, 2
+    """Maximization step
+    Optimization of profiles, profile weights and cluster weights to maximize
+    the lower bound of the log-likelihood under the equality contraint that
+    the AA probabilities of a profile sum to 1, the profile weights for a
+    cluster sum to 1 and the cluster weights sum to 1
+
+    :param site_pi: list (n_alns) of (n_sites x n_clusters x n_profiles)
+    posterior probabilities for profile assignments
+    :param aln_pi: (n_alns x n_clusters) posterior probabilities for
+    cluster assignments
+    :param data: list (n_alns) of arrays with site-wise amino acid counts
+    :return: mixture and mixture proportions:
+    (n_clusters) MSA cluster probability (cluster weights),
+    (n_clusters x n_profiles) mixture component weights
+    (profile weights),
+    (n_profiles x 20) multinomial amino acid mixture weights
+    """
+
+    ax_c, ax_p = 1, 2  # cluster-, profile-axis
+    ax_a, ax_s, ax_aa = 0, 0, 2  # alignment-, site-, AA-axis
 
     n_alns = len(site_pi)
     n_aas = data[0].shape[-1]
@@ -204,18 +242,17 @@ def m_step(site_pi, aln_pi, data):
     aln_pi_rep = np.repeat(aln_pi[:, :, np.newaxis], n_profiles, axis=ax_p)
     aln_pi_aa_rep = np.repeat(aln_pi_rep[:, :, :, np.newaxis], n_aas, axis=3)
 
-    # cluster weights
-    sum_over_alns = np.sum(aln_pi, axis=0)
-    aln_pi_denum = np.sum(sum_over_alns, axis=0)
+    # -------- update cluster weights
+    sum_over_alns = np.sum(aln_pi, axis=ax_a)
+    aln_pi_denum = np.sum(sum_over_alns, axis=ax_s)
     aln_pi_denum = np.repeat(aln_pi_denum, n_clusters)
     # usually division by 1
     estim_cluster_weights = sum_over_alns / aln_pi_denum
 
-    # profile weights
-    sum_over_sites_alns = np.zeros((n_clusters, n_profiles))
-    for aln in range(n_alns):
-        sum_over_sites = np.sum(site_pi[aln], axis=0)
-        sum_over_sites_alns += aln_pi_rep[aln] * sum_over_sites
+    # -------- update profile weights
+    sum_over_sites = np.asarray([np.sum(site_pi[aln], axis=0)
+                                 for aln in range(n_alns)])
+    sum_over_sites_alns = np.sum(aln_pi_rep * sum_over_sites, axis=ax_a)
 
     sum_over_prof = np.sum(sum_over_sites_alns, axis=1)
     sum_over_prof = np.repeat(sum_over_prof[:, np.newaxis], n_profiles,
@@ -224,21 +261,23 @@ def m_step(site_pi, aln_pi, data):
     # weight by cluster probabilities
     estim_profile_weights = sum_over_sites_alns / sum_over_prof
 
-    # profiles
-    cl_profiles = np.zeros((n_clusters, n_profiles, n_aas))
+    # -------- update profiles
+    weighted_counts = np.zeros((n_alns, n_clusters, n_profiles, n_aas))
     for aln in range(n_alns):
+        aa_counts_pro = np.repeat(data[aln][:, np.newaxis, :], n_profiles,
+                                  axis=1)  # n_sites (x n_pro x) n_aas
         for cl in range(n_clusters):
             site_pi_aas = np.repeat(site_pi[aln][:, cl, :, np.newaxis], n_aas,
                                     axis=ax_aa)  # n_sites x n_pro (x n_aas)
-            aa_counts_pro = np.repeat(data[aln][:, np.newaxis, :], n_profiles,
-                                      axis=1)  # n_sites (x n_pro x) n_aas
-            weighted_counts = site_pi_aas * aa_counts_pro
+            # weights sites and sum over sites
+            weighted_counts[aln, cl] = np.sum(site_pi_aas * aa_counts_pro,
+                                              axis=ax_s)
 
-            # sum over alns and sites
-            cl_profiles += aln_pi_aa_rep[aln] * np.sum(weighted_counts,
-                                                       axis=ax_s)
+    # weights MSAs and sum over MSAs
+    cl_profiles = np.sum(aln_pi_aa_rep * weighted_counts, axis=ax_a)
 
     estim_profiles = cl_profiles.sum(axis=0)  # sum over clusters
+
     # normalize
     denum = estim_profiles.sum(axis=1)  # sum over aas
     denum = np.repeat(denum[:, np.newaxis], n_aas, axis=1)  # usually 1
@@ -248,6 +287,28 @@ def m_step(site_pi, aln_pi, data):
 
 
 def compute_vlb_fl(data, cl_w, pro_w, profs, site_pi, aln_pi):
+    """
+    Compute lower bound of log-likelihood to track convergence of the EM
+    This value is expected to increase in every EM iteration.
+
+    :param profs: (n_profiles x 20) multinomial amino acid mixture weights
+    :param pro_w: (n_clusters x n_profiles) mixture component weights
+    (profile weights)
+    :param cl_w: (n_clusters) MSA cluster probability (cluster weights)
+    :param probs_sites: (n_sites x n_profiles) probability for a site given
+    a profile
+    :return: posterior probabilities for profile and cluster assignments
+    n_alns elements list with arrays of size n_sites x n_clusters xn_profiles,
+    n_alns elements list with arrays of size
+
+    :param data: list (n_alns) of arrays with site-wise amino acid counts
+    :param cl_w:
+    :param pro_w:
+    :param profs:
+    :param site_pi:
+    :param aln_pi:
+    :return: Variational lower bound value
+    """
     n_alns = len(data)
     n_profiles = profs.shape[0]
     n_clusters = cl_w.shape[0]
@@ -262,23 +323,15 @@ def compute_vlb_fl(data, cl_w, pro_w, profs, site_pi, aln_pi):
     # -------- log lk for sites given profiles
     sites_profs_probs = multi_dens(data, profs)
     sites_profile_probs_zeros = sites_profs_probs.copy()
-    # avoid -inf (divide by zero encountered in log error)
-    for aln in range(n_alns):
-        sites_profs_probs[aln][sites_profs_probs[aln] == 0] = MINPOSFLOAT
-
-    # -------- log lk for remaining sites
-    log_other_sites_cl = [log_probs_rems(sites_profs_probs[aln],
-                                         pro_w)
-                          for aln in range(n_alns)]
 
     for aln in range(n_alns):
         n_sites = data[aln].shape[0]
+        # avoid -inf (divide by zero encountered in log error)
+        sites_profs_probs[aln][sites_profs_probs[aln] == 0] = MINPOSFLOAT
 
         # -------- log Mult(v_s, A_ij)
         log_sites = np.repeat(np.log(sites_profs_probs[aln])[:, np.newaxis, :],
                               n_clusters, axis=1)
-        # log_sites += np.repeat(log_other_sites_cl[aln][:, :, np.newaxis],
-        #                       n_profiles, axis=2)
 
         # -------- log p_rs
         log_pro_w_rep = np.repeat(np.log(pro_w)[np.newaxis, :, :],
@@ -293,7 +346,7 @@ def compute_vlb_fl(data, cl_w, pro_w, profs, site_pi, aln_pi):
     # -------- lk on alignment level
     lk += np.sum(aln_pi * np.log(cl_w))
 
-    return lk, [sites_profile_probs_zeros, log_other_sites_cl]
+    return lk, sites_profile_probs_zeros
 
 
 def lk_per_site(aln_counts, profiles, weights):
@@ -331,7 +384,8 @@ def th_cl_freq(profiles, weights):
 
 
 th_cls_freqs = np.asarray([th_cl_freq(profiles,
-                                      orig_iem_pro_w_runs[0][i]) for i in range(10)])
+                                      orig_iem_pro_w_runs[0][i]) for i in
+                           range(10)])
 
 
 def em(init_params, profiles, aa_counts, n_iter, run=None,
@@ -500,7 +554,8 @@ def init_estimates(n_runs, n_clusters, n_profiles, n_aas, n_alns, test,
                 pro_w[cl] /= pro_w[cl].sum()
 
             # init cluster probabilities
-            weights = np.random.gamma(np.random.uniform(0.3, 8), size=n_clusters)
+            weights = np.random.gamma(np.random.uniform(0.3, 8),
+                                      size=n_clusters)
             # weights = np.random.randint(1, n_alns, n_clusters)
             cl_w = weights / weights.sum()
 
@@ -642,12 +697,12 @@ def main(args):
                                               profiles]
                                  if test else None)
 
-    #for run in range(n_runs):  # TODO remove
-        #for cl_aln in range(n_clusters):
-        #    init_params[run][1][cl_aln] = \
-        #        init_estimates(1, 1, n_profiles, n_aas, n_alns, test,
-        #                       true_params=None)[0][1][0]
-        #init_params[run][2] = np.ones(n_clusters) / n_clusters
+    # for run in range(n_runs):  # TODO remove
+    # for cl_aln in range(n_clusters):
+    #    init_params[run][1][cl_aln] = \
+    #        init_estimates(1, 1, n_profiles, n_aas, n_alns, test,
+    #                       true_params=None)[0][1][0]
+    # init_params[run][2] = np.ones(n_clusters) / n_clusters
 
     # set first two cluster weights with the help of kmean on PCs
     n_runs_select = 0
