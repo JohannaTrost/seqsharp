@@ -357,20 +357,39 @@ def lk_per_site(aln_counts, profiles, weights):
     return prob_site_prof.T @ weights
 
 
-def lks_alns_given_cls(alns_counts, pro_w, p_sites_profs):
+def lks_alns_given_cls(alns_counts, pro_w, p_sites_profs, log=False):
     n_alns, n_cl = len(alns_counts), len(pro_w)
     lk_aln_cl = np.zeros((n_alns, n_cl))
+    log_lk_aln_cl = np.zeros((n_alns, n_cl))
     consts = np.zeros(n_alns)
     for aln in range(n_alns):
         p_sites_cl = pro_w @ p_sites_profs[aln].T
-        log_lk_aln_cl = np.sum(np.log(p_sites_cl), axis=1)
-        consts[aln] = np.abs(np.max(log_lk_aln_cl))
-        lk_aln_cl[aln] = np.exp(log_lk_aln_cl + consts[aln])
-    return lk_aln_cl, consts
+        log_lk_aln_cl[aln] = np.sum(np.log(p_sites_cl), axis=1)
+        consts[aln] = np.abs(np.max(log_lk_aln_cl[aln]))
+        lk_aln_cl[aln] = np.exp(log_lk_aln_cl[aln] + consts[aln])
+
+    if log:
+        return log_lk_aln_cl + consts
+    else:
+        return lk_aln_cl, consts
 
 
 def theoretical_cl_freqs(profiles, weights):
     return weights @ profiles
+
+
+def expected_sim_freqs(counts, profiles, pro_w):
+    p_sites_profs = multi_dens(counts, profiles)
+    lk_aln_cl, _ = lks_alns_given_cls(counts, pro_w, p_sites_profs)
+
+    th_freqs = np.asarray(
+        [theoretical_cl_freqs(profiles, weights) for weights in
+         pro_w])
+
+    expected_sim_freqs = np.asarray(
+        [aln_i_lk_cls @ th_freqs for aln_i_lk_cls in lk_aln_cl])
+
+    return expected_sim_freqs
 
 
 def full_log_lk(data, profs, pro_w, cl_w=None):

@@ -202,7 +202,7 @@ iem_cl_w_runs, iem_pro_w_runs = load_weights(
 #noise = np.random.uniform(-0.001, 0.001, (n_runs, n_clusters))
 #iem_cl_w_runs += noise
 #iem_cl_w_runs /= np.repeat(np.sum(iem_cl_w_runs, axis=1)[:, np.newaxis],
-                           n_clusters, axis=1)
+#                           n_clusters, axis=1)
 
 lks_hem_seeds_iem_init = np.zeros(n_runs)
 n_proc = n_runs
@@ -239,20 +239,65 @@ pi, p_aln_cl = e_step(counts, res[0][0], res[0][1], res[0][2])
 estim_cluster_weights, estim_profile_weights, estim_profiles = m_step(
     pi, p_aln_cl, counts)
 
-# load weights hem
+# iEM vs. hEM
+from hEM import expected_sim_freqs
+# load data
+inits_hem = ['unif_clw_orig', 'unif_clw_initseeds', 'unif_clw_initpercl']
+inits_iem = ['originit', 'initseeds', 'initpercl']
+fig_titles = ['Seed[72]', 'Seed per EM run [1,...,15]',
+              'Seed[72] with other random operation\ninbetween cluster inits']
 
-hem_weights_path = "results/profiles_weights/hEM_10cl10aln_15runs_originit"
-run = 'best3'
+iem_path = 'results/profiles_weights/iEM_10cl10aln_15runs_'
+hem_path = 'results/profiles_weights/hEM_10cl10aln_15runs_'
+raw_10alns = alns_from_fastas(f"{hem_path}{inits_hem[1]}/init_weights/real_fastanames4estim"
+                              f".txt")[0]
+counts = [count_aas([aln], 'sites').T for aln in raw_10alns]
 
-hem_pro_w = np.asarray(
-    [np.genfromtxt(f'{hem_weights_path}/cl{cl}_pro_weights_{run}.csv',
-                   delimiter=',') for cl in range(1, 11)])
-hem_cl_w = np.genfromtxt(f'{hem_weights_path}/cl_weights_{run}.csv',
-                         delimiter=',')
+# load profiles
+profiles = np.genfromtxt(
+    f'results/profiles_weights/profiles/64-edcluster-profiles.tsv',
+    delimiter='\t').T
 
-th_cl_w = theoretical_cl_freqs(profiles, hem_pro_w)
-p_aln_given_cl = np.asarray([[lk_per_site(aln, profiles, cl_pro_w)
-                              for cl_pro_w in hem_pro_w] for aln in counts])
+# empirical frequencies
+emp_freqs = count_aas(raw_10alns, level='msa')
+emp_freqs /= np.repeat(emp_freqs.sum(axis=1)[:, np.newaxis], 20, axis=1)
+emp_freqs = np.round(emp_freqs, 8)
+
+fig, axs = plt.subplots(1, 3, sharex=True, sharey=True)
+for i, init_names in enumerate(zip(inits_iem, inits_hem)):
+    iem_init, hem_init = init_names
+    # load iEM & hEM weights
+    _, iem_pro_w = load_weights(iem_path+iem_init, n_clusters=10, n_profiles=64,
+                                n_runs=15, best=True)
+    hem_cl_w, hem_pro_w = load_weights(hem_path+hem_init, n_clusters=10,
+                                       n_profiles=64,
+                                       n_runs=15, best=True)
+    # expected frequencies
+    exp_sim_hem = expected_sim_freqs(counts, profiles, hem_pro_w)
+    exp_sim_iem = theoretical_cl_freqs(profiles, iem_pro_w)
+
+    # squared diff
+    sq_dist_iem = np.sum((emp_freqs - exp_sim_iem) ** 2, axis=1)
+    sq_dist_hem = np.sum((emp_freqs - exp_sim_hem) ** 2, axis=1)
+    print(np.abs(sq_dist_iem - sq_dist_hem).max().round(4))
+
+    diff_sq_dist_sort = (np.argsort(np.abs(sq_dist_iem - sq_dist_hem))
+                         if i == 0 else diff_sq_dist_sort)
+    # plot
+    axs[i].scatter(np.arange(len(sq_dist_iem)), sq_dist_iem[diff_sq_dist_sort],
+                color='c', label='iEM',
+                alpha=0.5)
+    axs[i].scatter(np.arange(len(sq_dist_iem)), sq_dist_hem[diff_sq_dist_sort],
+                color='coral', label='hEM',
+                alpha=0.5)
+    axs[i].set_xticks(np.arange(len(sq_dist_iem)), diff_sq_dist_sort)
+    axs[i].set_xlabel('MSA')
+    axs[i].set_ylabel('Sum of squared difference')
+    axs[i].set_title(fig_titles[i])
+    axs[i].legend()
+plt.tight_layout()
+plt.savefig('results/hem_iem_diff_emp_expected_freqs.png', dpi=100)
+plt.close('all')
 
 """ init parameter set to circle on PCA etc.
 
