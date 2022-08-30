@@ -209,15 +209,77 @@ def main():
         if sim_path.rpartition('/')[2] == 'simulator.exe':
             fix_param_dir = f'{sim_path.rpartition("/")[0]}/../..'
 
+        files_valid_trees = []
+        if os.path.exists(f'{in_path}_filenames.txt'):
+            with open(f'{in_path}_filenames.txt') as filenames:
+                for name in filenames:
+                    if name.rpartition('.')[2] == 'tree':
+                        files_valid_trees.append(name[:-1])
+            print(f'Loaded tree files from {in_path}_filenames.txt')
+        else:
+            tree_files = os.listdir(in_path)
+            files_valid_trees = []
+            for file in tree_files:
+                if file.rpartition('.')[2] == 'tree':
+                    files_valid_trees.append(file)
+        files_valid_trees = np.asarray(files_valid_trees, dtype=str)
+
         # load alignments
         print(hogenom_fasta_path)
-        alignments, fastas, lims = alns_from_fastas(hogenom_fasta_path,
+        alignments, _, lims = alns_from_fastas(hogenom_fasta_path,
                                                nb_alns=n_alns)
         # get lengths and frequences from hogenom aligned sequences
         seq_lens = [len(aln[0]) for aln in alignments]
         seq_lens = generate_data_from_dist(seq_lens)
         n_seqs = np.asarray(nb_seqs_per_alns(alignments))
         aa_freqs = get_aa_freqs(alignments, gaps=False, dict=False)
+
+        if len(alignments) > len(files_valid_trees):
+            raise ValueError(
+                f'Not enough input trees({len(tree_files)})'
+                f'for {len(alignments)} simulations')
+
+        # check if enough trees have the min. number of sequences (leaves)
+        if os.path.exists(f'{in_path}_n_leaves.csv'):
+            n_leaves = np.genfromtxt(f'{in_path}_n_leaves.csv', delimiter=',',
+                                     dtype=np.int32)
+        else:
+            n_leaves = []
+            for file in files_valid_trees:
+                tree = Phylo.read(f'{in_path}/{file}', format='newick')
+                n_leaves.append(tree.count_terminals())
+            n_leaves = np.asarray(n_leaves)
+
+        leaves_sort = np.argsort(n_leaves)
+        n_leaves = n_leaves[leaves_sort]
+        files_valid_trees = files_valid_trees[leaves_sort]
+
+        # files_valid_trees = files_valid_trees[n_leaves >= lims['n_seqs_min']]
+        # n_leaves = n_leaves[n_leaves >= lims['n_seqs_min']]
+
+        # match the numerber of sequences / leaves of trees and MSAs
+        inds = set()
+        for val in sorted(set(n_seqs)):
+            n_vals = n_seqs[n_seqs == val].shape[0]
+            candidats = set(np.where(n_leaves >= val)[0])
+            candidats.difference_update(inds)
+            candidats = set(sorted(candidats)[:n_vals])
+            inds = inds.union(candidats)
+
+        assert np.all(n_leaves[sorted(inds)] >= n_seqs[np.argsort(n_seqs)])
+        # del n_leaves
+        files_valid_trees = files_valid_trees[sorted(inds)]
+
+        if len(alignments) > len(files_valid_trees):
+            raise ValueError(
+                f'Not enough input trees({len(files_valid_trees)}) with at '
+                f'least {lims["n_seqs_min"]} leaves'
+                f'for {len(alignments)} simulations')
+        assert (len(alignments) == len(files_valid_trees),
+                'len(alignments) == len(files_valid_trees)')
+
+        # sort trees according to MSAs
+        files_valid_trees = files_valid_trees[n_seqs.argsort().argsort()]
 
         # get em run "ids" from parameter directory
         estim_files = [file for file in os.listdir(param_dir)
@@ -253,8 +315,8 @@ def main():
 
             print(f'Simulations for parameters from run {em_run}\n')
 
-            for i, fasta_file in tqdm(enumerate(fastas)):
-                file = f'coretree_{fasta_file.strip("fasta")}.tree'
+            for i in tqdm(range(len(files_valid_trees))):
+                file = files_valid_trees[i]
 
                 if sim_path.rpartition('/')[2] != 'simulator.exe':
                     cl_dir = ""
@@ -265,17 +327,9 @@ def main():
                         cl_dir = f"/cl{cl_assign[i]}"
 
                 fasta_out_path = (f'{out_path}_{em_run}{cl_dir}/'
-                                  f'{file.rpartition(".")[0]}.fasta') # TODO for seq-gen
+                                  f'{file.rpartition(".")[0]}.fasta')
 
                 tree_in_path = in_path + '/' + file
-                if not os.path.exists(tree_in_path):
-                    raise FileNotFoundError(errno.ENOENT,
-                                            os.strerror(errno.ENOENT),
-                                            tree_in_path)
-                elif tree_in_path.rpartition('.')[2] != 'tree':
-                    raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                     f'File extension for a tree needs to be '
-                                     f'.tree given: {tree_in_path}')
 
                 freqs = np.array2string(aa_freqs[i], separator=',')
                 freqs = freqs.replace('\n ', '')[1:-1]
@@ -322,7 +376,7 @@ def main():
                     bash_cmd = (
                         f'{sim_path} --tree {tree_in_path} '
                         f'--profiles {profile_path} '
-                        f'--wag {fix_param_dir}/unif.dat '
+                        f'--wag {fix_param_dir}/wag.dat '
                         f'--profile-weights {param_dir}/{pro_w_file} '
                         f'-o {fasta_out_path} '
                         f'--mu 0.0 --lambda 0.0 '
@@ -362,30 +416,34 @@ def main():
                 print(f'Simulation failed for:{files_sim_fail}\n')
 
             # Varify number of simulated files
-            if cl_dir != "":
-                if cl_assign is not None:
-                    aligns_sim = []
-                    for cl in np.arange(1, len(cl_w) + 1):
-                        aligns_sim += \
-                            alns_from_fastas(f'{out_path}_{em_run}/cl{cl}',
-                                             False, n_alns)[0]
-                else:
-                    aligns_sim, _, _ = alns_from_fastas(f'{out_path}_{em_run}',
-                                                        False, n_alns)
+            if cl_assign is not None:
+                aligns_sim = []
+                for cl in np.arange(1, len(cl_w) + 1):
+                    aligns_sim += \
+                        alns_from_fastas(f'{out_path}_{em_run}/cl{cl}',
+                                         False, n_alns)[0]
+            else:
+                aligns_sim, _, _ = alns_from_fastas(f'{out_path}_{em_run}',
+                                                    False, n_alns)
 
-                if seq_lens is not None:
-                    sim_seqs_lens = [len(align[0]) for align in aligns_sim]
-                    sim_seqs_lens.sort()
-                    seq_lens.sort()
-                    if len(sim_seqs_lens) == len(seq_lens):
-                        print(f'Number of real alignments: {len(alignments)}')
-                        print(f'Newly simulated alignments: {len(aligns_sim)}')
-                    else:
-                        print(f'Nb. sites (simulated): {len(sim_seqs_lens)}')
-                        print(f'Nb. sites (empirical): {len(seq_lens)}')
-                        print(f'Newly simulated alignments: {len(aligns_sim)}')
-                else:
+            if seq_lens is not None:
+                sim_seqs_lens = [len(align[0]) for align in aligns_sim]
+                sim_seqs_lens.sort()
+                seq_lens.sort()
+                if len(sim_seqs_lens) == len(seq_lens):
+                    print(f'Number of real alignments: {len(alignments)}')
+                    print(f'Number of inputted trees: '
+                          f'{len(files_valid_trees[:len(alignments)])}')
                     print(f'Newly simulated alignments: {len(aligns_sim)}')
+                else:
+                    print(f'Nb. sites (simulated): {len(sim_seqs_lens)}')
+                    print(f'Nb. sites (empirical): {len(seq_lens)}')
+                    print(f'Number of inputted trees: '
+                          f'{len(files_valid_trees[:len(alignments)])}')
+                    print(f'Newly simulated alignments: {len(aligns_sim)}')
+            else:
+                print(f'Number of inputted trees: {len(files_valid_trees)}')
+                print(f'Newly simulated alignments: {len(aligns_sim)}')
 
     if args.removegaps:
 

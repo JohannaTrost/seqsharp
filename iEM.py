@@ -14,7 +14,9 @@ from hEM import init_estimates, em, full_log_lk, theoretical_cl_freqs, \
 # load alignments
 from utils import load_weights
 
-data_path = 'data/real_fasta_sample_30'
+
+data_path = '../results/profiles_weights/hEM_10cl10aln_15runs_unif_clw_orig/' \
+            'init_weights/real_fastanames4estim.txt'
 raw_data = alns_from_fastas(data_path)[0]
 counts = [count_aas([aln], 'sites').T for aln in raw_data]
 
@@ -24,26 +26,21 @@ profiles = np.genfromtxt(
     delimiter='\t').T
 
 # set params
-n_runs, n_iter = 5, 70
-n_clusters, n_profiles, n_aas, n_alns, test = 30, 64, 20, 30, False
-save = '../results/profiles_weights/iEM_30cl_30aln_5runs'
+n_runs, n_iter = 15, 70
+n_clusters, n_profiles, n_aas, n_alns, test = 10, 64, 20, 10, False
+save = "../results/profiles_weights/iEM_10cl10aln_15runs_initpercl"
 if not os.path.exists(save):
     os.mkdir(save)
 
 # set init params
 np.random.seed(72)
-# init_params = init_estimates(n_runs, n_clusters, n_profiles, n_aas, n_alns,
-#                             test, true_params=None)
-
-init_pro_w = np.zeros((n_runs, n_clusters, n_profiles))
-init_cl_w = np.zeros((n_runs, n_clusters))
-for run in range(n_runs):
+init_params = init_estimates(n_runs, n_clusters, n_profiles, n_aas, n_alns,
+                             test, true_params=None)
+for run in range(n_runs):  # "other" initialization
     for cl_aln in range(n_clusters):
-        init_pro_w[run, cl_aln] = \
+        init_params[run][1][cl_aln] = \
             init_estimates(1, 1, n_profiles, n_aas, n_alns, test,
-                           true_params=None)[0][1]
-        weights = np.random.randint(1, n_alns, n_clusters)
-        init_cl_w[run] = weights / weights.sum()
+                           true_params=None)[0][1][0]
 
 # ---------- independent EMs for each msa
 pro_w_runs = np.zeros((n_runs, n_clusters, n_profiles))
@@ -51,7 +48,7 @@ lks_iem_other_init, lks_hem_other_init = np.zeros(n_runs), np.zeros(n_runs)
 
 for run in range(n_runs):
     for cl_aln in range(n_clusters):
-        inits = [profiles, np.array([init_pro_w[run, cl_aln]]), np.ones(1)]
+        inits = [profiles, np.array([init_params[run][1][cl_aln]]), np.ones(1)]
         # inits = [init_params[run][0], np.array([init_params[run][1][cl_aln]]),
         #         np.ones(1)]
         res = em(inits, profiles, [counts[cl_aln]], n_iter)
@@ -66,10 +63,10 @@ for run in range(n_runs):
                np.ones(n_clusters) / n_clusters, delimiter=',')
 
     # ---------- lk & vlb
-    lks_iem_other_init[run] = full_log_lk(counts, profiles, res[0][1])
-    lks_hem_other_init[run] = full_log_lk(counts, profiles, res[0][1],
+    lks_iem_other_init[run] = full_log_lk(counts, profiles, pro_w_runs[run])
+    lks_hem_other_init[run] = full_log_lk(counts, profiles, pro_w_runs[run],
                                           np.ones(n_clusters) / n_clusters)
-
+other_init_iem_lks = lks_hem_other_init.copy()
 # ---------- hEM with multiple clusters
 
 lks_hem_multicl = np.zeros(n_runs)
@@ -91,28 +88,114 @@ result = process_pool.starmap(em,
 for proc, run in zip(range(n_proc), runs):
     lks_hem_multicl[run] = result[proc][3][-1]
 
+# load original init em params
+orig_iem_cl_w_runs, orig_iem_pro_w_runs = load_weights(
+    '../results/profiles_weights/iEM_10cl10aln_15runs_originit', 15, 10, 64)
+seeds_iem_cl_w_runs, seeds_iem_pro_w_runs = load_weights(
+    '../results/profiles_weights/iEM_10cl10aln_15runs_randseedinit', 15, 10, 64)
+
+orig_iem_lks = [full_log_lk(counts, profiles, orig_iem_pro_w_runs[run],
+                            orig_iem_cl_w_runs[run])
+                for run in range(n_runs)]
+seeds_iem_lks = [full_log_lk(counts, profiles, seeds_iem_pro_w_runs[run],
+                             seeds_iem_cl_w_runs[run])
+                 for run in range(n_runs)]
+
+orig_hem_lks = np.genfromtxt('../results/profiles_weights'
+                             '/hEM_10cl10aln_15runs_originit/lk'
+                             '/loglks_15runs_70iter.csv', delimiter=',')
+seeds_hem_lks = np.genfromtxt('../results/profiles_weights'
+                              '/hEM_10cl10aln_15runs_randseedinit/lk'
+                              '/loglks_15runs_70iter.csv', delimiter=',')
+other_init_hem_lks = np.genfromtxt('../results/profiles_weights'
+                                   '/hEM_10cl10aln_15runs_initpercl/lk'
+                                   '/loglks_15runs_70iter.csv', delimiter=',')
+orig_hem_lks_unifclw = np.genfromtxt('../results/profiles_weights'
+                                     '/hEM_10cl10aln_15runs_unif_clw_orig/lk'
+                                     '/loglks_15runs_70iter.csv', delimiter=',')
+seeds_hem_lks_unifclw = np.genfromtxt('../results/profiles_weights'
+                                      '/hEM_10cl10aln_15runs_unif_clw_initseeds/lk'
+                                      '/loglks_15runs_70iter.csv',
+                                      delimiter=',')
+other_init_hem_lks_unifclw = np.genfromtxt('../results/profiles_weights'
+                                           '/hEM_10cl10aln_15runs_unif_clw_initpercl/lk'
+                                           '/loglks_15runs_70iter.csv',
+                                           delimiter=',')
+orig_hem_lks = [orig_hem_lks[run, orig_hem_lks[run] != 0][-1]
+                for run in range(n_runs)]
+seeds_hem_lks = [seeds_hem_lks[run, seeds_hem_lks[run] != 0][-1]
+                 for run in range(n_runs)]
+other_init_hem_lks = [other_init_hem_lks[run, other_init_hem_lks[run] != 0][-1]
+                      for run in range(n_runs)]
+orig_hem_lks_unifclw = [
+    orig_hem_lks_unifclw[run, orig_hem_lks_unifclw[run] != 0][-1]
+    for run in range(n_runs)]
+seeds_hem_lks_unifclw = [
+    seeds_hem_lks_unifclw[run, seeds_hem_lks_unifclw[run] != 0][-1]
+    for run in range(n_runs)]
+other_init_hem_lks_unifclw = [
+    other_init_hem_lks_unifclw[run, other_init_hem_lks_unifclw[run] != 0][-1]
+    for run in range(n_runs)]
+
+sparse_hem_lks_unifclw = [sparse_hem_lks_unifclw[run,
+                                                 (sparse_hem_lks_unifclw[run]
+                                                  != 0) &
+                                                 (~np.isnan(sparse_hem_lks_unifclw[run]))][-1]
+                          for run in range(n_runs)]
+
+# load hEM with iEM init params
+orig_iem_hem_cl_w, orig_iem_hem_pro_w = load_weights(
+    '../results/profiles_weights/'
+    'hEM_originit_iEMinits_unif_init_cl_w_10cl_10aln_'
+    '15runs', 15, 10, 64)
+seeds_iem_hem_cl_w, seeds_iem_hem_pro_w = load_weights(
+    '../results/profiles_weights/'
+    'hEM_originit_iEMinits_unif_init_cl_w_10cl_10aln_'
+    '15runs', 15, 10, 64)
+
+orig_hem_iem_lks = [full_log_lk(counts, profiles, orig_iem_hem_pro_w[run],
+                                orig_iem_hem_cl_w[run])
+                    for run in range(n_runs)]
+seeds_hem_iem_lks = [full_log_lk(counts, profiles, seeds_iem_hem_pro_w[run],
+                                 seeds_iem_hem_cl_w[run])
+                     for run in range(n_runs)]
+
 # plot lks
-plt.plot(lks_hem_other_init[np.argsort(lks_hem_multicl)], color='c',
-         label='hEM iEM parameters', linestyle='',
-         marker='.')
-plt.plot(lks_hem_multicl[np.argsort(lks_hem_multicl)], color='coral',
-         label='hEM', linestyle='',
-         marker='.')
-plt.ylabel('loglk')
-plt.xlabel('EM runs with different initial parameters')
-plt.legend()
+titles = ['Seed [72]', 'Seed per EM run [1,...,15]',
+          'Seed [72] with other random operation inbetween cluster inits']
+fig, axs = plt.subplots(1, 4, sharex=True, sharey=True, figsize=(16, 9))
+for lks_hem, lks_iem, lks_hem_unifclw, i in zip(
+        [orig_hem_lks, seeds_hem_lks, other_init_hem_lks],
+        [orig_iem_lks, seeds_iem_lks, other_init_iem_lks],
+        [orig_hem_lks_unifclw, seeds_hem_lks_unifclw, other_init_hem_lks_unifclw],
+        np.arange(3)):
+    axs[i].plot(lks_iem, color='c', label='iEM', linestyle='',
+                marker='o', alpha=0.5)
+    axs[i].plot(lks_hem, color='coral', label='hEM', linestyle='', marker='o')
+    axs[i].plot(lks_hem_unifclw, color='orange', label='hEM with init. cluster weights 1/10', linestyle='', marker='o', alpha=0.5)
+    axs[i].set_ylabel('loglk')
+    axs[i].set_xlabel('EM runs')
+    axs[i].set_title(titles[i])
+    axs[i].legend()
+axs[3].plot(sparse_hem_lks_unifclw, color='orange', label='hEM with init. cluster weights 1/10', linestyle='', marker='o', alpha=0.5)
+axs[3].set_ylabel('loglk')
+axs[3].set_xlabel('EM runs')
+axs[3].set_title('Sparse initial profile weights')
+axs[3].legend()
 plt.tight_layout()
-plt.savefig('../results/hem_hem_iem_params_plt_other_init_5runs.png', dpi=100)
+plt.savefig(
+    '../results/hem_formula_10cl10aln_15runs_orig_vs_seeds_vs_other_init_vs_sparse_hem_hemunifclw_iem.png',
+    dpi=150)
 plt.close('all')
 
 # run hem with iem params as inits and uniform cluster weights
 iem_cl_w_runs, iem_pro_w_runs = load_weights(
     '../results/profiles_weights/iEM_30cl_30aln_30runs', 30, 30, 64)
 
-lks_hem_iem_init = np.zeros(n_runs)
+lks_hem_seeds_iem_init = np.zeros(n_runs)
 n_proc = n_runs
 runs = np.arange(1, n_runs + 1)
-save_path_hem = '../results/profiles_weights/hEM_iEMinits_unif_init_cl_w_30cl_30aln_30runs'
+save_path_hem = '../results/profiles_weights/hEM_seedsinit_iEMinits_unif_init_cl_w_10cl_10aln_15runs'
 if not os.path.exists(save_path_hem):
     os.mkdir(save_path_hem)
 
@@ -127,7 +210,7 @@ result = process_pool.starmap(em,
                                   [test] * n_proc,
                                   [save_path_hem] * n_proc))
 for proc, run in zip(range(n_proc), runs):
-    lks_hem_iem_init[run] = result[proc][3][-1]
+    lks_hem_seeds_iem_init[run - 1] = result[proc][3][result[proc][3] != 0][-1]
 
 # hEM with iEM inits -> nans after 10th iteration
 iem_cl_w_runs, iem_pro_w_runs = load_weights(
@@ -143,6 +226,7 @@ res = em([profiles, iem_pro_w_runs[0], rand_params[0][2]],
 pi, p_aln_cl = e_step(counts, res[0][0], res[0][1], res[0][2])
 estim_cluster_weights, estim_profile_weights, estim_profiles = m_step(
     pi, p_aln_cl, counts)
+
 
 # load weights hem
 
