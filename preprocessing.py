@@ -98,10 +98,17 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None):
              list of alignment identifiers (strings)
     """
 
-    fasta_files = np.asarray(os.listdir(fasta_dir))
-    # shuffle
-    fasta_files = fasta_files[np.random.permutation(
-        np.arange(0, len(fasta_files)))]
+    if fasta_dir[-4:] == '.txt':
+        fasta_files = np.genfromtxt(fasta_dir, dtype=str)
+        fasta_files = np.core.defchararray.add(fasta_files,
+                                               np.repeat('.fasta',
+                                                         len(fasta_files)))
+        fasta_dir = '/home/jtrost/data/real_fasta_sample_6000'  # TODO
+    else:
+        fasta_files = np.asarray(os.listdir(fasta_dir))
+        # shuffle
+        fasta_files = fasta_files[np.random.permutation(
+            np.arange(0, len(fasta_files)))]
 
     nb_seqs = np.zeros(len(fasta_files))
     seq_lens = np.zeros(len(fasta_files))
@@ -509,10 +516,13 @@ def get_representations(alns,
         return alns_reprs
 
 
-def aa_freq_samples(in_dir, out_dir, data_dirs, sample_prop, n_alns, levels):
-    if not os.path.exists(out_dir):
+def aa_freq_samples(in_dir, data_dirs, sample_prop, n_alns, levels,
+                    out_dir=None):
+
+    if out_dir is not None and not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
+    freqs = {}
     for i in range(len(data_dirs)):
         data_dir = data_dirs[i]
         print(data_dir)
@@ -525,9 +535,8 @@ def aa_freq_samples(in_dir, out_dir, data_dirs, sample_prop, n_alns, levels):
             alns_samples, cl_assign = [], []
             if len(cl_dirs) == 0:
                 alns = alns_from_fastas(f'{in_dir}/{data_dir}',
-                                        take_quantiles=True
-                                        if data_dir == 'fasta_no_gaps'
-                                        else False, nb_alns=n_alns)[0]
+                                        take_quantiles=False,
+                                        nb_alns=n_alns)[0]
                 # sampling
                 sample_size = np.round(sample_prop * len(alns)).astype(int)
                 sample_inds = np.random.randint(0, len(alns), sample_size)
@@ -557,11 +566,13 @@ def aa_freq_samples(in_dir, out_dir, data_dirs, sample_prop, n_alns, levels):
                 cl_assign = np.asarray(cl_assign).reshape(-1, 1)
 
                 table = np.concatenate((freqs_alns, cl_assign), axis=1)
-                np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_alns.csv",
-                           table,
-                           delimiter=",",
-                           header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,cl',
-                           comments='')
+                if out_dir is not None:
+                    np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_alns.csv",
+                               table,
+                               delimiter=",",
+                               header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,cl',
+                               comments='')
+                freqs[data_dir.split('/')[-1]] = table
 
             # frequency vectors on gene level
             if 'genes' in levels:
@@ -575,11 +586,13 @@ def aa_freq_samples(in_dir, out_dir, data_dirs, sample_prop, n_alns, levels):
 
                 table = np.concatenate((freqs_genes, aln_assign, cl_assign),
                                        axis=0)
-                np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_genes.csv",
-                           table.T,
-                           delimiter=",",
-                           header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,aln,cl',
-                           comments='')
+                if out_dir is not None:
+                    np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_genes.csv",
+                               table.T,
+                               delimiter=",",
+                               header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,aln,cl',
+                               comments='')
+                freqs[data_dir.split('/')[-1]] = table
 
             # frequency vectors on site level
             if 'sites' in levels:
@@ -593,11 +606,15 @@ def aa_freq_samples(in_dir, out_dir, data_dirs, sample_prop, n_alns, levels):
 
                 table = np.concatenate((freqs_sites, aln_assign, cl_assign),
                                        axis=0)
-                np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_sites.csv",
-                           table.T,
-                           delimiter=",",
-                           header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,'
-                                  'aln,cl',
-                           comments='')
+                if out_dir is not None:
+                    np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_sites.csv",
+                               table.T,
+                               delimiter=",",
+                               header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,'
+                                      'aln,cl',
+                               comments='')
+                freqs[data_dir.split('/')[-1]] = table
         else:
             warnings.warn(f'{in_dir}/{data_dir} does not exist')
+
+    return freqs

@@ -103,7 +103,7 @@ def main():
     if args.test and (not args.models or not args.datasets):
         parser.error('--test requires --modles and --datasets')
 
-    if args.test and len(args.datasets) != 1:
+    if args.test and len(args.datasets) != 2:
         parser.error('--test only takes one set of alignments '
                      '(one directory specified with --datasets)')
 
@@ -414,16 +414,18 @@ def main():
 
     if args.test:
         model_path = args.models
-        fasta_path = args.datasets[0]
+        real_fasta_path, sim_fasta_path = args.datasets
         pairs = args.pairs
         config_path = args.config
-        is_real = args.real
 
         timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
 
-        if not os.path.exists(fasta_path):
+        if not os.path.exists(real_fasta_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    fasta_path)
+                                    real_fasta_path)
+        if not os.path.exists(sim_fasta_path):
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                    sim_fasta_path)
 
         if not os.path.exists(config_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
@@ -453,20 +455,20 @@ def main():
 
         # ------------------------- data preparation ------------------------- #
 
-        alns, fastas, config['data'] = raw_alns_prepro([fasta_path],
-                                                       config['data'],
-                                                       take_quantiles=[False])
+        alns, fastas, config['data'] = raw_alns_prepro([real_fasta_path,
+                                                        sim_fasta_path],
+                                                       config['data'])
 
-        alns = get_representations(alns, fastas, config['data'], pairs)[0]
+        real_alns, sim_alns = get_representations(alns, fastas, config['data'],
+                                                  pairs)
+        del alns, fastas
+
 
         # ------------------ load and evaluate model(s) ------------------- #
 
         print("Building validation dataset ...\n")
 
-        if is_real:
-            ds = TensorDataset(alns, [])
-        else:
-            ds = TensorDataset([], alns)
+        ds = TensorDataset(real_alns, sim_alns)
 
         loader = DataLoader(ds, batch_size)
 
@@ -487,6 +489,8 @@ def main():
 
                 print(f"model {i + 1}, accuracy: {np.round(result['acc'], 4)}"
                       f"(val. of trained model {np.round(accs_after_train[i], 4)})")
+
+        np.savetxt(f'{model_path}/test_accs.csv', accs, delimiter=',')
 
         if len(accs) > 1:
             print(f'\nAverage: {np.round(np.mean(accs), 4)}, '
