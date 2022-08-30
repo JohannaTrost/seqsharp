@@ -312,7 +312,7 @@ def load_weights(weights_path, n_clusters, n_profiles, n_runs, best=True):
             elif os.path.exists(f'{weights_path}/cl{cl+1}_pro_weights_best{run+1}'
                                 f'.csv'):
                 if best:
-                    pro_w_runs = np.genfromtxt(
+                    pro_w_runs[cl] = np.genfromtxt(
                         f'{weights_path}/cl{cl + 1}'
                         f'_pro_weights_best'
                         f'{run + 1}.csv', delimiter=',')
