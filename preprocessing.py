@@ -39,7 +39,12 @@ PROTEIN_ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'X-',
                                 '\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r'
                                 '\x0e\x0f\x10\x11\x12\x13\x14' +
                                 '\x15\x16')
-DNA_ENCODER = str.maketrans('NACGTX-', '\x00\x01\x02\x03\x04\x05\x06')
+DNA_ENCODER = str.maketrans('ACGTUX-', '\x01\x02\x03\x04\x04\x05\x06')
+DNA_WILDCARDS = {'N': ['A', 'G', 'C', 'T'], 'D': ['G', 'A', 'T'],
+                 'H': ['A', 'C', 'T'], 'V': ['G', 'C', 'A'],
+                 'B': ['G', 'T', 'C'], 'R': ['G', 'A'],
+                 'Y': ['C', 'T'], 'K': ['G', 'T'], 'M': ['A', 'C'],
+                 'S': ['G', 'C'], 'W': ['A', 'T']}
 
 THREADS = psutil.cpu_count(logical=False)
 
@@ -87,6 +92,22 @@ def index2code(index_seq, molecule_type='protein'):
     return seq_enc
 
 
+def clean_DNA(seq):
+    """Replace all nucleotide wildcards by randomly drawn nucleotide
+
+    :param seq: nucleotide sequence
+    :return: nucleotide sequence
+    """
+
+    seq_arr = np.asarray(list(seq))
+    for wc in DNA_WILDCARDS.keys():
+        wc_ind = np.where(seq_arr == wc)[0]
+        repl_nucs = np.random.choice(DNA_WILDCARDS[wc], len(wc_ind))
+        seq_arr[wc_ind] = repl_nucs
+
+    return ''.join(seq_arr)
+
+
 def aln_from_fasta(filename):
     """Gets aligned sequences from given file
 
@@ -100,14 +121,18 @@ def aln_from_fasta(filename):
     return alned_seqs_raw
 
 
-def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None):
+def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
+                     molecule_type='protein'):
     """Extracts alignments from fasta files in given directory
 
+    :param molecule_type: either protein or DNA sequences
     :param fasta_dir: <path/to/> fasta files
     :param nb_alns: number of alignments
     :return: list of aligned sequences (string list),
              list of alignment identifiers (strings)
     """
+
+    nucs = set(list('AGCTNDHVBRYKMSW-'))
 
     if fasta_dir[-4:] == '.txt':
         fasta_files = np.genfromtxt(fasta_dir, dtype=str)
@@ -121,14 +146,26 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None):
         fasta_files = fasta_files[np.random.permutation(
             np.arange(0, len(fasta_files)))]
 
-    nb_seqs = np.zeros(len(fasta_files))
-    seq_lens = np.zeros(len(fasta_files))
+    n_fasta_files = len(fasta_files)
+    nb_seqs = np.zeros(n_fasta_files)
+    seq_lens = np.zeros(n_fasta_files)
+    is_dna = []
 
     for i, file in enumerate(fasta_files):
         aln = aln_from_fasta(fasta_dir + '/' + file)
+        if molecule_type == 'DNA':
+            # clean DNA empirical data by replacing all nucleotide wildcards
+            # by A,C,G,T
+            is_dna.append(np.all([set(list(seq)).issubset(nucs)
+                                  for seq in aln]))
         nb_seqs[i] = len(aln)
         if len(aln) > 0:
             seq_lens[i] = len(aln[0])
+
+    if molecule_type == 'DNA':  # filter out possible protein MSAs
+        nb_seqs = nb_seqs[is_dna]
+        seq_lens = seq_lens[is_dna]
+        fasta_files = fasta_files[is_dna]
 
     inds_non0 = np.where(nb_seqs != 0)[0][np.where(nb_seqs != 0)[0] ==
                                           np.where(seq_lens != 0)[0]]
@@ -161,7 +198,7 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None):
         if (nb_alns - len(fasta_files)) > 0:  # we get less MSAs than wanted
             print('Only {} / {} fasta files taken into account.'.format(
                 len(fasta_files), nb_alns))
-        else:  # restrict number of MSAs as demanded
+        else:  # restrict number of MSAs as given by nb_alns
             fasta_files = fasta_files[:nb_alns]
             nb_seqs = nb_seqs[:nb_alns]
             seq_lens = seq_lens[:nb_alns]
@@ -169,6 +206,8 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None):
     alns, fastas = [], []
     for file in fasta_files:
         seqs = aln_from_fasta(fasta_dir + '/' + file)
+        if molecule_type == 'DNA':  # replace wildcard nuc. by A,C,G,T
+            seqs = [clean_DNA(seq) for seq in seqs]
         alns.append(seqs)
         fastas.append(file.split('.')[0])
 
@@ -241,12 +280,13 @@ def encode_aln(alned_seqs_raw, seq_len, padding='', molecule_type='protein'):
                            for seq in alned_seqs_raw])
 
     if len(alned_seqs_raw[0]) < seq_len:  # padding
-        pad_size = (seq_len - len(alned_seqs_raw[0]))
-        pad_before = pad_size // 2
-        pad_after = pad_size // 2 if pad_size % 2 == 0 else pad_size // 2 + 1
+        pad_size = int(seq_len - len(alned_seqs_raw[0]))
+        pad_before = int(pad_size // 2)
+        pad_after = (int(pad_size // 2) if pad_size % 2 == 0
+                     else int(pad_size // 2 + 1))
 
         seqs_shape = list(seqs.shape)
-        seqs_shape[2] += pad_after + pad_before
+        seqs_shape[2] = int(seqs_shape[2] + pad_after + pad_before)
         seqs_new = np.zeros(seqs_shape)
 
         if padding == 'data':  # pad with random amino acids
@@ -257,9 +297,10 @@ def encode_aln(alned_seqs_raw, seq_len, padding='', molecule_type='protein'):
                                               molecule_type).T
                                    for _ in range(seqs_shape[0])])
         elif padding == 'gaps':
+            pad_data = np.repeat('-' * int(seq_len), seqs_shape[1])
             seqs_new = np.asarray([index2code(seq2index(seq, molecule_type),
                                               molecule_type).T
-                                   for seq in ['-' * seq_len] * seqs_shape[1]])
+                                   for seq in pad_data])
 
         seqs_new[:, :, pad_before:-pad_after] = seqs + 0
         return seqs_new
@@ -373,9 +414,12 @@ class DatasetAln(Dataset):
 def raw_alns_prepro(fasta_paths,
                     params,
                     take_quantiles=None,
-                    shuffle=False):
+                    shuffle=False,
+                    molecule_type='protein'):
     """Loads and preprocesses raw (not encoded) alignments
 
+    :param shuffle: shuffle sites if True
+    :param molecule_type: indicate if either 'protein' or 'DNA' sequences given
     :param take_quantiles: indicate possible reduction of number of sequences
                            per alignment
     :param fasta_paths: <path(s)/to> empirical/simulated fasta files
@@ -401,7 +445,8 @@ def raw_alns_prepro(fasta_paths,
             sim_alns, sim_fastas, sim_lims = [], [], {}
             for dir in sim_cl_dirs:
                 sim_data = alns_from_fastas(f'{path}/{dir}', take_quantiles[i],
-                                            nb_alns)
+                                            nb_alns,
+                                            molecule_type=molecule_type)
                 sim_alns += sim_data[0]
                 sim_fastas += sim_data[1]
                 if len(sim_lims) == 0:
@@ -421,7 +466,9 @@ def raw_alns_prepro(fasta_paths,
             else:
                 raw_data = [sim_alns, sim_fastas, sim_lims]
         else:
-            raw_data = alns_from_fastas(path, take_quantiles[i], nb_alns)
+            raw_data = alns_from_fastas(path, take_quantiles[i], nb_alns,
+                                        molecule_type=molecule_type)
+
         nb_alns = len(raw_data[0])
         alns.append(raw_data[0])
         fastas.append(raw_data[1])
@@ -459,8 +506,11 @@ def raw_alns_prepro(fasta_paths,
     for i in range(len(alns)):
         inds = np.random.choice(range(len(alns[i])), nb_alns, replace=False)
         alns[i] = [alns[i][ind] for ind in inds]
+        fastas[i] = [fastas[i][ind] for ind in inds]
 
-    params['nb_sites'] = int(min(seq_len, lims[0]['seq_lens_max']))
+    params['nb_sites'] = int(np.mean([ds_lims['seq_lens_avg']
+                                      for ds_lims in lims]))
+    # before it was int(min(seq_len, lims[0]['seq_lens_max'])), why?
 
     nb_seqs = np.asarray(nb_seqs_per_alns(alns))
     params['max_seqs_per_align'] = np.max(nb_seqs, axis=1).astype(int).tolist()

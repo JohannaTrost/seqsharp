@@ -25,7 +25,7 @@ from torch.utils.data import DataLoader
 
 from ConvNet import ConvNet, load_net, compute_device
 from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
-    get_representations
+    get_representations, clean_DNA
 from plots import plot_folds, plot_hist_quantiles
 from stats import get_nb_sites, nb_seqs_per_alns
 from utils import write_config_file, read_config_file
@@ -137,11 +137,13 @@ def main():
             real_alns = alns_from_fastas(real_fasta_path,
                                          config['data']['min_seqs_per_align'],
                                          config['data']['max_seqs_per_align'],
-                                         config['data']['nb_alignments'])[0]
+                                         config['data']['nb_alignments'],
+                                         molecule_type=molecule_type)[0]
             sim_alns = alns_from_fastas(sim_fasta_path,
                                         config['data']['min_seqs_per_align'],
                                         config['data']['max_seqs_per_align'],
-                                        config['data']['nb_alignments'])[0]
+                                        config['data']['nb_alignments'],
+                                        molecule_type=molecule_type)[0]
 
             plot_hist_quantiles((get_nb_sites(real_alns),
                                  get_nb_sites(sim_alns)),
@@ -161,7 +163,8 @@ def main():
                 alns = alns_from_fastas(dir,
                                         config['data']['min_seqs_per_align'],
                                         config['data']['max_seqs_per_align'],
-                                        config['data']['nb_alignments'])[0]
+                                        config['data']['nb_alignments'],
+                                        molecule_type=molecule_type)[0]
 
                 plot_hist_quantiles([get_nb_sites(alns)],
                                     xlabels=['Number of sites'],
@@ -228,7 +231,8 @@ def main():
         alns, fastas, config['data'] = raw_alns_prepro([real_fasta_path,
                                                         sim_fasta_path],
                                                        config['data'],
-                                                       shuffle=shuffle)
+                                                       shuffle=shuffle,
+                                                       molecule_type=molecule_type)
         fastas_real, fastas_sim = fastas.copy()
 
         real_alns, sim_alns = get_representations(alns, fastas, config['data'],
@@ -471,7 +475,6 @@ def main():
                                                   pairs,
                                                   molecule_type=molecule_type)
         del alns, fastas
-
 
         # ------------------ load and evaluate model(s) ------------------- #
 
