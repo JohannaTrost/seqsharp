@@ -12,6 +12,7 @@ import torch.nn as nn
 # import matplotlib
 
 # matplotlib.use('Agg')
+from sklearn.metrics import balanced_accuracy_score
 
 compute_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -267,7 +268,11 @@ def accuracy(outputs, labels):
 
     preds = torch.round(torch.flatten(torch.sigmoid(outputs))).to(
         compute_device)
-    return torch.tensor((torch.sum(preds == labels).item() / len(preds)))
+
+    balanced_acc = balanced_accuracy_score(labels, preds)
+    # acc = torch.tensor((torch.sum(preds == labels).item() / len(preds)))
+
+    return balanced_acc
 
 
 """
