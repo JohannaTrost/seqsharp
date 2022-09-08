@@ -85,6 +85,8 @@ def main():
     parser.add_argument('--pairs', action='store_true',
                         help='A representation for each pair of sequences in '
                              'an alignment will be used')
+    parser.add_argument('--molecule_type', choices=['DNA', 'protein'],
+                        help='Specify if you use DNA or protein MSAs')
 
     args = parser.parse_args()
 
@@ -115,6 +117,11 @@ def main():
     if args.plot_stats and not all(arg for arg in (args.datasets, args.config,
                                                    args.save)):
         parser.error('--plot_stats requires --datasets, --config and --save')
+
+    if args.molecule_type:
+        molecule_type = args.molecule_type
+    else:
+        molecule_type = 'protein'
 
     if args.plot_stats:
         timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
@@ -230,7 +237,8 @@ def main():
                                                       f'{result_path}/'
                                                       f'alns_stats.csv'
                                                       if args.track_stats
-                                                      else None)
+                                                      else None),
+                                                  molecule_type=molecule_type
                                                   )
         del alns, fastas
 
@@ -460,7 +468,8 @@ def main():
                                                        config['data'])
 
         real_alns, sim_alns = get_representations(alns, fastas, config['data'],
-                                                  pairs)
+                                                  pairs,
+                                                  molecule_type=molecule_type)
         del alns, fastas
 
 

@@ -34,15 +34,17 @@ unknown : X
 gap/indel : - 
 """
 
-ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'X-',
-                        '\x00' * 5 + '\x01\x02\x03\x04\x05\x06\x07\x08\t\n'
-                                     '\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14' +
-                        '\x15\x16')
+PROTEIN_ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'X-',
+                                '\x00' * 5 +
+                                '\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r'
+                                '\x0e\x0f\x10\x11\x12\x13\x14' +
+                                '\x15\x16')
+DNA_ENCODER = str.maketrans('NACGTX-', '\x00\x01\x02\x03\x04\x05\x06')
 
 THREADS = psutil.cpu_count(logical=False)
 
 
-def seq2index(seq):
+def seq2index(seq, molecule_type='protein'):
     """Transforms amino acid sequence to integer sequence
 
     Translates sequence to byte sequence and finally to an
@@ -53,11 +55,15 @@ def seq2index(seq):
     :return: array of integers from 0 to 22
     """
 
-    seq = seq.translate(ENCODER)
+    if molecule_type == 'protein':
+        seq = seq.translate(PROTEIN_ENCODER)
+    elif molecule_type == 'DNA':
+        seq = seq.translate(DNA_ENCODER)
+
     return np.fromstring(seq, dtype='uint8').astype('int64')
 
 
-def index2code(index_seq):
+def index2code(index_seq, molecule_type='protein'):
     """Transforms array of indices into one-hot encoded arrays
 
     example:
@@ -71,8 +77,13 @@ def index2code(index_seq):
     :return: 2D array of 0s and 1s
     """
 
-    seq_enc = np.zeros((index_seq.size, 23))
+    if molecule_type == 'protein':
+        seq_enc = np.zeros((index_seq.size, 23))
+    elif molecule_type == 'DNA':
+        seq_enc = np.zeros((index_seq.size, 7))
+
     seq_enc[np.arange(index_seq.size), index_seq] = 1
+
     return seq_enc
 
 
@@ -200,7 +211,7 @@ def remove_gaps(alns):
     return alns_no_gaps
 
 
-def encode_aln(alned_seqs_raw, seq_len, padding=''):
+def encode_aln(alned_seqs_raw, seq_len, padding='', molecule_type='protein'):
     """Turns aligned sequences into (padded) one-hot encodings
 
     Trims/pads the alignment to a certain number of sites (*seq_len*)
@@ -208,6 +219,7 @@ def encode_aln(alned_seqs_raw, seq_len, padding=''):
     If sequences are < *seq_len* they will be padded at both end either with
     zeros or random amino acids (according to *padding*)
 
+    :param molecule_type: either protein or DNA sequences
     :param alned_seqs_raw: list of amino acid sequences (strings)
     :param seq_len: number of sites (integer)
     :param padding: 'data' or else padding will use zeros
@@ -219,10 +231,13 @@ def encode_aln(alned_seqs_raw, seq_len, padding=''):
         diff = len(alned_seqs_raw[0]) - seq_len  # overhang
         start = int(np.floor((diff / 2)))
         end = int(-np.ceil((diff / 2)))
-        seqs = np.asarray([index2code(seq2index(seq[start:end])).T
+        seqs = np.asarray([index2code(seq2index(seq[start:end],
+                                                molecule_type),
+                                      molecule_type).T
                            for seq in alned_seqs_raw])
     else:
-        seqs = np.asarray([index2code(seq2index(seq)).T
+        seqs = np.asarray([index2code(seq2index(seq, molecule_type),
+                                      molecule_type).T
                            for seq in alned_seqs_raw])
 
     if len(alned_seqs_raw[0]) < seq_len:  # padding
@@ -238,10 +253,12 @@ def encode_aln(alned_seqs_raw, seq_len, padding=''):
             seqs_new = np.asarray([index2code(np.random.randint(0,
                                                                 seqs_shape[1],
                                                                 seqs_shape[
-                                                                    2])).T
+                                                                    2]),
+                                              molecule_type).T
                                    for _ in range(seqs_shape[0])])
         elif padding == 'gaps':
-            seqs_new = np.asarray([index2code(seq2index(seq)).T
+            seqs_new = np.asarray([index2code(seq2index(seq, molecule_type),
+                                              molecule_type).T
                                    for seq in ['-' * seq_len] * seqs_shape[1]])
 
         seqs_new[:, :, pad_before:-pad_after] = seqs + 0
@@ -374,7 +391,7 @@ def raw_alns_prepro(fasta_paths,
 
     print("Loading alignments ...")
 
-    # load sets of multiple alned sequences
+    # load sets of multiple aligned sequences
     alns, fastas, lims = [], [], []
     for i, path in enumerate(fasta_paths):
         path = str(path)
@@ -416,7 +433,8 @@ def raw_alns_prepro(fasta_paths,
         print(f"avg. n.seqs. : {lims[1]['n_seqs_avg']} (sim.) vs. "
               f"{lims[0]['n_seqs_avg']} (emp.)")
 
-        assert len(alns[0]) == len(alns[1]), f' {len(alns[0])} == {len(alns[1])}'
+        assert len(alns[0]) == len(
+            alns[1]), f' {len(alns[0])} == {len(alns[1])}'
         """
         # sort simulated data by sequence length
         ind_s = np.argsort(get_nb_sites(alns[1]))
@@ -439,7 +457,7 @@ def raw_alns_prepro(fasta_paths,
 
     # ensure same number of MSAs for all data sets
     for i in range(len(alns)):
-        inds = np.random.choice(range(len(alns[i])), nb_alns, replace = False)
+        inds = np.random.choice(range(len(alns[i])), nb_alns, replace=False)
         alns[i] = [alns[i][ind] for ind in inds]
 
     params['nb_sites'] = int(min(seq_len, lims[0]['seq_lens_max']))
@@ -464,9 +482,11 @@ def get_representations(alns,
                         fastas,
                         params,
                         pairs=False,
-                        csv_path=None):
+                        csv_path=None,
+                        molecule_type='protein'):
     """Encodes alignments and generates their representations
 
+    :param molecule_type: either protein or DNA sequences
     :param fastas: a set of lists of alignment identifiers (2D string list )
     :param alns: preprocessed raw alignment sets (3D string list)
     :param params: parameters for preprocessing (dictionary)
@@ -486,7 +506,8 @@ def get_representations(alns,
         alns_reprs_pairs = []
         for alns_set in alns:
             alns_reprs_pairs.append([make_seq_pairs(encode_aln(
-                aln, seq_len, padding=padding)) for aln in alns_set])
+                aln, seq_len, padding=padding, molecule_type=molecule_type))
+                for aln in alns_set])
 
         print(f'Finished pairing after {round(start - time.time(), 2)}s\n')
 
@@ -505,7 +526,8 @@ def get_representations(alns,
         alns_reprs = []
         for alns_set in alns:
             alns_reprs.append([get_aln_representation(encode_aln(
-                aln, seq_len, padding=padding)) for aln in alns_set])
+                aln, seq_len, padding=padding, molecule_type=molecule_type))
+                for aln in alns_set])
 
         if csv_path is not None:
             generate_aln_stats_df(fastas, alns, seq_len,
@@ -518,7 +540,6 @@ def get_representations(alns,
 
 def aa_freq_samples(in_dir, data_dirs, sample_prop, n_alns, levels,
                     out_dir=None):
-
     if out_dir is not None and not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
