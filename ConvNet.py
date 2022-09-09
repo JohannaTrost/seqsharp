@@ -269,7 +269,7 @@ def accuracy(outputs, labels):
     preds = torch.round(torch.flatten(torch.sigmoid(outputs))).to(
         compute_device)
 
-    balanced_acc = balanced_accuracy_score(labels, preds)
+    balanced_acc = torch.tensor(balanced_accuracy_score(labels, preds))
     # acc = torch.tensor((torch.sum(preds == labels).item() / len(preds)))
 
     return balanced_acc

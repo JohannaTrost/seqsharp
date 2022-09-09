@@ -25,7 +25,7 @@ from torch.utils.data import DataLoader
 
 from ConvNet import ConvNet, load_net, compute_device
 from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
-    get_representations, clean_DNA
+    get_msa_reprs, clean_DNA, load_msa_reprs
 from plots import plot_folds, plot_hist_quantiles
 from stats import get_nb_sites, nb_seqs_per_alns
 from utils import write_config_file, read_config_file
@@ -228,23 +228,29 @@ def main():
 
         # ------------------------- data preparation ------------------------- #
 
-        alns, fastas, config['data'] = raw_alns_prepro([real_fasta_path,
-                                                        sim_fasta_path],
-                                                       config['data'],
-                                                       shuffle=shuffle,
-                                                       molecule_type=molecule_type)
-        fastas_real, fastas_sim = fastas.copy()
+        first_input_file = os.listdir(real_fasta_path)[0]
+        if first_input_file.endswith('.fasta'):
+            alns, fastas, config['data'] = raw_alns_prepro([real_fasta_path,
+                                                            sim_fasta_path],
+                                                           config['data'],
+                                                           shuffle=shuffle,
+                                                           molecule_type=molecule_type)
+            fastas_real, fastas_sim = fastas.copy()
 
-        real_alns, sim_alns = get_representations(alns, fastas, config['data'],
-                                                  pairs,
-                                                  csv_path=(
-                                                      f'{result_path}/'
-                                                      f'alns_stats.csv'
-                                                      if args.track_stats
-                                                      else None),
-                                                  molecule_type=molecule_type
-                                                  )
-        del alns, fastas
+            real_alns, sim_alns = get_msa_reprs(alns, fastas, config['data'],
+                                                pairs,
+                                                csv_path=(
+                                                          f'{result_path}/'
+                                                          f'alns_stats.csv'
+                                                          if args.track_stats
+                                                          else None),
+                                                molecule_type=molecule_type
+                                                )
+            del alns, fastas
+        elif first_input_file.endswith('.csv'):  # msa representations given
+            real_alns, fastas_real = load_msa_reprs(real_fasta_path, pairs)
+            sim_alns, fastas_sim = load_msa_reprs(real_fasta_path, pairs)
+
 
         data_size = sys.getsizeof(real_alns) + sys.getsizeof(sim_alns)
         data_size += sys.getsizeof(fastas_real) + sys.getsizeof(fastas_sim)
@@ -471,9 +477,9 @@ def main():
                                                         sim_fasta_path],
                                                        config['data'])
 
-        real_alns, sim_alns = get_representations(alns, fastas, config['data'],
-                                                  pairs,
-                                                  molecule_type=molecule_type)
+        real_alns, sim_alns = get_msa_reprs(alns, fastas, config['data'],
+                                            pairs,
+                                            molecule_type=molecule_type)
         del alns, fastas
 
         # ------------------ load and evaluate model(s) ------------------- #

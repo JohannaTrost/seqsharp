@@ -5,7 +5,7 @@ into 'neural-network-readable' representations that can be
 transformed into tensor datasets using
 the child classes of *torch.utils.data.Dataset*
 """
-
+import errno
 import time
 import os
 import random
@@ -117,7 +117,7 @@ def aln_from_fasta(filename):
     """
 
     alned_seqs_raw = [str(seq_record.seq) for seq_record in
-                      SeqIO.parse(filename, "fasta")]
+                      SeqIO.parse(open(filename, encoding='utf-8'), "fasta")]
     return alned_seqs_raw
 
 
@@ -152,6 +152,7 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
     is_dna = []
 
     for i, file in enumerate(fasta_files):
+        print(fasta_dir + '/' + file)
         aln = aln_from_fasta(fasta_dir + '/' + file)
         if molecule_type == 'DNA':
             # clean DNA empirical data by replacing all nucleotide wildcards
@@ -226,6 +227,29 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
     print(out_stats)
 
     return alns, fastas, out_stats
+
+
+def load_msa_reprs(path, pairs):
+    """Load msa representations from a directory, TODO handel pair repr
+
+    :param pairs: True if pair representation is given False otherwise
+    :param path: <path/to/dir> directory containing csv files with msa reprs.
+    :return: list of msa reprs., list (n_alns) with filenames without extension
+    """
+
+    files = os.listdir(path)
+    filenames = []
+    msa_reprs = []
+    for file in files:
+        print(file)
+        filenames.append(file.split('.')[0])
+        if not pairs:
+            msa_reprs.append(np.genfromtxt(f'{path}/{file}', delimiter=','))
+        else:
+            raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
+                             'load representations not yet possible for pair '
+                             'representations')
+    return msa_reprs, filenames
 
 
 def remove_gaps(alns):
@@ -528,12 +552,12 @@ def raw_alns_prepro(fasta_paths,
     return alns, fastas, params
 
 
-def get_representations(alns,
-                        fastas,
-                        params,
-                        pairs=False,
-                        csv_path=None,
-                        molecule_type='protein'):
+def get_msa_reprs(alns,
+                  fastas,
+                  params,
+                  pairs=False,
+                  csv_path=None,
+                  molecule_type='protein'):
     """Encodes alignments and generates their representations
 
     :param molecule_type: either protein or DNA sequences
