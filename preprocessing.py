@@ -229,7 +229,7 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
     return alns, fastas, out_stats
 
 
-def load_msa_reprs(path, pairs):
+def load_msa_reprs(path, pairs, n_alns=None):
     """Load msa representations from a directory, TODO handel pair repr
 
     :param pairs: True if pair representation is given False otherwise
@@ -237,7 +237,10 @@ def load_msa_reprs(path, pairs):
     :return: list of msa reprs., list (n_alns) with filenames without extension
     """
 
-    files = os.listdir(path)
+    if n_alns is not None and n_alns != '':
+        files = os.listdir(path)[:n_alns]
+    else:
+        files = os.listdir(path)
     filenames = []
     msa_reprs = []
     for file in files:
@@ -391,21 +394,18 @@ class TensorDataset(Dataset):
             0 for empirical, 1 for simulated
     """
 
-    def __init__(self, real_alns, sim_alns, pairs=False):
-        nb_real = len(real_alns)
-        nb_sim = len(sim_alns)
+    def __init__(self, data, labels, pairs=False):
 
-        data = real_alns + sim_alns
-
-        if pairs:
+        if pairs:  # remove MSA dimension
+            n_real = np.sum([len(data[i]) for i, label in enumerate(labels)
+                            if label == 0])
+            n_sim = np.sum([len(data[i]) for i, label in enumerate(labels)
+                            if label == 1])
+            labels = [0] * n_real + [1] * n_sim
             # remove first dimension from (aln, pair, chnls, sites) array
             data = np.concatenate(data)
-            nb_real = np.sum([len(aln) for aln in real_alns])
-            nb_sim = np.sum([len(aln) for aln in sim_alns])
 
-        data = np.asarray(data, dtype='float32')
-
-        self.labels = torch.FloatTensor([0] * nb_real + [1] * nb_sim)
+        self.labels = torch.FloatTensor(labels)
         self.data = torch.from_numpy(data).float()
 
     def __getitem__(self, index):
@@ -456,6 +456,7 @@ def raw_alns_prepro(fasta_paths,
         take_quantiles = [False] * len(fasta_paths)
 
     nb_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
+    nb_alns = None if nb_alns == '' else nb_alns
 
     print("Loading alignments ...")
 
@@ -481,7 +482,7 @@ def raw_alns_prepro(fasta_paths,
                     for k in sim_lims.keys():
                         sim_lims_tmp[k] = sim_lims[k] + [sim_data[2][k]]
                     sim_lims = sim_lims_tmp.copy()
-            if len(sim_alns) > nb_alns:
+            if nb_alns is not None and len(sim_alns) > nb_alns:
                 inds = np.random.choice(np.arange(len(sim_alns)), size=nb_alns,
                                         replace=False)
                 raw_data = [[sim_alns[ind] for ind in inds],
@@ -493,7 +494,6 @@ def raw_alns_prepro(fasta_paths,
             raw_data = alns_from_fastas(path, take_quantiles[i], nb_alns,
                                         molecule_type=molecule_type)
 
-        nb_alns = len(raw_data[0])
         alns.append(raw_data[0])
         fastas.append(raw_data[1])
         lims.append(raw_data[2])
@@ -504,8 +504,6 @@ def raw_alns_prepro(fasta_paths,
         print(f"avg. n.seqs. : {lims[1]['n_seqs_avg']} (sim.) vs. "
               f"{lims[0]['n_seqs_avg']} (emp.)")
 
-        assert len(alns[0]) == len(
-            alns[1]), f' {len(alns[0])} == {len(alns[1])}'
         """
         # sort simulated data by sequence length
         ind_s = np.argsort(get_nb_sites(alns[1]))
@@ -527,19 +525,22 @@ def raw_alns_prepro(fasta_paths,
         """
 
     # ensure same number of MSAs for all data sets
-    for i in range(len(alns)):
-        inds = np.random.choice(range(len(alns[i])), nb_alns, replace=False)
-        alns[i] = [alns[i][ind] for ind in inds]
-        fastas[i] = [fastas[i][ind] for ind in inds]
+    if nb_alns is not None:
+        for i in range(len(alns)):
+            inds = np.random.choice(range(len(alns[i])), nb_alns, replace=False)
+            alns[i] = [alns[i][ind] for ind in inds]
+            fastas[i] = [fastas[i][ind] for ind in inds]
 
     params['nb_sites'] = int(np.mean([ds_lims['seq_lens_avg']
                                       for ds_lims in lims]))
     # before it was int(min(seq_len, lims[0]['seq_lens_max'])), why?
-
-    nb_seqs = np.asarray(nb_seqs_per_alns(alns))
-    params['max_seqs_per_align'] = np.max(nb_seqs, axis=1).astype(int).tolist()
-    params['min_seqs_per_align'] = np.min(nb_seqs, axis=1).astype(int).tolist()
-    params['nb_alignments'] = nb_alns
+    n_aln_sets = len(alns)
+    nb_seqs = [nb_seqs_per_alns(alns[i]) for i in range(n_aln_sets)]
+    params['max_seqs_per_align'] = [int(max(nb_seqs[i]))
+                                    for i in range(n_aln_sets)]
+    params['min_seqs_per_align'] = [int(min(nb_seqs[i]))
+                                    for i in range(n_aln_sets)]
+    params['nb_alignments'] = [len(alns[i]) for i in range(n_aln_sets)]
 
     if shuffle:  # shuffle sites/columns of alignments
         for i in range(len(alns)):

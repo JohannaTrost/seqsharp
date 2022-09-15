@@ -20,15 +20,15 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import DataLoader
 
 from ConvNet import ConvNet, load_net, compute_device
 from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
-    get_msa_reprs, clean_DNA, load_msa_reprs
+    get_msa_reprs, load_msa_reprs
 from plots import plot_folds, plot_hist_quantiles
 from stats import get_nb_sites, nb_seqs_per_alns
-from utils import write_config_file, read_config_file
+from utils import write_cfg_file, read_cfg_file
 from train_eval import fit, eval_per_align, generate_eval_dict, evaluate
 
 torch.cuda.empty_cache()
@@ -48,22 +48,22 @@ def main():
     parser.add_argument('-t', '--training', action='store_true',
                         help='Datasets will be used to train the neural '
                              'network (specified with --datasets option). '
-                             'Requires --config and --datasets.')
+                             'Requires --cfg and --datasets.')
     parser.add_argument('--test', action='store_true',
                         help='Alignments will be passed to (a) trained '
                              'model(s). Requires --models, --datasets and '
-                             '--config')
+                             '--cfg')
     parser.add_argument('-m', '--models', type=str,
                         help='<path/to> directory with trained model(s). '
                              'These models will then be tested on a given data '
-                             'set. --config, --datasets and --test are '
+                             'set. --cfg, --datasets and --test are '
                              'required for this option.')
     parser.add_argument('--real', action='store_true',
                         help='Indicates that given data set has empirical '
                              'alignments for --models option. '
                              'Otherwise they are assumed to be simulated')
-    parser.add_argument('-c', '--config', type=str,
-                        help='<path/to> config file (.json) or directory '
+    parser.add_argument('-c', '--cfg', type=str,
+                        help='<path/to> cfg file (.json) or directory '
                              'containing: hyperparameters, data specific '
                              'parameters and parameters determinin the '
                              'structure of the Network. If a directory is '
@@ -98,14 +98,14 @@ def main():
         parser.error('--models cannot be used in combination with --training, '
                      '--shuffle or --track_stats')
 
-    if (args.datasets and not args.config) or (
-            args.config and not args.datasets):
-        parser.error('--datasets and --config have to be used together')
+    if (args.datasets and not args.cfg) or (
+            args.cfg and not args.datasets):
+        parser.error('--datasets and --cfg have to be used together')
 
     if args.test and (not args.models or not args.datasets):
         parser.error('--test requires --modles and --datasets')
 
-    if args.test and len(args.datasets) != 2:
+    if args.test and len(args.datasets) > 1:
         parser.error('--test only takes one set of alignments '
                      '(one directory specified with --datasets)')
 
@@ -114,18 +114,18 @@ def main():
                      'containing empirical alignments and one with simulated '
                      'alignments.')
 
-    if args.plot_stats and not all(arg for arg in (args.datasets, args.config,
+    if args.plot_stats and not all(arg for arg in (args.datasets, args.cfg,
                                                    args.save)):
-        parser.error('--plot_stats requires --datasets, --config and --save')
+        parser.error('--plot_stats requires --datasets, --cfg and --save')
 
     if args.molecule_type:
         molecule_type = args.molecule_type
-    else:
+    else:  # by default protein MSAs are expected
         molecule_type = 'protein'
 
     if args.plot_stats:
         timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
-        config = read_config_file(args.config)
+        cfg = read_cfg_file(args.cfg)
         path = args.save
 
         if not os.path.exists(path):
@@ -134,15 +134,11 @@ def main():
         if len(args.datasets) == 2:
             real_fasta_path, sim_fasta_path = args.datasets
 
-            real_alns = alns_from_fastas(real_fasta_path,
-                                         config['data']['min_seqs_per_align'],
-                                         config['data']['max_seqs_per_align'],
-                                         config['data']['nb_alignments'],
+            real_alns = alns_from_fastas(real_fasta_path, False,
+                                         cfg['data']['nb_alignments'],
                                          molecule_type=molecule_type)[0]
-            sim_alns = alns_from_fastas(sim_fasta_path,
-                                        config['data']['min_seqs_per_align'],
-                                        config['data']['max_seqs_per_align'],
-                                        config['data']['nb_alignments'],
+            sim_alns = alns_from_fastas(sim_fasta_path, False,
+                                        cfg['data']['nb_alignments'],
                                         molecule_type=molecule_type)[0]
 
             plot_hist_quantiles((get_nb_sites(real_alns),
@@ -158,12 +154,10 @@ def main():
         else:
             data_dirs = args.datasets
             for i, dir in enumerate(data_dirs):
-                config = read_config_file(args.config)
+                cfg = read_cfg_file(args.cfg)
 
-                alns = alns_from_fastas(dir,
-                                        config['data']['min_seqs_per_align'],
-                                        config['data']['max_seqs_per_align'],
-                                        config['data']['nb_alignments'],
+                alns = alns_from_fastas(dir, False,
+                                        cfg['data']['nb_alignments'],
                                         molecule_type=molecule_type)[0]
 
                 plot_hist_quantiles([get_nb_sites(alns)],
@@ -180,7 +174,7 @@ def main():
         shuffle = args.shuffle
         pairs = args.pairs
         result_path = args.save if args.save else None
-        config_path = args.config
+        cfg_path = args.cfg
 
         timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
 
@@ -199,16 +193,16 @@ def main():
 
         if not os.path.exists(sim_fasta_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    config_path)
+                                    cfg_path)
 
-        # -------------------- configure parameters -------------------- #
+        # -------------------- cfgure parameters -------------------- #
 
-        config = read_config_file(config_path)
+        cfg = read_cfg_file(cfg_path)
 
-        model_params = config['conv_net_parameters']
+        model_params = cfg['conv_net_parameters']
 
         # hyperparameters
-        batch_size, epochs, lr, opt, nb_folds = config[
+        batch_size, epochs, lr, opt, nb_folds = cfg[
             'hyperparameters'].values()
 
         if opt == 'Adagrad':
@@ -224,38 +218,43 @@ def main():
         np.random.seed(42)
 
         # k-fold validator
-        kfold = KFold(nb_folds, shuffle=True, random_state=42)
+        kfold = StratifiedKFold(nb_folds, shuffle=True, random_state=42)
 
         # ------------------------- data preparation ------------------------- #
 
         first_input_file = os.listdir(real_fasta_path)[0]
         if first_input_file.endswith('.fasta'):
-            alns, fastas, config['data'] = raw_alns_prepro([real_fasta_path,
-                                                            sim_fasta_path],
-                                                           config['data'],
-                                                           shuffle=shuffle,
-                                                           molecule_type=molecule_type)
+            alns, fastas, cfg['data'] = raw_alns_prepro([real_fasta_path,
+                                                         sim_fasta_path],
+                                                        cfg['data'],
+                                                        shuffle=shuffle,
+                                                        molecule_type=molecule_type)
             fastas_real, fastas_sim = fastas.copy()
 
-            real_alns, sim_alns = get_msa_reprs(alns, fastas, config['data'],
+            real_alns, sim_alns = get_msa_reprs(alns, fastas, cfg['data'],
                                                 pairs,
                                                 csv_path=(
-                                                          f'{result_path}/'
-                                                          f'alns_stats.csv'
-                                                          if args.track_stats
-                                                          else None),
+                                                    f'{result_path}/'
+                                                    f'alns_stats.csv'
+                                                    if args.track_stats
+                                                    else None),
                                                 molecule_type=molecule_type
                                                 )
             del alns, fastas
         elif first_input_file.endswith('.csv'):  # msa representations given
-            real_alns, fastas_real = load_msa_reprs(real_fasta_path, pairs)
-            sim_alns, fastas_sim = load_msa_reprs(real_fasta_path, pairs)
-
+            real_alns, fastas_real = load_msa_reprs(real_fasta_path, pairs,
+                                                    cfg['data']['nb_alignments'])
+            sim_alns, fastas_sim = load_msa_reprs(real_fasta_path, pairs,
+                                                  cfg['data']['nb_alignments'])
 
         data_size = sys.getsizeof(real_alns) + sys.getsizeof(sim_alns)
         data_size += sys.getsizeof(fastas_real) + sys.getsizeof(fastas_sim)
         print(f'Preloaded data uses : '
               f'{data_size / 10 ** 9}GB\n')
+
+        n_real_alns, n_sim_alns = len(real_alns), len(sim_alns)
+        data = np.asarray(real_alns + sim_alns, dtype='float32')
+        labels = np.concatenate((np.zeros(n_real_alns), np.ones(n_sim_alns)))
 
         if args.track_stats:
             real_alns_dict = {fastas_real[i]: real_alns[i] for i in
@@ -302,7 +301,9 @@ def main():
 
             models = []
             dfs = []
-            for fold, (train_ids, val_ids) in enumerate(kfold.split(real_alns)):
+
+            for fold, (train_ids, val_ids) in enumerate(kfold.split(data,
+                                                                    labels)):
 
                 print(f'FOLD {fold + 1}')
                 print(sep_line)
@@ -310,12 +311,9 @@ def main():
                 # splitting dataset by alignments
                 print("Building training and validation dataset ...")
                 start = time.time()
-                train_ds = TensorDataset([real_alns[i] for i in train_ids],
-                                         [sim_alns[i] for i in train_ids],
+                train_ds = TensorDataset(data[train_ids], labels[train_ids],
                                          pairs)
-                val_ds = TensorDataset([real_alns[i] for i in val_ids],
-                                       [sim_alns[i] for i in val_ids],
-                                       pairs)
+                val_ds = TensorDataset(data[val_ids], labels[val_ids], pairs)
                 print(f'Finished after {round(time.time() - start, 2)}s\n')
 
                 train_loader = DataLoader(train_ds,
@@ -376,14 +374,14 @@ def main():
 
         # -------------------------- treat results -------------------------- #
 
-        # save config
-        config['hyperparameters']['batch_size'] = best['batch_size']
-        config['hyperparameters']['lr'] = best['lr']
+        # save cfg
+        cfg['hyperparameters']['batch_size'] = best['batch_size']
+        cfg['hyperparameters']['lr'] = best['lr']
 
-        write_config_file(config,
-                          result_path if result_path is not None else '',
-                          config_path if config_path is not None else '',
-                          timestamp)
+        write_cfg_file(cfg,
+                       result_path if result_path is not None else '',
+                       cfg_path if cfg_path is not None else '',
+                       timestamp)
 
         print(f"\nBest hyper-parameters:\n\tBatch size: {best['batch_size']}\n"
               f"\tLearning rate: {best['lr']}")
@@ -432,22 +430,20 @@ def main():
 
     if args.test:
         model_path = args.models
-        real_fasta_path, sim_fasta_path = args.datasets
+        fasta_path = args.datasets[0]
         pairs = args.pairs
-        config_path = args.config
+        cfg_path = args.cfg
+        is_real = args.real
 
         timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
 
-        if not os.path.exists(real_fasta_path):
+        if not os.path.exists(fasta_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    real_fasta_path)
-        if not os.path.exists(sim_fasta_path):
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    sim_fasta_path)
+                                    fasta_path)
 
-        if not os.path.exists(config_path):
+        if not os.path.exists(cfg_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    config_path)
+                                    cfg_path)
 
         if os.path.isdir(model_path):
             files = os.listdir(model_path)
@@ -459,13 +455,13 @@ def main():
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     model_path)
 
-        # -------------------- configure parameters -------------------- #
+        # -------------------- cfgure parameters -------------------- #
 
-        config = read_config_file(config_path)
+        cfg = read_cfg_file(cfg_path)
 
-        model_params = config['conv_net_parameters']
+        model_params = cfg['conv_net_parameters']
 
-        batch_size = config['hyperparameters']['batch_size']
+        batch_size = cfg['hyperparameters']['batch_size']
 
         torch.manual_seed(42)
         random.seed(42)
@@ -473,20 +469,27 @@ def main():
 
         # ------------------------- data preparation ------------------------- #
 
-        alns, fastas, config['data'] = raw_alns_prepro([real_fasta_path,
-                                                        sim_fasta_path],
-                                                       config['data'])
+        first_input_file = os.listdir(fasta_path)[0]
+        if first_input_file.endswith('.fasta'):
+            alns, fastas, cfg['data'] = raw_alns_prepro([fasta_path],
+                                                        cfg['data'],
+                                                        take_quantiles=[
+                                                            False])
 
-        real_alns, sim_alns = get_msa_reprs(alns, fastas, config['data'],
-                                            pairs,
-                                            molecule_type=molecule_type)
-        del alns, fastas
+            alns = get_msa_reprs(alns, fastas, cfg['data'], pairs,
+                                 molecule_type=molecule_type)[0]
+
+        elif first_input_file.endswith('.csv'):  # msa representations given
+            alns, fastas = load_msa_reprs(fasta_path, pairs)
 
         # ------------------ load and evaluate model(s) ------------------- #
 
         print("Building validation dataset ...\n")
 
-        ds = TensorDataset(real_alns, sim_alns)
+        if is_real:
+            ds = TensorDataset(alns, [])
+        else:
+            ds = TensorDataset([], alns)
 
         loader = DataLoader(ds, batch_size)
 
@@ -507,8 +510,6 @@ def main():
 
                 print(f"model {i + 1}, accuracy: {np.round(result['acc'], 4)}"
                       f"(val. of trained model {np.round(accs_after_train[i], 4)})")
-
-        np.savetxt(f'{model_path}/test_accs.csv', accs, delimiter=',')
 
         if len(accs) > 1:
             print(f'\nAverage: {np.round(np.mean(accs), 4)}, '

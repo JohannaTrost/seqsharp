@@ -100,7 +100,7 @@ class ConvNet(nn.Module):
         nb_conv_layer = len(p['channels']) - 1
 
         # determine output size after conv. layers (input size for lin. layer)
-        if p['do_maxpool'] == 1:
+        if p['do_maxpool'] == 1:  # local max pooling
             out_size = (int(p['input_size'] / 2 ** nb_conv_layer) *
                         nb_features[-1])
         elif p['do_maxpool'] == 2:  # global max pooling
@@ -269,41 +269,8 @@ def accuracy(outputs, labels):
     preds = torch.round(torch.flatten(torch.sigmoid(outputs))).to(
         compute_device)
 
-    balanced_acc = torch.tensor(balanced_accuracy_score(labels, preds))
+    acc = torch.tensor(balanced_accuracy_score(labels.detach().cpu().numpy(),
+                                               preds.detach().cpu().numpy()))
     # acc = torch.tensor((torch.sum(preds == labels).item() / len(preds)))
 
-    return balanced_acc
-
-
-"""
-other arch.
-self.conv_layers = (
-    nn.Sequential
-    (
-        nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
-                  kernel_size=p['kernel_size'], stride=1,
-                  padding=p['kernel_size'] // 2),
-        nn.ReLU(),
-        nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
-                  kernel_size=p['kernel_size'], stride=1,
-                  padding=p['kernel_size'] // 2),
-        nn.ReLU(),
-        nn.MaxPool1d(kernel_size=2, stride=2),
-        nn.Conv1d(p['nb_chnls'], p['nb_chnls'],
-                  kernel_size=p['kernel_size'], stride=1,
-                  padding=p['kernel_size'] // 2),
-        nn.ReLU(),
-        nn.Conv1d(p['nb_chnls'], p['nb_chnls'] * 2,
-                  kernel_size=p['kernel_size'], stride=1,
-                  padding=p['kernel_size'] // 2),
-        nn.ReLU(),
-        nn.Conv1d(p['nb_chnls'] * 2, p['nb_chnls'] * 2,
-                  kernel_size=p['kernel_size'], stride=1,
-                  padding=p['kernel_size'] // 2),
-        nn.ReLU(),
-        nn.MaxPool1d(kernel_size=2, stride=2),
-    )
-)
-self.drop_out = nn.Dropout(p=0.25)
-out_size = int(p['input_size'] / 4) * p['nb_chnls'] * 2
-"""
+    return acc

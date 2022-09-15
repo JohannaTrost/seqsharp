@@ -134,20 +134,20 @@ def eval_per_align(conv_net, real_alns, sim_alns,
             loader_sim = DataLoader(DatasetAln(sim_alns[i], False),
                                     len(sim_alns[i]))
             with torch.no_grad():
-                    # eval for real align
-                    result = evaluate(conv_net, loader_real)
-                    print(f"loss: {result['loss']}, acc: {result['acc']}")
-                    acc_real['acc'].append(result['acc'])
-                    # eval for sim align
-                    result = evaluate(conv_net, loader_sim)
-                    print(f"loss: {result['loss']}, acc: {result['acc']}")
-                    acc_sim['acc'].append(result['acc'])
-                    del result
+                # eval for real align
+                result = evaluate(conv_net, loader_real)
+                print(f"loss: {result['loss']}, acc: {result['acc']}")
+                acc_real['acc'].append(result['acc'])
+                # eval for sim align
+                result = evaluate(conv_net, loader_sim)
+                print(f"loss: {result['loss']}, acc: {result['acc']}")
+                acc_sim['acc'].append(result['acc'])
+                del result
     else:
         with torch.no_grad():
             # prediction for empirical alns
             alns = torch.from_numpy(np.asarray(real_alns)[indices]).float()
-            labels = torch.FloatTensor([0]*len(indices))
+            labels = torch.FloatTensor([0] * len(indices))
             alns, labels = alns.to(compute_device), labels.to(compute_device)
 
             outputs = conv_net(alns)
@@ -157,7 +157,7 @@ def eval_per_align(conv_net, real_alns, sim_alns,
 
             # prediction for simulated alns
             alns = torch.from_numpy(np.asarray(sim_alns)[indices]).float()
-            labels = torch.FloatTensor([1]*len(indices))
+            labels = torch.FloatTensor([1] * len(indices))
             alns, labels = alns.to(compute_device), labels.to(compute_device)
 
             outputs = conv_net(alns)
