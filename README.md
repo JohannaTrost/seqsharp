@@ -27,7 +27,7 @@ Type `python sequenceClassifier.py -h` obtain the output below for possible argu
 
 ```
 usage: sequenceClassifier.py [-h] -d [DATASETS [DATASETS ...]] [-t] [--test] [-m MODELS] [--real]
-                             [-c CONFIG] [-s SAVE] [--track_stats] [--shuffle] [--plot_stats]
+                             [-c cfg] [-s SAVE] [--track_stats] [--shuffle] [--plot_stats]
                              [--pairs]
 
 optional arguments:
@@ -35,17 +35,17 @@ optional arguments:
   -d [DATASETS [DATASETS ...]], --datasets [DATASETS [DATASETS ...]]
                         Specify the <path/to/> directory(s) containing alignments (in fasta format)
   -t, --training        Datasets will be used to train the neural network (specified with --datasets
-                        option). Requires --config and --datasets.
+                        option). Requires --cfg and --datasets.
   --test                Alignments will be passed to (a) trained model(s). Requires --models,
-                        --datasets and --config
+                        --datasets and --cfg
   -m MODELS, --models MODELS
                         <path/to> directory with trained model(s). These models will then be tested
-                        on a given data set. --config, --datasets and --test are required for this
+                        on a given data set. --cfg, --datasets and --test are required for this
                         option.
   --real                Indicates that given data set has empirical alignments for --models option.
                         Otherwise they are assumed to be simulated
-  -c CONFIG, --config CONFIG
-                        <path/to> config file (.json) or directory containing: hyperparameters, data
+  -c cfg, --cfg cfg
+                        <path/to> cfg file (.json) or directory containing: hyperparameters, data
                         specific parameters and parameters determining the structure of the Network.
                         If a directory is given, the latest modified json file will be used
   -s SAVE, --save SAVE  <path/to> directory where trained models and result plots will be saved
@@ -84,14 +84,14 @@ This argument can be used to specify a path to a file or directory. It can be ei
 
 In combination with `-d` only specifying one data set this flag indicates that the data set is composed of empirical alignments. Without this flag set the data is assumed to be simulated. This argument is necessary in order to correctly evaluate the predictions of the tested CNN. 
 
-**`-c <str>`** example: `-c my/path/to/the/config/file.json`
+**`-c <str>`** example: `-c my/path/to/the/cfg/file.json`
 
-An argument that specifies a path to a file or directory with a configuration of parameters in a json format that must look like the example shown below. If a directory is specified, the last modified json file in that directory will be used. The parameters include hyperparameters for the optimization and input size of the CNN, parameters specifying the architecture of the network and parameters for preprocessing the data. In addition, a newly generated configuration file is stored in the `-s` directory as well as in the `-c` directory, which contains the path of the models and results as well as the rest of the parameters of the input configuration. After preprocessing the data some of these parameters might have been adjusted.
+An argument that specifies a path to a file or directory with a cfguration of parameters in a json format that must look like the example shown below. If a directory is specified, the last modified json file in that directory will be used. The parameters include hyperparameters for the optimization and input size of the CNN, parameters specifying the architecture of the network and parameters for preprocessing the data. In addition, a newly generated cfguration file is stored in the `-s` directory as well as in the `-c` directory, which contains the path of the models and results as well as the rest of the parameters of the input cfguration. After preprocessing the data some of these parameters might have been adjusted.
 
 **`-s <str>`** example: `-s my/path/to/where/models/and/results/will/be/stored`
 
 Plots (.png), eventually csv files and trained models (.pth) are saved in the directory specified with this argument. More specifically they will be stored in a newly generated folder starting with *cnn-* followed by a time stamp. 
-According to other used arguments result plots could be plots showing the performance of each fold of a training (*fig-fold-[fold number].png*) as well as the overall accuracy and loss during the training (*fig-fold-eval.png*). For the `--plot_stats` flag histograms will be saved (*hist_nb_seqs.png*, *hist_nb_sites.png*). Moreover, the config file will be saved in *conig.json*. 
+According to other used arguments result plots could be plots showing the performance of each fold of a training (*fig-fold-[fold number].png*) as well as the overall accuracy and loss during the training (*fig-fold-eval.png*). For the `--plot_stats` flag histograms will be saved (*hist_nb_seqs.png*, *hist_nb_sites.png*). Moreover, the cfg file will be saved in *conig.json*. 
 
 **`--track_stats`**
 
@@ -119,32 +119,32 @@ Open a terminal and make sure you are in the project folder:
 
 Train a model to distinguish real and simulated data:
 
-`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c configs/config.json
+`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c cfgs/cfg.json
 `
 
 Use a train model to test it on empirical data: 
 
-` python sequenceClassifier.py -d data/fasta_real --test -c results/cnn-example/config.json -m results/cnn-example
+` python sequenceClassifier.py -d data/fasta_real --test -c results/cnn-example/cfg.json -m results/cnn-example
 `
 
 Train a model and save it and its performance plots:
 
-`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c configs -s results/example
+`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c cfgs -s results/example
 `
 
 Train a model, additionally saving information about the data and the training in csv files:
 
-`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c configs -s results/example --track_stats
+`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c cfgs -s results/example --track_stats
 `
 
 Plot the distribution of the number of sites and the number of sequences per alignment: 
 
-`python3 sequenceClassifier.py -d data/fasta_real data/fasta_sim --plot_stats -c configs -s results/example
+`python3 sequenceClassifier.py -d data/fasta_real data/fasta_sim --plot_stats -c cfgs -s results/example
 `
 
-### config.json
+### cfg.json
 
-an example `config.json` file looks like this:
+an example `cfg.json` file looks like this:
 
 ```
 {
@@ -174,7 +174,7 @@ an example `config.json` file looks like this:
     }, 
     
     "results_path": "", 
-    "comments": "This is an example configuration"
+    "comments": "This is an example cfguration"
 }
 ```
 Note that you do not have to specify the batch size and the learning rate. In this case, enter `""` instead of a value. Consequently, the following batch sizes are used: `32, 64, 128, 256, 512`. The learning rates in that case are: `0.1, 0.01, 0.001, 0.0001`. All batch sizes and learning rates are combined and used for different trainings. In the end, only the results and models of the training with the best validation accuracy are stored. 

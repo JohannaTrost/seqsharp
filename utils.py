@@ -3,7 +3,6 @@
 import json
 import os
 import errno
-import math
 import warnings
 
 import numpy as np
@@ -14,92 +13,92 @@ from matplotlib import pylab as plt
 from matplotlib.patches import Ellipse
 
 
-def write_config_file(config, model_path, config_path, timestamp):
+def write_cfg_file(cfg, model_path, cfg_path, timestamp):
     """Save parameters in a json file
 
-    If a recent config contains the same parameters it will be put into
+    If a recent cfg contains the same parameters it will be put into
     this json file by putting together the result paths and comments
 
-    :param config: data-,model-specific and hyper-parameters (dictionary)
+    :param cfg: data-,model-specific and hyper-parameters (dictionary)
     :param model_path: directory where model/results are stored (string)
-    :param config_path: directory to configs or config file (string)
+    :param cfg_path: directory to cfgs or cfg file (string)
     :param timestamp: format %d-%b-%Y-%H:%M:%S.%f (string)
     """
 
-    if config_path == '':
-        config_dir = ''
-    elif os.path.isfile(config_path):
-        config_dir = config_path.rpartition('/')[0]
-    elif os.path.isdir(config_path):
-        config_dir = config_path
+    if cfg_path == '':
+        cfg_dir = ''
+    elif os.path.isfile(cfg_path):
+        cfg_dir = cfg_path.rpartition('/')[0]
+    elif os.path.isdir(cfg_path):
+        cfg_dir = cfg_path
     else:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                config_path)
+                                cfg_path)
 
-    if config_dir != '':
-        out_path = f'{config_dir}/config-{timestamp}.json'
+    if cfg_dir != '':
+        out_path = f'{cfg_dir}/cfg-{timestamp}.json'
 
-        # get second and third latest config files
-        files = [f'{config_dir}/{file}' for file in os.listdir(config_dir)
-                 if f'{config_dir}/{file}' != config_path and
+        # get second and third latest cfg files
+        files = [f'{cfg_dir}/{file}' for file in os.listdir(cfg_dir)
+                 if f'{cfg_dir}/{file}' != cfg_path and
                  file.split('.')[-1] == 'json']
         files = sorted(files, key=lambda t: -os.stat(t).st_mtime)[1:3]
 
         print(files)
 
-        same_config = {}
+        same_cfg = {}
         for file in files:
-            older_config = read_config_file(file)
-            if (older_config['data'] == config['data'] and
-                    older_config['hyperparameters'] == config[
+            older_cfg = read_cfg_file(file)
+            if (older_cfg['data'] == cfg['data'] and
+                    older_cfg['hyperparameters'] == cfg[
                         'hyperparameters'] and
-                    older_config['conv_net_parameters'] == config[
+                    older_cfg['conv_net_parameters'] == cfg[
                         'conv_net_parameters']):
-                same_config = older_config
-                same_config_file = file
+                same_cfg = older_cfg
+                same_cfg_file = file
                 break
 
         # saving model path(s) and comments
-        if same_config != {}:
-            if type(same_config['results_path']) is list:
-                res_paths = same_config['results_path'] + [model_path]
+        if same_cfg != {}:
+            if type(same_cfg['results_path']) is list:
+                res_paths = same_cfg['results_path'] + [model_path]
             else:
-                res_paths = [same_config['results_path'], model_path]
-            config['results_path'] = list(filter(None, res_paths))
+                res_paths = [same_cfg['results_path'], model_path]
+            cfg['results_path'] = list(filter(None, res_paths))
 
-            if type(same_config['comments']) is list:
-                if type(config['comments']) is not list:
-                    comments = same_config['comments'] + [config['comments']]
+            if type(same_cfg['comments']) is list:
+                if type(cfg['comments']) is not list:
+                    comments = same_cfg['comments'] + [cfg['comments']]
                 else:
-                    comments = same_config['comments'] + config['comments']
+                    comments = same_cfg['comments'] + cfg['comments']
             else:
-                comments = [same_config['comments'], config['comments']]
-            config['comments'] = list(filter(None, comments))
+                comments = [same_cfg['comments'], cfg['comments']]
+            cfg['comments'] = list(filter(None, comments))
         else:
-            config['results_path'] = model_path
+            cfg['results_path'] = model_path
 
-        # save config to file
+        # save cfg to file
         with open(out_path, "w") as outfile:
-            json.dump(config, outfile)
+            json.dump(cfg, outfile)
 
-        # delete old config
-        if same_config != {}:
-            os.remove(same_config_file)
+        # delete old cfg
+        if same_cfg != {}:
+            os.remove(same_cfg_file)
 
     else:
-        config['results_path'] = model_path
+        cfg['results_path'] = model_path
 
     if model_path != '':
-        with open(f'{model_path}/config.json', "w") as outfile:
-            json.dump(config, outfile)
+        with open(f'{model_path}/cfg.json', "w") as outfile:
+            json.dump(cfg, outfile)
 
 
-def read_config_file(path):
+def read_cfg_file(path):
     """Read parameters from a json file
 
-    If directory is given, config will be taken fro latest modified file
+    If directory is given, cfg will be taken fro latest modified file
 
-    :param path: <path/to> config file or directory
+    :param path: <path/to> cfg file or directory
     :return: data-,model-specific and hyper-parameters (dictionary)
     """
 
@@ -117,9 +116,8 @@ def read_config_file(path):
 
 def split_lst(lst, nb_parts):
     """Split list in *nb_parts* equal parts"""
-    n = math.ceil(len(lst) / nb_parts)
-    for i in range(0, len(lst), n):
-        yield lst[i: n + i]
+    n = int(np.ceil(len(lst) / nb_parts))
+    return [lst[i: n + i] for i in range(0, len(lst), n)]
 
 
 def flatten_lst(lst):

@@ -15,6 +15,87 @@ from utils import extract_accuary_loss, confidence_ellipse, pred_runtime
 
 # matplotlib.use("Agg")
 
+def plot_em_learning_curves(n_runs, n_iter, vlbs_dips, vlbs, debug, test,
+                            lk_type, optimal_lk=None, save_path=''):
+    # highlight dips with red edge color of marker
+    edgecol = np.repeat('b', n_runs * n_iter * 2).reshape((n_runs, n_iter * 2))
+    edgecol[:, ::2] = 'g'  # e-step
+    edgecol[vlbs_dips > 0] = 'r'  # loglk dip
+
+    # move annotation to avoid overlaps
+    show_annot = (vlbs_dips > 1e-05)  # annotate all dips > 1e-05
+    move_annot_inds = np.where(show_annot)
+    move_by = np.zeros_like(vlbs)
+    move_by[show_annot] = 0.1  # adding 5% of (ylim max- ylim min) to position
+    # don't move every other annotation to avoid overlap
+    move_by[move_annot_inds[0][1::2], move_annot_inds[1][1::2]] = 0.01
+
+    n_rows, n_cols = 2, max(int(np.ceil(n_runs / 2)), 1)
+
+    fig, axs = plt.subplots(ncols=n_cols, nrows=n_rows, sharex=True,
+                            sharey=True, figsize=(16, 9))
+    for col in range(n_cols):
+        for row in range(n_rows):
+            run = (row * n_cols) + col
+            curr_axis = axs[row, col] if n_cols > 1 else axs[row]
+            if run < n_runs:
+                if debug:  # plot e-step vlb in green
+                    curr_axis.plot(np.arange(0, n_iter, 0.5), vlbs[run])
+                    curr_axis.scatter(np.arange(0, n_iter),
+                                      vlbs[run, ::2], c='g',
+                                      edgecolors=edgecol[run, ::2],
+                                      label='E-Step')
+                else:
+                    curr_axis.plot(np.arange(0.5, n_iter),
+                                   vlbs[run, 1::2])
+
+                # plot M-step vlb in blue
+                curr_axis.scatter(np.arange(0.5, n_iter),
+                                  vlbs[run, 1::2], c='blue',
+                                  edgecolors=edgecol[run, 1::2],
+                                  label='M-Step')
+                if optimal_lk is not None:
+                    # show optimal loglk. on true parameters
+                    curr_axis.hlines(y=optimal_lk, color='red',
+                                     xmin=0,
+                                     xmax=n_iter - 0.5)  # lk with given
+
+                # -------- annotate dips
+                ylim = curr_axis.get_ylim()
+                yax_size = np.abs(ylim[0] - ylim[1])
+                for x, y, dip, move in zip(np.arange(0, n_iter, 0.5), vlbs[run],
+                                           vlbs_dips[run], move_by[run]):
+                    if move > 0:  # dip > 1e-05
+                        annot_pos = (x, y + yax_size * move)
+                        annot = np.round(dip, 5) if dip < 1 else int(dip)
+                        curr_axis.annotate(annot, (x, y),
+                                           xytext=annot_pos,
+                                           arrowprops=dict(arrowstyle="->"))
+                if test:
+                    # titles indicating particular inits
+                    if run == 0:
+                        curr_axis.set_title(
+                            'EM initialized with uniform params.')
+                    elif run == 1:
+                        curr_axis.set_title(
+                            'EM initialized with true params.')
+                    else:
+                        curr_axis.set_title(f'Run {run + 1}')
+                else:
+                    curr_axis.set_title(f'Run {run + 1}')
+
+                curr_axis.set_xlabel('Iterations')
+                curr_axis.set_ylabel(lk_type)
+                curr_axis.set_xticks(np.arange(0, n_iter))
+
+                if debug:  # show legend to distinguish m- and e-step
+                    curr_axis.legend()
+
+    fig.tight_layout()
+    if save_path != '':
+        fig.savefig(f'{save_path}/lk/em_optimizaton_history_{lk_type}.png')
+    plt.close(fig)
+
 
 def plot_folds(train_history_folds, val_history_folds, std=True, same_col=False,
                plot=None, plotname='', path=None, col=None):
@@ -414,6 +495,22 @@ def plot_pred_runtime(n_alns=None, n_cl=None, save=None):
         else:
             plt.savefig(f'{save}{ii}.png')
     plt.close('all')
+
+
+def get_ylim(data, factor=1.1):
+    """Get y-axis limits of plotted data
+
+    :param data: array
+    :return: tuple with low and high y-axis limit
+    """
+
+    d_min = np.min(data)
+    d_max = np.max(data)
+    d_diff = d_max - d_min
+    d_avg = d_min / 2 + d_max / 2
+
+    return [d_avg - d_diff / 2 * factor, d_avg + d_diff / 2 * factor]
+
 
 """
 # load data
