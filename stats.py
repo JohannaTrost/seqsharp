@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats as st
 from scipy.stats._continuous_distns import _distn_names
+from sklearn.decomposition import PCA
 
 from utils import dim
 
@@ -278,3 +279,25 @@ def count_aas(data, level='msa', save=''):
         print(f'Successfully saved {nb_sites} sites.\n')
     else:
         return aa_counts_alns
+
+
+def freq_pca_from_raw_alns(data, n_components=2):
+    """Legacy function to perform PCA on average MSA AA frequencies
+    had been used for past experiments and test with EM and to evaluate
+    simulatons
+
+    :param data: list of lists with MSAs (3D string list)
+    :param n_components: number of principal components
+    :return: (n_alns x n_components) principal components, pca object
+    """
+
+    # get avg. MSA AA frequencies
+    msa_freqs = count_aas(data, level='msa')
+    msa_freqs /= np.repeat(msa_freqs.sum(axis=1)[:, np.newaxis], 20, axis=1)
+    msa_freqs = np.round(msa_freqs, 8)
+    # perform PCA and center resulting PCs
+    pca = PCA(n_components=n_components)
+    pca_msa_freqs = pca.fit_transform(msa_freqs)
+    pca_msa_freqs_c = pca_msa_freqs - pca_msa_freqs.mean(axis=0)
+
+    return pca_msa_freqs_c, pca
