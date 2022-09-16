@@ -17,6 +17,7 @@ import multiprocessing as mp
 import numpy as np
 from Bio import SeqIO
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 from stats import generate_aln_stats_df, get_nb_sites, nb_seqs_per_alns, \
     count_aas
@@ -40,13 +41,24 @@ PROTEIN_ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'X-',
                                 '\x0e\x0f\x10\x11\x12\x13\x14' +
                                 '\x15\x16')
 DNA_ENCODER = str.maketrans('ACGTUX-', '\x01\x02\x03\x04\x04\x05\x06')
-DNA_WILDCARDS = {'N': ['A', 'G', 'C', 'T'], 'D': ['G', 'A', 'T'],
+DNA_EMP_ALPHABET = 'AGCTNDHVBRYKMSW-*'
+DNA_WILDCARDS = {'*': ['A', 'G', 'C', 'T'],
+                 'N': ['A', 'G', 'C', 'T'], 'D': ['G', 'A', 'T'],
                  'H': ['A', 'C', 'T'], 'V': ['G', 'C', 'A'],
                  'B': ['G', 'T', 'C'], 'R': ['G', 'A'],
                  'Y': ['C', 'T'], 'K': ['G', 'T'], 'M': ['A', 'C'],
                  'S': ['G', 'C'], 'W': ['A', 'T']}
 
 THREADS = psutil.cpu_count(logical=False)
+
+
+def is_dna(aln):
+    """Check if given MSA is DNA
+
+    :param aln: list (n_seq) of strings (sequences)
+    :return: True if it is DNA according to DNA_EMP_ALPHABET False otherwise
+    """
+    return set(list(','.join(aln))).issubset(set(list(DNA_EMP_ALPHABET + ',')))
 
 
 def seq2index(seq, molecule_type='protein'):
@@ -93,7 +105,7 @@ def index2code(index_seq, molecule_type='protein'):
 
 
 def clean_DNA(seq):
-    """Replace all nucleotide wildcards by randomly drawn nucleotide
+    """Replace all ambiguous nucleotides by randomly drawn nucleotide A,C,G or T
 
     :param seq: nucleotide sequence
     :return: nucleotide sequence
@@ -132,7 +144,7 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
              list of alignment identifiers (strings)
     """
 
-    nucs = set(list('AGCTNDHVBRYKMSW-'))
+    # comma is used to join sequences but not part of the actual DNA alphabet
 
     if fasta_dir[-4:] == '.txt':
         fasta_files = np.genfromtxt(fasta_dir, dtype=str)
@@ -143,30 +155,34 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
     else:
         fasta_files = np.asarray(os.listdir(fasta_dir))
         # shuffle
-        fasta_files = fasta_files[np.random.permutation(
-            np.arange(0, len(fasta_files)))]
+        # fasta_files = fasta_files[np.random.permutation(
+        #     np.arange(0, len(fasta_files)))]
+
+    # load MSAs
+    alns = [aln_from_fasta(fasta_dir + '/' + file)
+            for file in tqdm(fasta_files)]
 
     n_fasta_files = len(fasta_files)
     nb_seqs = np.zeros(n_fasta_files)
     seq_lens = np.zeros(n_fasta_files)
-    is_dna = []
-
-    for i, file in enumerate(fasta_files):
-        print(fasta_dir + '/' + file)
-        aln = aln_from_fasta(fasta_dir + '/' + file)
+    alns_is_dna = np.repeat(True, n_fasta_files)
+    for i, aln in enumerate(alns):
         if molecule_type == 'DNA':
-            # clean DNA empirical data by replacing all nucleotide wildcards
-            # by A,C,G,T
-            is_dna.append(np.all([set(list(seq)).issubset(nucs)
-                                  for seq in aln]))
+            # check if is DNA and not protein
+            alns_is_dna[i] = is_dna(aln)
         nb_seqs[i] = len(aln)
         if len(aln) > 0:
             seq_lens[i] = len(aln[0])
 
     if molecule_type == 'DNA':  # filter out possible protein MSAs
-        nb_seqs = nb_seqs[is_dna]
-        seq_lens = seq_lens[is_dna]
-        fasta_files = fasta_files[is_dna]
+        nb_seqs = nb_seqs[alns_is_dna]
+        seq_lens = seq_lens[alns_is_dna]
+        fasta_files = fasta_files[alns_is_dna]
+        alns = [alns[i] for i, aln_is_dna in enumerate(alns_is_dna)
+                if alns_is_dna]
+
+        print(f'{np.sum(np.invert(alns_is_dna))} MSAs are not DNA MSAs and are '
+              f'filtered')
 
     inds_non0 = np.where(nb_seqs != 0)[0][np.where(nb_seqs != 0)[0] ==
                                           np.where(seq_lens != 0)[0]]
@@ -175,9 +191,12 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
                                 np.where(nb_seqs != 0)[0][neq_nb_len],
                                 np.where(seq_lens != 0)[0][neq_nb_len]))
     # filter MSAs without sequences
-    fasta_files = fasta_files[inds_non0]
-    nb_seqs = nb_seqs[inds_non0]
-    seq_lens = seq_lens[inds_non0]
+    if len(inds_non0) < len(alns):
+        fasta_files = fasta_files[inds_non0]
+        nb_seqs = nb_seqs[inds_non0]
+        seq_lens = seq_lens[inds_non0]
+        alns = [alns[i] for i in inds_non0]
+        print(f'{len(alns) - len(inds_non0)} MSAs are empty and filtered')
 
     if take_quantiles:
         # such that min = 4 for 6000 MSAs and max < 400
@@ -194,6 +213,8 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
         nb_seqs = nb_seqs[ind_q_ns][ind_q_sl]
         seq_lens = seq_lens[ind_q_ns][ind_q_sl]
         fasta_files = fasta_files[ind_q_ns][ind_q_sl]
+        alns = [alns[i] for i in ind_q_ns]
+        alns = [alns[i] for i in ind_q_sl]
 
     if nb_alns is not None:
         if (nb_alns - len(fasta_files)) > 0:  # we get less MSAs than wanted
@@ -203,14 +224,13 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
             fasta_files = fasta_files[:nb_alns]
             nb_seqs = nb_seqs[:nb_alns]
             seq_lens = seq_lens[:nb_alns]
+            alns = alns[:nb_alns]
 
-    alns, fastas = [], []
-    for file in fasta_files:
-        seqs = aln_from_fasta(fasta_dir + '/' + file)
-        if molecule_type == 'DNA':  # replace wildcard nuc. by A,C,G,T
-            seqs = [clean_DNA(seq) for seq in seqs]
-        alns.append(seqs)
-        fastas.append(file.split('.')[0])
+    # replace ambiguous nucleotides by A,C,G,T
+    if molecule_type == 'DNA':
+        alns = [clean_DNA(','.join(aln)).split(',') for aln in alns]
+
+    print(f'\n{len(alns)} MSAs loaded from {fasta_dir}\n')
 
     if len(alns) > 0:
         out_stats = {'n_seqs_min': nb_seqs.min(),
@@ -226,7 +246,7 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
         print('After filtering quantiles:')
     print(out_stats)
 
-    return alns, fastas, out_stats
+    return alns, fasta_files, out_stats
 
 
 def load_msa_reprs(path, pairs, n_alns=None):
