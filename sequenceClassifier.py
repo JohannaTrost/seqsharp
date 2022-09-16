@@ -27,7 +27,7 @@ from ConvNet import ConvNet, load_net, compute_device
 from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
     get_msa_reprs, load_msa_reprs
 from plots import plot_folds, plot_hist_quantiles
-from stats import get_nb_sites, nb_seqs_per_alns
+from stats import get_n_sites_per_msa, get_n_seqs_per_msa
 from utils import write_cfg_file, read_cfg_file
 from train_eval import fit, eval_per_align, generate_eval_dict, evaluate
 
@@ -141,13 +141,13 @@ def main():
                                         cfg['data']['nb_alignments'],
                                         molecule_type=molecule_type)[0]
 
-            plot_hist_quantiles((get_nb_sites(real_alns),
-                                 get_nb_sites(sim_alns)),
+            plot_hist_quantiles((get_n_sites_per_msa(real_alns),
+                                 get_n_sites_per_msa(sim_alns)),
                                 ('empirical', 'simulated'),
                                 ['Number of sites'] * 2,
                                 path=f'{path}/hist-sites-{timestamp}.png')
-            plot_hist_quantiles((nb_seqs_per_alns(real_alns),
-                                 nb_seqs_per_alns(sim_alns)),
+            plot_hist_quantiles((get_n_seqs_per_msa(real_alns),
+                                 get_n_seqs_per_msa(sim_alns)),
                                 ('empirical', 'simulated'),
                                 ['Number of sequences'] * 2,
                                 path=f'{path}/hist_nb_seqs-{timestamp}.png')
@@ -160,11 +160,11 @@ def main():
                                         cfg['data']['nb_alignments'],
                                         molecule_type=molecule_type)[0]
 
-                plot_hist_quantiles([get_nb_sites(alns)],
+                plot_hist_quantiles([get_n_sites_per_msa(alns)],
                                     xlabels=['Number of sites'],
                                     path=f'{path}/hist-sites-{timestamp}'
                                          f'-{i}.png')
-                plot_hist_quantiles([nb_seqs_per_alns(alns)],
+                plot_hist_quantiles([get_n_seqs_per_msa(alns)],
                                     xlabels=['Number of sequences'],
                                     path=f'{path}/hist_nb_seqs-{timestamp}'
                                          f'-{i}.png')
@@ -473,7 +473,7 @@ def main():
         if first_input_file.endswith('.fasta'):
             alns, fastas, cfg['data'] = raw_alns_prepro([fasta_path],
                                                         cfg['data'],
-                                                        take_quantiles=[
+                                                        quantiles=[
                                                             False])
 
             alns = get_msa_reprs(alns, fastas, cfg['data'], pairs,

@@ -19,8 +19,7 @@ from Bio import SeqIO
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from stats import generate_aln_stats_df, get_nb_sites, nb_seqs_per_alns, \
-    count_aas
+from stats import *
 from utils import split_lst, flatten_lst
 
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -124,7 +123,6 @@ def aln_from_fasta(filename):
     """Gets aligned sequences from given file
 
     :param filename: <path/to/> alignments (string)
-    :param nb_seqs: number of sequences in alignment (integer)
     :return: list of strings
     """
 
@@ -133,98 +131,96 @@ def aln_from_fasta(filename):
     return alned_seqs_raw
 
 
-def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
-                     molecule_type='protein'):
+def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
+                     molecule_type='protein', shuffle=False):
     """Extracts alignments from fasta files in given directory
 
-    :param molecule_type: either protein or DNA sequences
     :param fasta_dir: <path/to/> fasta files
-    :param nb_alns: number of alignments
+    :param quantiles: if True keep MSAs where seq. len. and n. seq.
+    within quantiles
+    :param n_alns: number of alignments
+    :param molecule_type: either protein or DNA sequences
+    :param shuffle: if True shuffle MSAs False otherwise
     :return: list of aligned sequences (string list),
              list of alignment identifiers (strings)
     """
 
-    # comma is used to join sequences but not part of the actual DNA alphabet
-
-    if fasta_dir[-4:] == '.txt':
+    # load fasta filenames
+    if fasta_dir.endswith('.txt'):
+        # files in txt file must be in fasta_dir!
         fasta_files = np.genfromtxt(fasta_dir, dtype=str)
         fasta_files = np.core.defchararray.add(fasta_files,
                                                np.repeat('.fasta',
                                                          len(fasta_files)))
-        fasta_dir = '/home/jtrost/data/real_fasta_sample_6000'  # TODO
     else:
         fasta_files = np.asarray(os.listdir(fasta_dir))
-        # shuffle
-        # fasta_files = fasta_files[np.random.permutation(
-        #     np.arange(0, len(fasta_files)))]
+
+    if len(fasta_files) == 0:
+        raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
+                         f'No fasta files in directory {fasta_dir}')
+
+    if shuffle:
+        fasta_files = fasta_files[np.random.permutation(
+        np.arange(0, len(fasta_files)))]
 
     # load MSAs
-    alns = [aln_from_fasta(fasta_dir + '/' + file)
-            for file in tqdm(fasta_files)]
+    alns, fastas = [], []
+    count_empty, count_no_dna = 0, 0
+    for file in tqdm(fasta_files):
+        aln = aln_from_fasta(fasta_dir + '/' + file)
+        if len(aln) > 0:  # # check if no sequences
+            if len(aln[0]) > 0:  # check if no sites
+                if molecule_type == 'DNA':
+                    if is_dna(aln):
+                        alns.append(aln)
+                        fastas.append(file)
+                    else:
+                        count_no_dna += 1
+                else:
+                    alns.append(aln)
+                    fastas.append(file)
+            else:
+                count_empty += 1
+        else:
+            count_empty += 1
 
-    n_fasta_files = len(fasta_files)
-    nb_seqs = np.zeros(n_fasta_files)
-    seq_lens = np.zeros(n_fasta_files)
-    alns_is_dna = np.repeat(True, n_fasta_files)
-    for i, aln in enumerate(alns):
-        if molecule_type == 'DNA':
-            # check if is DNA and not protein
-            alns_is_dna[i] = is_dna(aln)
-        nb_seqs[i] = len(aln)
-        if len(aln) > 0:
-            seq_lens[i] = len(aln[0])
+    fastas = np.asarray(fastas)
 
-    if molecule_type == 'DNA':  # filter out possible protein MSAs
-        nb_seqs = nb_seqs[alns_is_dna]
-        seq_lens = seq_lens[alns_is_dna]
-        fasta_files = fasta_files[alns_is_dna]
-        alns = [alns[i] for i, aln_is_dna in enumerate(alns_is_dna)
-                if alns_is_dna]
+    if count_empty > 0:
+        print(f'{count_empty} empty fasta file(s)')
+    if count_no_dna > 0:
+        print(f'{count_no_dna} fasta file(s) did not contain DNA sequences')
 
-        print(f'{np.sum(np.invert(alns_is_dna))} MSAs are not DNA MSAs and are '
-              f'filtered')
+    n_seqs = np.asarray(get_n_seqs_per_msa(alns))  # msa rows
+    n_sites = np.asarray(get_n_sites_per_msa(alns))  # msa columns
 
-    inds_non0 = np.where(nb_seqs != 0)[0][np.where(nb_seqs != 0)[0] ==
-                                          np.where(seq_lens != 0)[0]]
-    neq_nb_len = np.where(nb_seqs != 0)[0] != np.where(seq_lens != 0)[0]
-    inds_non0 = np.concatenate((inds_non0,
-                                np.where(nb_seqs != 0)[0][neq_nb_len],
-                                np.where(seq_lens != 0)[0][neq_nb_len]))
-    # filter MSAs without sequences
-    if len(inds_non0) < len(alns):
-        fasta_files = fasta_files[inds_non0]
-        nb_seqs = nb_seqs[inds_non0]
-        seq_lens = seq_lens[inds_non0]
-        alns = [alns[i] for i in inds_non0]
-        print(f'{len(alns) - len(inds_non0)} MSAs are empty and filtered')
-
-    if take_quantiles:
+    if quantiles:  # optional
         # such that min = 4 for 6000 MSAs and max < 400
-        q_ns = (np.quantile(nb_seqs, 0.39), np.quantile(nb_seqs, 0.998))
-        q_sl = (np.quantile(seq_lens, 0.05), np.quantile(seq_lens, 0.95))
+        q_ns = (np.quantile(n_seqs, 0.39), np.quantile(n_seqs, 0.998))
+        q_sl = (np.quantile(n_sites, 0.05), np.quantile(n_sites, 0.95))
 
         print(f'\nq_ns : {q_ns} (0.25, 0.998)\nq_sl : {q_sl} (0.05, 0.95)\n')
 
-        ind_q_ns = np.where((q_ns[0] <= nb_seqs) & (nb_seqs <= q_ns[1]))[0]
-        ind_q_sl = np.where((q_sl[0] <= seq_lens[ind_q_ns]) &
-                            (seq_lens[ind_q_ns] <= q_sl[1]))[0]
+        ind_q_ns = np.where((q_ns[0] <= n_seqs) & (n_seqs <= q_ns[1]))[0]
+        ind_q_sl = np.where((q_sl[0] <= n_sites[ind_q_ns]) &
+                            (n_sites[ind_q_ns] <= q_sl[1]))[0]
 
         # filter : keep MSAs with seq. len. and n.seq. within above quantiles
-        nb_seqs = nb_seqs[ind_q_ns][ind_q_sl]
-        seq_lens = seq_lens[ind_q_ns][ind_q_sl]
-        fasta_files = fasta_files[ind_q_ns][ind_q_sl]
+        n_seqs = n_seqs[ind_q_ns][ind_q_sl]
+        n_sites = n_sites[ind_q_ns][ind_q_sl]
+        fastas = fastas[ind_q_ns][ind_q_sl]
         alns = [alns[i] for i in ind_q_ns]
         alns = [alns[i] for i in ind_q_sl]
 
-    if nb_alns is not None:
-        if (nb_alns - len(fasta_files)) > 0:  # we get less MSAs than wanted
+    if n_alns is not None:  # optional
+        if (n_alns - len(fastas)) > 0:  # we get less MSAs than wanted
             print('Only {} / {} fasta files taken into account.'.format(
-                len(fasta_files), nb_alns))
-        else:  # restrict number of MSAs as given by nb_alns
-            fasta_files = fasta_files[:nb_alns]
-            nb_seqs = nb_seqs[:nb_alns]
-            seq_lens = seq_lens[:nb_alns]
-            alns = alns[:nb_alns]
+                len(fastas), n_alns))
+        else:  # restrict number of MSAs as given by n_alns
+            fastas = fastas[:n_alns]
+            n_seqs = n_seqs[:n_alns]
+            n_sites = n_sites[:n_alns]
+            alns = alns[:n_alns]
 
     # replace ambiguous nucleotides by A,C,G,T
     if molecule_type == 'DNA':
@@ -233,20 +229,20 @@ def alns_from_fastas(fasta_dir, take_quantiles=False, nb_alns=None,
     print(f'\n{len(alns)} MSAs loaded from {fasta_dir}\n')
 
     if len(alns) > 0:
-        out_stats = {'n_seqs_min': nb_seqs.min(),
-                     'n_seqs_max': nb_seqs.max(),
-                     'n_seqs_avg': nb_seqs.mean(),
-                     'seq_lens_min': seq_lens.min(),
-                     'seq_lens_max': seq_lens.max(),
-                     'seq_lens_avg': seq_lens.mean()}
+        out_stats = {'n_seqs_min': n_seqs.min(),
+                     'n_seqs_max': n_seqs.max(),
+                     'n_seqs_avg': n_seqs.mean(),
+                     'seq_lens_min': n_sites.min(),
+                     'seq_lens_max': n_sites.max(),
+                     'seq_lens_avg': n_sites.mean()}
     else:
         out_stats = {}
 
-    if take_quantiles:
+    if quantiles:
         print('After filtering quantiles:')
     print(out_stats)
 
-    return alns, fasta_files, out_stats
+    return alns, fastas, out_stats
 
 
 def load_msa_reprs(path, pairs, n_alns=None):
@@ -457,14 +453,14 @@ class DatasetAln(Dataset):
 
 def raw_alns_prepro(fasta_paths,
                     params,
-                    take_quantiles=None,
+                    quantiles=None,
                     shuffle=False,
                     molecule_type='protein'):
     """Loads and preprocesses raw (not encoded) alignments
 
     :param shuffle: shuffle sites if True
     :param molecule_type: indicate if either 'protein' or 'DNA' sequences given
-    :param take_quantiles: indicate possible reduction of number of sequences
+    :param quantiles: indicate possible reduction of number of sequences
                            per alignment
     :param fasta_paths: <path(s)/to> empirical/simulated fasta files
                         (list/tuple string)
@@ -472,8 +468,8 @@ def raw_alns_prepro(fasta_paths,
     :return: ids, preprocessed raw alignments, updated param. dict.
     """
 
-    if take_quantiles is None:
-        take_quantiles = [False] * len(fasta_paths)
+    if quantiles is None:
+        quantiles = [False] * len(fasta_paths)
 
     nb_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
     nb_alns = None if nb_alns == '' else nb_alns
@@ -489,7 +485,7 @@ def raw_alns_prepro(fasta_paths,
         if len(sim_cl_dirs) > 0:  # there are multiple clusters
             sim_alns, sim_fastas, sim_lims = [], [], {}
             for dir in sim_cl_dirs:
-                sim_data = alns_from_fastas(f'{path}/{dir}', take_quantiles[i],
+                sim_data = alns_from_fastas(f'{path}/{dir}', quantiles[i],
                                             nb_alns,
                                             molecule_type=molecule_type)
                 sim_alns += sim_data[0]
@@ -511,7 +507,7 @@ def raw_alns_prepro(fasta_paths,
             else:
                 raw_data = [sim_alns, sim_fastas, sim_lims]
         else:
-            raw_data = alns_from_fastas(path, take_quantiles[i], nb_alns,
+            raw_data = alns_from_fastas(path, quantiles[i], nb_alns,
                                         molecule_type=molecule_type)
 
         alns.append(raw_data[0])
@@ -526,7 +522,7 @@ def raw_alns_prepro(fasta_paths,
 
         """
         # sort simulated data by sequence length
-        ind_s = np.argsort(get_nb_sites(alns[1]))
+        ind_s = np.argsort(get_n_sites_per_msa(alns[1]))
 
         alns[1] = [alns[1][i] for i in ind_s]
         fastas[1] = [fastas[1][i] for i in ind_s]
@@ -555,7 +551,7 @@ def raw_alns_prepro(fasta_paths,
                                       for ds_lims in lims]))
     # before it was int(min(seq_len, lims[0]['seq_lens_max'])), why?
     n_aln_sets = len(alns)
-    nb_seqs = [nb_seqs_per_alns(alns[i]) for i in range(n_aln_sets)]
+    nb_seqs = [get_n_seqs_per_msa(alns[i]) for i in range(n_aln_sets)]
     params['max_seqs_per_align'] = [int(max(nb_seqs[i]))
                                     for i in range(n_aln_sets)]
     params['min_seqs_per_align'] = [int(min(nb_seqs[i]))
@@ -651,8 +647,8 @@ def aa_freq_samples(in_dir, data_dirs, sample_prop, n_alns, levels,
             alns_samples, cl_assign = [], []
             if len(cl_dirs) == 0:
                 alns = alns_from_fastas(f'{in_dir}/{data_dir}',
-                                        take_quantiles=False,
-                                        nb_alns=n_alns)[0]
+                                        quantiles=False,
+                                        n_alns=n_alns)[0]
                 # sampling
                 sample_size = np.round(sample_prop * len(alns)).astype(int)
                 sample_inds = np.random.randint(0, len(alns), sample_size)
@@ -661,8 +657,8 @@ def aa_freq_samples(in_dir, data_dirs, sample_prop, n_alns, levels,
             else:
                 for cl, cl_dir in enumerate(cl_dirs):
                     alns = alns_from_fastas(f'{in_dir}/{data_dir}{cl_dir}',
-                                            take_quantiles=False,
-                                            nb_alns=n_alns)[0]
+                                            quantiles=False,
+                                            n_alns=n_alns)[0]
                     # sampling
                     sample_size = np.round(sample_prop * len(alns)).astype(int)
                     sample_inds = np.random.randint(0, len(alns), sample_size)

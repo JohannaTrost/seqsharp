@@ -12,7 +12,7 @@ from Bio import Phylo, SeqIO, Seq
 
 from preprocessing import alns_from_fastas, aa_freq_samples
 from simulation import get_leaves_count
-from stats import get_aa_freqs, generate_data_from_dist, nb_seqs_per_alns
+from stats import get_aa_freqs, generate_data_from_dist, get_n_seqs_per_msa
 from utils import largest_remainder_method
 from tqdm import tqdm
 
@@ -212,11 +212,11 @@ def main():
         # load alignments
         print(hogenom_fasta_path)
         alignments, fastas, lims = alns_from_fastas(hogenom_fasta_path,
-                                               nb_alns=n_alns)
+                                                    n_alns=n_alns)
         # get lengths and frequences from hogenom aligned sequences
         seq_lens = [len(aln[0]) for aln in alignments]
         seq_lens = generate_data_from_dist(seq_lens)
-        n_seqs = np.asarray(nb_seqs_per_alns(alignments))
+        n_seqs = np.asarray(n_seqs(alignments))
         aa_freqs = get_aa_freqs(alignments, gaps=False, dict=False)
 
         # get em run "ids" from parameter directory
