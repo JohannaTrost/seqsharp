@@ -68,6 +68,7 @@ def seq2index(seq, molecule_type='protein'):
     of amino acids (including gaps and unknown amino acids)
 
     :param seq: protein sequence as string
+    :param molecule_type: either 'DNA' or 'protein' sequences
     :return: array of integers from 0 to 22
     """
 
@@ -90,6 +91,7 @@ def index2code(index_seq, molecule_type='protein'):
         0., 0., 0., 0., 0., 0., 0.]])
 
     :param index_seq: array of integers from 0 to 22
+    :param molecule_type: either 'DNA' or 'protein' sequences
     :return: 2D array of 0s and 1s
     """
 
@@ -132,7 +134,7 @@ def aln_from_fasta(filename):
 
 
 def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
-                     molecule_type='protein', shuffle=False):
+                     molecule_type='protein'):
     """Extracts alignments from fasta files in given directory
 
     :param fasta_dir: <path/to/> fasta files
@@ -140,7 +142,6 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
     within quantiles
     :param n_alns: number of alignments
     :param molecule_type: either protein or DNA sequences
-    :param shuffle: if True shuffle MSAs False otherwise
     :return: list of aligned sequences (string list),
              list of alignment identifiers (strings)
     """
@@ -158,10 +159,6 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
     if len(fasta_files) == 0:
         raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
                          f'No fasta files in directory {fasta_dir}')
-
-    if shuffle:
-        fasta_files = fasta_files[np.random.permutation(
-        np.arange(0, len(fasta_files)))]
 
     # load MSAs
     alns, fastas = [], []
@@ -352,12 +349,12 @@ def encode_aln(alned_seqs_raw, seq_len, padding='', molecule_type='protein'):
 
 
 def seq_pair_worker(alns):
-    """Generates pair representation for given alignments"""
+    """Legacy function Generates pair representation for given alignments"""
 
     return [make_seq_pairs(aln) for aln in alns]
 
 
-def get_aln_representation(alned_seqs):
+def get_aln_repr(alned_seqs):
     """Returns proportions of amino acids at each site of the alignment"""
 
     return np.sum(alned_seqs, axis=0) / len(alned_seqs)
@@ -378,11 +375,12 @@ def make_seq_pairs(alned_seqs):
     sums = alned_seqs[inds[0], :, :] + alned_seqs[inds[1], :, :]
     sum_all_seqs = np.sum(alned_seqs, axis=0)
     aa_prop_no_pair = (sum_all_seqs - sums) / (len(alned_seqs) - 2)
+
     return np.concatenate((sums / 2, aa_prop_no_pair), axis=1)
 
 
 def make_pairs_from_alns_mp(alns):
-    """Generates pair representations using multi threading"""
+    """Legacy function Generates pair representations using multi threading"""
 
     threads = len(alns) if THREADS > len(alns) else THREADS + 0
 
@@ -451,76 +449,77 @@ class DatasetAln(Dataset):
         return self.data.size(0)
 
 
-def raw_alns_prepro(fasta_paths,
-                    params,
-                    quantiles=None,
-                    shuffle=False,
+def raw_alns_prepro(fasta_paths, params, quantiles=None, shuffle=False,
                     molecule_type='protein'):
     """Loads and preprocesses raw (not encoded) alignments
 
     :param shuffle: shuffle sites if True
     :param molecule_type: indicate if either 'protein' or 'DNA' sequences given
-    :param quantiles: indicate possible reduction of number of sequences
-                           per alignment
+    :param quantiles: if True keep MSAs where seq. len. and n. seq.
+                      within quantiles
     :param fasta_paths: <path(s)/to> empirical/simulated fasta files
-                        (list/tuple string)
+                        (list/tuple of strings)
     :param params: parameters for preprocessing (dictionary)
-    :return: ids, preprocessed raw alignments, updated param. dict.
+    :return: ids, preprocessed string alignments, updated param. dict.
     """
 
     if quantiles is None:
         quantiles = [False] * len(fasta_paths)
 
-    nb_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
-    nb_alns = None if nb_alns == '' else nb_alns
+    n_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
+    n_alns = None if n_alns == '' else n_alns
 
     print("Loading alignments ...")
 
     # load sets of multiple aligned sequences
-    alns, fastas, lims = [], [], []
+    alns, fastas, stats = [], [], []
     for i, path in enumerate(fasta_paths):
         path = str(path)
+
+        # in case of simulations with multiple MSA clusters each cluster has dir
         sim_cl_dirs = [dir for dir in os.listdir(path)
                        if os.path.isdir(os.path.join(path, dir))]
         if len(sim_cl_dirs) > 0:  # there are multiple clusters
-            sim_alns, sim_fastas, sim_lims = [], [], {}
+            sim_alns, sim_fastas, sim_stats = [], [], {}
             for dir in sim_cl_dirs:
                 sim_data = alns_from_fastas(f'{path}/{dir}', quantiles[i],
-                                            nb_alns,
+                                            n_alns,
                                             molecule_type=molecule_type)
+                # concat remove cluster dimension
                 sim_alns += sim_data[0]
                 sim_fastas += sim_data[1]
-                if len(sim_lims) == 0:
+
+                # get stats from current cluster
+                if len(sim_stats) == 0:  # first cluster
                     for k, v in sim_data[2].items():
-                        sim_lims[k] = [v]
+                        sim_stats[k] = [v]
                 else:
-                    sim_lims_tmp = {}
-                    for k in sim_lims.keys():
-                        sim_lims_tmp[k] = sim_lims[k] + [sim_data[2][k]]
-                    sim_lims = sim_lims_tmp.copy()
-            if nb_alns is not None and len(sim_alns) > nb_alns:
-                inds = np.random.choice(np.arange(len(sim_alns)), size=nb_alns,
+                    for k in sim_stats.keys():
+                        sim_stats[k] += [sim_data[2][k]]
+
+            if n_alns is not None and len(sim_alns) > n_alns:
+                inds = np.random.choice(np.arange(len(sim_alns)), size=n_alns,
                                         replace=False)
                 raw_data = [[sim_alns[ind] for ind in inds],
                             [sim_fastas[ind] for ind in inds],
-                            sim_lims]
+                            sim_stats]
             else:
-                raw_data = [sim_alns, sim_fastas, sim_lims]
-        else:
-            raw_data = alns_from_fastas(path, quantiles[i], nb_alns,
+                raw_data = [sim_alns, sim_fastas, sim_stats]
+        else:  # empirical data set or simulations without MSA clusters
+            raw_data = alns_from_fastas(path, quantiles[i], n_alns,
                                         molecule_type=molecule_type)
 
         alns.append(raw_data[0])
         fastas.append(raw_data[1])
-        lims.append(raw_data[2])
+        stats.append(raw_data[2])
 
     if len(alns) == 2 and len(fastas) == 2:  # if there is simulated data
-        print(f"avg. seqs. len. : {lims[1]['seq_lens_avg']} (sim.) vs. "
-              f"{lims[0]['seq_lens_avg']} (emp.)")
-        print(f"avg. n.seqs. : {lims[1]['n_seqs_avg']} (sim.) vs. "
-              f"{lims[0]['n_seqs_avg']} (emp.)")
+        print(f"avg. seqs. len. : {stats[1]['seq_lens_avg']} (sim.) vs. "
+              f"{stats[0]['seq_lens_avg']} (emp.)")
+        print(f"avg. n.seqs. : {stats[1]['n_seqs_avg']} (sim.) vs. "
+              f"{stats[0]['n_seqs_avg']} (emp.)")
 
-        """
+        """???
         # sort simulated data by sequence length
         ind_s = np.argsort(get_n_sites_per_msa(alns[1]))
 
@@ -541,40 +540,42 @@ def raw_alns_prepro(fasta_paths,
         """
 
     # ensure same number of MSAs for all data sets
-    if nb_alns is not None:
+    if n_alns is not None:
         for i in range(len(alns)):
-            inds = np.random.choice(range(len(alns[i])), nb_alns, replace=False)
+            inds = np.random.choice(range(len(alns[i])), n_alns, replace=False)
             alns[i] = [alns[i][ind] for ind in inds]
             fastas[i] = [fastas[i][ind] for ind in inds]
 
-    params['nb_sites'] = int(np.mean([ds_lims['seq_lens_avg']
-                                      for ds_lims in lims]))
-    # before it was int(min(seq_len, lims[0]['seq_lens_max'])), why?
-    n_aln_sets = len(alns)
-    nb_seqs = [get_n_seqs_per_msa(alns[i]) for i in range(n_aln_sets)]
+    params['nb_sites'] = int(np.mean([ds_stats['seq_lens_avg']
+                                      for ds_stats in stats]))
+    # before it was int(min(seq_len, stats[0]['seq_lens_max'])), why?
+    n_msa_ds = len(alns)
+    nb_seqs = [get_n_seqs_per_msa(alns[i]) for i in range(n_msa_ds)]
     params['max_seqs_per_align'] = [int(max(nb_seqs[i]))
-                                    for i in range(n_aln_sets)]
+                                    for i in range(n_msa_ds)]
     params['min_seqs_per_align'] = [int(min(nb_seqs[i]))
-                                    for i in range(n_aln_sets)]
-    params['nb_alignments'] = [len(alns[i]) for i in range(n_aln_sets)]
+                                    for i in range(n_msa_ds)]
+    params['nb_alignments'] = [len(alns[i]) for i in range(n_msa_ds)]
 
     if shuffle:  # shuffle sites/columns of alignments
-        for i in range(len(alns)):
-            for j in range(len(alns[i])):
-                aln = np.asarray([list(seq) for seq in alns[i][j]])
-                aln[:, :] = aln[:, np.random.permutation(range(aln.shape[1]))]
-
-                alns[i][j] = [''.join([aa for aa in seq]) for seq in aln]
-
+        alns = shuffle_sites(alns)
     return alns, fastas, params
 
 
-def get_msa_reprs(alns,
-                  fastas,
-                  params,
-                  pairs=False,
-                  csv_path=None,
-                  molecule_type='protein'):
+def shuffle_sites(msa_ds):
+    """Shuffle sites within MSAs of MSA data sets"""
+
+    for i in range(len(msa_ds)):  # data set
+        for j in range(len(msa_ds[i])):  # MSA
+            aln = np.asarray([list(seq) for seq in msa_ds[i][j]])
+            aln[:, :] = aln[:, np.random.permutation(range(aln.shape[1]))]
+
+            msa_ds[i][j] = [''.join([aa for aa in seq]) for seq in aln]
+    return msa_ds
+
+
+def make_msa_reprs(alns, fastas, params, pairs=False, csv_path=None,
+                   molecule_type='protein'):
     """Encodes alignments and generates their representations
 
     :param molecule_type: either protein or DNA sequences
@@ -586,47 +587,33 @@ def get_msa_reprs(alns,
     :return: alignment representations
     """
 
-    nb_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
+    n_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
+    alns_reprs = []
+
+    print("Generating alignment representations ...")
 
     if pairs:
-
         print("Pairing sequences ...")
 
         start = time.time()
-
-        alns_reprs_pairs = []
         for alns_set in alns:
-            alns_reprs_pairs.append([make_seq_pairs(encode_aln(
-                aln, seq_len, padding=padding, molecule_type=molecule_type))
+            alns_reprs.append([make_seq_pairs(
+                encode_aln(aln, seq_len, padding, molecule_type))
                 for aln in alns_set])
-
         print(f'Finished pairing after {round(start - time.time(), 2)}s\n')
-
-        if csv_path is not None:
-            generate_aln_stats_df(fastas, alns, seq_len,
-                                  None, is_sim=[0, 1] if len(alns) == 2 else [])
-
-        return alns_reprs_pairs
-
     else:
-
-        print("Generating alignment representations ...")
-
-        # make pairs !additional dim for each multiple alingment needs flatteing
-        # before passed to CNN!
-        alns_reprs = []
         for alns_set in alns:
-            alns_reprs.append([get_aln_representation(encode_aln(
-                aln, seq_len, padding=padding, molecule_type=molecule_type))
+            alns_reprs.append([get_aln_repr(
+                encode_aln(aln, seq_len, padding, molecule_type))
                 for aln in alns_set])
 
-        if csv_path is not None:
-            generate_aln_stats_df(fastas, alns, seq_len,
-                                  alns_reprs,
-                                  is_sim=[0, 1] if len(alns) == 2 else [],
-                                  csv_path=csv_path)
+    if csv_path is not None:
+        generate_aln_stats_df(fastas, alns, seq_len,
+                              alns_reprs if not pairs else None,
+                              is_sim=[0, 1] if len(alns) == 2 else [],
+                              csv_path= csv_path if not pairs else None)
 
-        return alns_reprs
+    return alns_reprs
 
 
 def aa_freq_samples(in_dir, data_dirs, sample_prop, n_alns, levels,

@@ -25,7 +25,7 @@ from torch.utils.data import DataLoader
 
 from ConvNet import ConvNet, load_net, compute_device
 from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
-    get_msa_reprs, load_msa_reprs
+    make_msa_reprs, load_msa_reprs
 from plots import plot_folds, plot_hist_quantiles
 from stats import get_n_sites_per_msa, get_n_seqs_per_msa
 from utils import write_cfg_file, read_cfg_file
@@ -231,15 +231,15 @@ def main():
                                                         molecule_type=molecule_type)
             fastas_real, fastas_sim = fastas.copy()
 
-            real_alns, sim_alns = get_msa_reprs(alns, fastas, cfg['data'],
-                                                pairs,
-                                                csv_path=(
+            real_alns, sim_alns = make_msa_reprs(alns, fastas, cfg['data'],
+                                                 pairs,
+                                                 csv_path=(
                                                     f'{result_path}/'
                                                     f'alns_stats.csv'
                                                     if args.track_stats
                                                     else None),
-                                                molecule_type=molecule_type
-                                                )
+                                                 molecule_type=molecule_type
+                                                 )
             del alns, fastas
         elif first_input_file.endswith('.csv'):  # msa representations given
             real_alns, fastas_real = load_msa_reprs(real_fasta_path, pairs,
@@ -476,8 +476,8 @@ def main():
                                                         quantiles=[
                                                             False])
 
-            alns = get_msa_reprs(alns, fastas, cfg['data'], pairs,
-                                 molecule_type=molecule_type)[0]
+            alns = make_msa_reprs(alns, fastas, cfg['data'], pairs,
+                                  molecule_type=molecule_type)[0]
 
         elif first_input_file.endswith('.csv'):  # msa representations given
             alns, fastas = load_msa_reprs(fasta_path, pairs)
