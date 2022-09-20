@@ -24,40 +24,44 @@ from utils import split_lst, flatten_lst
 
 warnings.simplefilter("ignore", DeprecationWarning)
 
-""" amino acids 
-alanine       : A |  glutamine     : Q | leucine       : L | serine    : S |
-arginine      : R |  glutamic acid : E | lysine        : K | threonine : T |
-asparagine    : N |  glycine       : G | methionine    : M | tryptophan: W |
-aspartic acid : D |  histidine     : H | phenylalanine : F | tyrosine  : Y |
-cysteine      : C |  isoleucine    : I | proline       : P | valine    : V |
-unknown : X 
-gap/indel : - 
-"""
+PROTEIN_ENCODER = str.maketrans('ARNDCQEGHILKMFPSTWYV' + '-',
+                                '\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b'
+                                '\x0c\r\x0e\x0f\x10\x11\x12\x13' + '\x14')
+DNA_ENCODER = str.maketrans('ACGT-', '\x00\x01\x02\x03\x04')
 
-PROTEIN_ENCODER = str.maketrans('BZJUO' + 'ARNDCQEGHILKMFPSTWYV' + 'X-',
-                                '\x00' * 5 +
-                                '\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r'
-                                '\x0e\x0f\x10\x11\x12\x13\x14' +
-                                '\x15\x16')
-DNA_ENCODER = str.maketrans('ACGTUX-', '\x01\x02\x03\x04\x04\x05\x06')
-DNA_EMP_ALPHABET = 'AGCTNDHVBRYKMSW-*'
-DNA_WILDCARDS = {'*': ['A', 'G', 'C', 'T'],
-                 'N': ['A', 'G', 'C', 'T'], 'D': ['G', 'A', 'T'],
-                 'H': ['A', 'C', 'T'], 'V': ['G', 'C', 'A'],
-                 'B': ['G', 'T', 'C'], 'R': ['G', 'A'],
-                 'Y': ['C', 'T'], 'K': ['G', 'T'], 'M': ['A', 'C'],
-                 'S': ['G', 'C'], 'W': ['A', 'T']}
+PROTEIN_EMP_ALPHABET = 'ARNDCQEGHILKMFPSTWYV-BZJUOX'
+DNA_EMP_ALPHABET = 'AGCTNDHVBRYKMSW-X*'
+
+PROTEIN_AMBIG = {'B': ['N', 'D'],
+                 'Z': ['Q', 'E'],
+                 'J': list('ARNDCQEGHILKMFPSTWYV'),
+                 'U': list('ARNDCQEGHILKMFPSTWYV'),
+                 'O': list('ARNDCQEGHILKMFPSTWYV'),
+                 'X': list('ARNDCQEGHILKMFPSTWYV')}
+DNA_AMBIG = {'*': ['A', 'G', 'C', 'T'],
+             'X': ['A', 'G', 'C', 'T'],
+             'N': ['A', 'G', 'C', 'T'], 'D': ['G', 'A', 'T'],
+             'H': ['A', 'C', 'T'], 'V': ['G', 'C', 'A'],
+             'B': ['G', 'T', 'C'], 'R': ['G', 'A'],
+             'Y': ['C', 'T'], 'K': ['G', 'T'], 'M': ['A', 'C'],
+             'S': ['G', 'C'], 'W': ['A', 'T']}
 
 THREADS = psutil.cpu_count(logical=False)
 
 
-def is_dna(aln):
+def is_mol_type(aln, molecule_type='protein'):
     """Check if given MSA is DNA
 
     :param aln: list (n_seq) of strings (sequences)
     :return: True if it is DNA according to DNA_EMP_ALPHABET False otherwise
     """
-    return set(list(','.join(aln))).issubset(set(list(DNA_EMP_ALPHABET + ',')))
+
+    if molecule_type == 'protein':
+        alphabet = DNA_EMP_ALPHABET
+    elif molecule_type == 'DNA':
+        alphabet = PROTEIN_EMP_ALPHABET
+
+    return set(list(','.join(aln))).issubset(set(list(alphabet + ',')))
 
 
 def seq2index(seq, molecule_type='protein'):
@@ -96,27 +100,33 @@ def index2code(index_seq, molecule_type='protein'):
     """
 
     if molecule_type == 'protein':
-        seq_enc = np.zeros((index_seq.size, 23))
+        seq_enc = np.zeros((index_seq.size, 21))
     elif molecule_type == 'DNA':
-        seq_enc = np.zeros((index_seq.size, 7))
+        seq_enc = np.zeros((index_seq.size, 5))
 
     seq_enc[np.arange(index_seq.size), index_seq] = 1
 
     return seq_enc
 
 
-def clean_DNA(seq):
-    """Replace all ambiguous nucleotides by randomly drawn nucleotide A,C,G or T
+def replace_ambig_chars(seq, molecule_type='protein'):
+    """Replace all ambiguous nucleotides/amino acids by randomly drawn
+    nucleotides (A,C,G or T)/ 20 amino acids
 
-    :param seq: nucleotide sequence
-    :return: nucleotide sequence
+    :param seq: sequence
+    :return: cleaned sequence
     """
 
+    if molecule_type == 'protein':
+        repl_dict = PROTEIN_AMBIG
+    elif molecule_type == 'DNA':
+        repl_dict = DNA_AMBIG
+
     seq_arr = np.asarray(list(seq))
-    for wc in DNA_WILDCARDS.keys():
-        wc_ind = np.where(seq_arr == wc)[0]
-        repl_nucs = np.random.choice(DNA_WILDCARDS[wc], len(wc_ind))
-        seq_arr[wc_ind] = repl_nucs
+    for mol in repl_dict.keys():
+        mol_ind = np.where(seq_arr == mol)[0]
+        repl_nucs = np.random.choice(repl_dict[mol], len(mol_ind))
+        seq_arr[mol_ind] = repl_nucs
 
     return ''.join(seq_arr)
 
@@ -162,20 +172,16 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
 
     # load MSAs
     alns, fastas = [], []
-    count_empty, count_no_dna = 0, 0
+    count_empty, count_wrong_mol_type = 0, 0
     for file in tqdm(fasta_files):
         aln = aln_from_fasta(fasta_dir + '/' + file)
         if len(aln) > 0:  # # check if no sequences
             if len(aln[0]) > 0:  # check if no sites
-                if molecule_type == 'DNA':
-                    if is_dna(aln):
-                        alns.append(aln)
-                        fastas.append(file)
-                    else:
-                        count_no_dna += 1
-                else:
+                if is_mol_type(aln, molecule_type):
                     alns.append(aln)
                     fastas.append(file)
+                else:
+                    count_wrong_mol_type += 1
             else:
                 count_empty += 1
         else:
@@ -185,8 +191,9 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
 
     if count_empty > 0:
         print(f'{count_empty} empty fasta file(s)')
-    if count_no_dna > 0:
-        print(f'{count_no_dna} fasta file(s) did not contain DNA sequences')
+    if count_wrong_mol_type > 0:
+        print(f'{count_wrong_mol_type} fasta file(s) did not contain '
+              f'{molecule_type} sequences')
 
     n_seqs = np.asarray(get_n_seqs_per_msa(alns))  # msa rows
     n_sites = np.asarray(get_n_sites_per_msa(alns))  # msa columns
@@ -219,9 +226,9 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
             n_sites = n_sites[:n_alns]
             alns = alns[:n_alns]
 
-    # replace ambiguous nucleotides by A,C,G,T
-    if molecule_type == 'DNA':
-        alns = [clean_DNA(','.join(aln)).split(',') for aln in alns]
+    # replace ambiguous nucleotides/AAs
+    alns = [replace_ambig_chars(','.join(aln), molecule_type).split(',')
+            for aln in alns]
 
     print(f'\n{len(alns)} MSAs loaded from {fasta_dir}\n')
 
@@ -409,10 +416,9 @@ class TensorDataset(Dataset):
     """
 
     def __init__(self, data, labels, pairs=False):
-
         if pairs:  # remove MSA dimension
             n_real = np.sum([len(data[i]) for i, label in enumerate(labels)
-                            if label == 0])
+                             if label == 0])
             n_sim = np.sum([len(data[i]) for i, label in enumerate(labels)
                             if label == 1])
             labels = [0] * n_real + [1] * n_sim
@@ -611,7 +617,7 @@ def make_msa_reprs(alns, fastas, params, pairs=False, csv_path=None,
         generate_aln_stats_df(fastas, alns, seq_len,
                               alns_reprs if not pairs else None,
                               is_sim=[0, 1] if len(alns) == 2 else [],
-                              csv_path= csv_path if not pairs else None)
+                              csv_path=csv_path if not pairs else None)
 
     return alns_reprs
 
