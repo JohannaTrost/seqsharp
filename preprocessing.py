@@ -7,14 +7,11 @@ the child classes of *torch.utils.data.Dataset*
 """
 import errno
 import time
-import os
-import random
-import warnings
 
 import psutil
 import torch
 import multiprocessing as mp
-import numpy as np
+
 from Bio import SeqIO
 from torch.utils.data import Dataset
 from tqdm import tqdm
@@ -57,11 +54,11 @@ def is_mol_type(aln, molecule_type='protein'):
     """
 
     if molecule_type == 'protein':
-        alphabet = DNA_EMP_ALPHABET
-    elif molecule_type == 'DNA':
         alphabet = PROTEIN_EMP_ALPHABET
+    elif molecule_type == 'DNA':
+        alphabet = DNA_EMP_ALPHABET
 
-    return set(list(','.join(aln))).issubset(set(list(alphabet + ',')))
+    return set(list(''.join(aln))).issubset(set(list(alphabet)))
 
 
 def seq2index(seq, molecule_type='protein'):
