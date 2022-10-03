@@ -487,14 +487,16 @@ def main():
         print("Building validation dataset ...\n")
 
         if is_real:
-            ds = TensorDataset(alns, [])
+            ds = TensorDataset(np.asarray(alns), np.ones(len(alns)), pairs)
         else:
-            ds = TensorDataset([], alns)
+            ds = TensorDataset(np.asarray(alns), np.zeros(len(alns)), pairs)
 
         loader = DataLoader(ds, batch_size)
 
         model_params['input_size'] = ds.data.shape[2]  # seq len
-        model_params['nb_chnls'] = ds.data.shape[1]  # 1 channel per aa
+        # model_params['nb_chnls'] = ds.data.shape[1]  # 1 channel per aa
+
+        print(model_params['nb_chnls'])
 
         accs = []
         accs_after_train = []
@@ -503,6 +505,8 @@ def main():
             # generate model
             model = load_net(path, model_params, state='eval')
             with torch.no_grad():
+
+                print(model)
                 result = evaluate(model, loader)
 
                 accs.append(result['acc'])
