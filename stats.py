@@ -26,7 +26,7 @@ def padding(alns, max_seq_len=300):
     return paddings
 
 
-def nb_seqs_per_alns(alns):
+def get_n_seqs_per_msa(alns):
     # multiple datasets of 'raw' MSAs (e.g. real and simulated)
     if dim(alns) == 3 and type(alns[0][0][0]) == str:
         return [[len(aln) for aln in dataset] for dataset in alns]
@@ -34,12 +34,13 @@ def nb_seqs_per_alns(alns):
     return [len(aln) for aln in alns]
 
 
-def get_nb_sites(alns):
+def get_n_sites_per_msa(alns):
     # multiple datasets of 'raw' MSAs (e.g. real and simulated)
     if dim(alns) == 3 and type(alns[0][0][0]) == str:
-        return [[len(aln[0]) for aln in dataset] for dataset in alns]
+        return [[len(aln[0]) if len(aln) > 0 else 0 for aln in dataset]
+                for dataset in alns]
 
-    return [len(aln[0]) for aln in alns]
+    return [len(aln[0]) if len(aln) > 0 else 0 for aln in alns]
 
 
 def get_aa_freqs(alns, gaps=True, dict=True):
@@ -109,8 +110,8 @@ def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
         ids += fastas[i]
         aa_freqs += get_aa_freqs(alns[i])
         paddings += padding(alns[i], max_seq_len)
-        number_seqs += nb_seqs_per_alns(alns[i])
-        seq_length += get_nb_sites(alns[i])
+        number_seqs += get_n_seqs_per_msa(alns[i])
+        seq_length += get_n_sites_per_msa(alns[i])
 
         dists = np.asarray([[mse(aln1, aln2) for aln2 in alns_repr[i]]
                                  for aln1 in alns_repr[i]])
