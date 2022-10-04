@@ -128,6 +128,27 @@ def replace_ambig_chars(seq, molecule_type='protein'):
     return ''.join(seq_arr)
 
 
+def remove_ambig_pos_sites(aln, molecule_type):
+    """Replace all ambiguous nucleotides/amino acids by randomly drawn
+    nucleotides (A,C,G or T)/ 20 amino acids
+
+    :param aln: (n_sites list of strings) MSA
+    :param molecule_type: either 'protein' or 'DNA' sequence
+    :return: cleaned sequence
+    """
+
+    if molecule_type == 'protein':
+        repl_dict = PROTEIN_AMBIG
+    elif molecule_type == 'DNA':
+        repl_dict = DNA_AMBIG
+
+    aln_arr = np.asarray([list(seq) for seq in aln])
+    for mol in repl_dict.keys():
+        aln_arr = aln_arr[:, np.all(aln_arr != mol, axis=0)]
+
+    return [''.join([aa for aa in seq]) for seq in aln_arr]
+
+
 def aln_from_fasta(filename):
     """Gets aligned sequences from given file
 
@@ -169,12 +190,20 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
 
     # load MSAs
     alns, fastas = [], []
+    removed = []
     count_empty, count_wrong_mol_type = 0, 0
     for file in tqdm(fasta_files):
         aln = aln_from_fasta(fasta_dir + '/' + file)
         if len(aln) > 0:  # # check if no sequences
             if len(aln[0]) > 0:  # check if no sites
+                # clean up
                 if is_mol_type(aln, molecule_type):
+                    n_sites_before = len(aln[0])
+                    aln = remove_ambig_pos_sites(aln, molecule_type)
+                    n_sites_removed = n_sites_before - len(aln[0])
+                    if n_sites_removed > 0:
+                        removed.append(n_sites_removed / n_sites_before)
+
                     alns.append(aln)
                     fastas.append(file)
                 else:
@@ -186,11 +215,16 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
 
     fastas = np.asarray(fastas)
 
+    print('\n')
     if count_empty > 0:
         print(f'{count_empty} empty fasta file(s)')
     if count_wrong_mol_type > 0:
         print(f'{count_wrong_mol_type} fasta file(s) did not contain '
               f'{molecule_type} sequences')
+    if len(removed) > 0:
+        print(f'In {len(removed)} out of {len(alns)} MSAs '
+              f'{np.round((np.sum(removed) / len(removed)) * 100, 2)}% sites '
+              f'were removed.')
 
     n_seqs = np.asarray(get_n_seqs_per_msa(alns))  # msa rows
     n_sites = np.asarray(get_n_sites_per_msa(alns))  # msa columns
@@ -224,8 +258,8 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
             alns = alns[:n_alns]
 
     # replace ambiguous nucleotides/AAs
-    alns = [replace_ambig_chars(','.join(aln), molecule_type).split(',')
-            for aln in alns]
+    # alns = [replace_ambig_chars(','.join(aln), molecule_type).split(',')
+    #         for aln in alns]
 
     print(f'\n{len(alns)} MSAs loaded from {fasta_dir}\n')
 
