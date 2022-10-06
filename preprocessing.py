@@ -128,6 +128,27 @@ def replace_ambig_chars(seq, molecule_type='protein'):
     return ''.join(seq_arr)
 
 
+def remove_ambig_pos_sites(aln, molecule_type):
+    """Replace all ambiguous nucleotides/amino acids by randomly drawn
+    nucleotides (A,C,G or T)/ 20 amino acids
+
+    :param aln: (n_sites list of strings) MSA
+    :param molecule_type: either 'protein' or 'DNA' sequence
+    :return: cleaned sequence
+    """
+
+    if molecule_type == 'protein':
+        repl_dict = PROTEIN_AMBIG
+    elif molecule_type == 'DNA':
+        repl_dict = DNA_AMBIG
+
+    aln_arr = np.asarray([list(seq) for seq in aln])
+    for mol in repl_dict.keys():
+        aln_arr = aln_arr[:, np.all(aln_arr != mol, axis=0)]
+
+    return [''.join([aa for aa in seq]) for seq in aln_arr]
+
+
 def aln_from_fasta(filename):
     """Gets aligned sequences from given file
 
@@ -141,9 +162,11 @@ def aln_from_fasta(filename):
 
 
 def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
-                     molecule_type='protein'):
+                     molecule_type='protein', rem_ambig_chars='repl_unif'):
     """Extracts alignments from fasta files in given directory
 
+    :param rem_ambig_chars: indicate how to remove ambiguous letters: either
+    replace randomly 'repl_unif' or remove respective sites 'remove'
     :param fasta_dir: <path/to/> fasta files
     :param quantiles: if True keep MSAs where seq. len. and n. seq.
     within quantiles
@@ -155,11 +178,13 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
 
     # load fasta filenames
     if fasta_dir.endswith('.txt'):
-        # files in txt file must be in fasta_dir!
+        # files in txt file must be in same directory as the txt file!
         fasta_files = np.genfromtxt(fasta_dir, dtype=str)
-        fasta_files = np.core.defchararray.add(fasta_files,
-                                               np.repeat('.fasta',
-                                                         len(fasta_files)))
+        if not fasta_files[0].endswith('.fasta'):
+            fasta_files = np.core.defchararray.add(fasta_files,
+                                                   np.repeat('.fasta',
+                                                             len(fasta_files)))
+        fasta_dir = '/'.join(fasta_dir.split('/')[:-1])
     else:
         fasta_files = np.asarray(os.listdir(fasta_dir))
 
@@ -167,30 +192,54 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
         raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
                          f'No fasta files in directory {fasta_dir}')
 
-    # load MSAs
+    if molecule_type == 'protein':
+        ambig_chars = PROTEIN_AMBIG.keys()
+    else:
+        ambig_chars = DNA_AMBIG.keys()
+
+    # load and preprocess MSAs
     alns, fastas = [], []
+    frac_ambig_mol_sites = []
     count_empty, count_wrong_mol_type = 0, 0
     for file in tqdm(fasta_files):
-        aln = aln_from_fasta(fasta_dir + '/' + file)
-        if len(aln) > 0:  # # check if no sequences
-            if len(aln[0]) > 0:  # check if no sites
-                if is_mol_type(aln, molecule_type):
-                    alns.append(aln)
-                    fastas.append(file)
+        if file.endswith('.fasta'):
+            aln = aln_from_fasta(fasta_dir + '/' + file)
+            if len(aln) > 0:  # check if no sequences
+                if len(aln[0]) > 0:  # check if no sites
+                    # clean up
+                    if is_mol_type(aln, molecule_type):
+                        frac_ambig = get_frac_sites_with(ambig_chars, aln)
+                        if frac_ambig > 0:
+                            if rem_ambig_chars == 'remove':
+                                aln = remove_ambig_pos_sites(aln, molecule_type)
+                            elif rem_ambig_chars == 'repl_unif':
+                                aln = replace_ambig_chars(','.join(aln),
+                                                          molecule_type)
+                                aln = aln.split(',')
+                        frac_ambig_mol_sites.append(frac_ambig)
+
+                        alns.append(aln)
+                        fastas.append(file)
+                    else:
+                        count_wrong_mol_type += 1
                 else:
-                    count_wrong_mol_type += 1
+                    count_empty += 1
             else:
                 count_empty += 1
-        else:
-            count_empty += 1
 
     fastas = np.asarray(fastas)
+    frac_ambig_mol_sites = np.asarray(frac_ambig_mol_sites)
 
+    print('\n')
     if count_empty > 0:
         print(f'{count_empty} empty fasta file(s)')
     if count_wrong_mol_type > 0:
         print(f'{count_wrong_mol_type} fasta file(s) did not contain '
               f'{molecule_type} sequences')
+    if np.sum(frac_ambig_mol_sites != 0) > 0:
+        print(f'In {np.sum(frac_ambig_mol_sites != 0)} out of {len(alns)} MSAs '
+              f'{np.round((np.sum(frac_ambig_mol_sites) / len(frac_ambig_mol_sites)) * 100, 2)}% sites '
+              f'include ambiguous letters.')
 
     n_seqs = np.asarray(get_n_seqs_per_msa(alns))  # msa rows
     n_sites = np.asarray(get_n_sites_per_msa(alns))  # msa columns
@@ -217,15 +266,11 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
         if (n_alns - len(fastas)) > 0:  # we get less MSAs than wanted
             print('Only {} / {} fasta files taken into account.'.format(
                 len(fastas), n_alns))
-        else:  # restrict number of MSAs as given by n_alns
+        else:  # restrict number of MSAs to n_alns
             fastas = fastas[:n_alns]
             n_seqs = n_seqs[:n_alns]
             n_sites = n_sites[:n_alns]
             alns = alns[:n_alns]
-
-    # replace ambiguous nucleotides/AAs
-    alns = [replace_ambig_chars(','.join(aln), molecule_type).split(',')
-            for aln in alns]
 
     print(f'\n{len(alns)} MSAs loaded from {fasta_dir}\n')
 
