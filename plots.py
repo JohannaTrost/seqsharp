@@ -15,6 +15,32 @@ from utils import extract_accuary_loss, confidence_ellipse, pred_runtime
 
 # matplotlib.use("Agg")
 
+
+def plot_aa_dens(real, sim, save, aas='ARNDCQEGHILKMFPSTWYV'):
+    n_rows, n_cols = 4, 5
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(16, 9))
+    for i in range(n_rows * n_cols):
+        r, c = np.unravel_index(i, (n_rows, n_cols))
+        print(f'{i}: {r},{c}')
+        sns.kdeplot(sim[i], ax=axs[r, c],
+                    color='c', linewidth=0, fill=True, alpha=0.5)
+        sns.kdeplot(real[i], ax=axs[r, c],
+                    color='coral', linewidth=0, fill=True, alpha=0.5)
+        axs[r, c].set_aspect('auto')
+        axs[r, c].set_ylabel('')
+        axs[r, c].text(0.9, 0.9, aas[i], ha='center', va='center', size=15,
+                       color='Grey', transform=axs[r, c].transAxes)
+        # axs[r, c].axis('off')
+
+    plt.subplots_adjust(wspace=0.025, hspace=0.025)
+    plt.tight_layout()
+    plt.draw()
+    plt.pause(0.01)
+    plt.savefig(save)
+    plt.pause(1)
+    plt.close('all')
+
+
 def plot_em_learning_curves(n_runs, n_iter, vlbs_dips, vlbs, debug, test,
                             lk_type, optimal_lk=None, save_path=''):
     # highlight dips with red edge color of marker
