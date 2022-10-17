@@ -43,6 +43,21 @@ def get_n_sites_per_msa(alns):
     return [len(aln[0]) if len(aln) > 0 else 0 for aln in alns]
 
 
+def get_frac_sites_with(chars, aln):
+    """TODO
+
+    :param chars:
+    :param aln:
+    :return:
+    """
+    aln_arr = np.asarray([list(seq) for seq in aln])
+    n_sites = aln_arr.shape[1]
+    n_sites_with_chars = np.sum(
+        [any([c in ''.join(aln_arr[:, j]) for c in chars])
+         for j in range(n_sites)])
+    return n_sites_with_chars / n_sites if n_sites_with_chars > 0 else 0
+
+
 def get_aa_freqs(alns, gaps=True, dict=True):
     """Returns amino acid frequencies for given alignments
 
@@ -114,7 +129,7 @@ def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
         seq_length += get_n_sites_per_msa(alns[i])
 
         dists = np.asarray([[mse(aln1, aln2) for aln2 in alns_repr[i]]
-                                 for aln1 in alns_repr[i]])
+                            for aln1 in alns_repr[i]])
 
         mean_mse_all += list(distance_stats(dists)['mean'])
         max_mse_all += list(distance_stats(dists)['max'])
