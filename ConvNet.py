@@ -118,14 +118,17 @@ class ConvNet(nn.Module):
 
             self.conv_layers += [conv1d, nn.ReLU()]
 
-            if p['do_maxpool'] == 1:  # down sampling
+            if (p['do_maxpool'] == 1 or
+                    (p['do_maxpool'] == 2 and i < nb_conv_layer - 1)):
+                # local pooling
                 self.conv_layers.append(nn.MaxPool1d(kernel_size=2, stride=2))
+            elif p['do_maxpool'] == 2 and i == nb_conv_layer - 1:
+                # global pooling
+                ks = int(p['input_size'] / 2 ** max(nb_conv_layer - 1, 0))
+                self.conv_layers.append(nn.MaxPool1d(kernel_size=ks,
+                                                     stride=1))
 
         self.conv_layers.append(nn.Dropout(0.25))
-
-        if p['do_maxpool'] == 2 and nb_conv_layer > 0:  # global pooling
-            self.conv_layers.append(nn.MaxPool1d(kernel_size=p['input_size'],
-                                                 stride=1))
 
         self.conv_layers = (nn.Sequential(*self.conv_layers)
                             if nb_conv_layer > 0 else None)
@@ -271,6 +274,7 @@ def accuracy(outputs, labels):
 
     acc = torch.tensor(balanced_accuracy_score(labels.detach().cpu().numpy(),
                                                preds.detach().cpu().numpy()))
+
     # acc = torch.tensor((torch.sum(preds == labels).item() / len(preds)))
 
     return acc
