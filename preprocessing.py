@@ -236,6 +236,7 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
     if count_wrong_mol_type > 0:
         print(f'{count_wrong_mol_type} fasta file(s) did not contain '
               f'{molecule_type} sequences')
+
     if np.sum(frac_ambig_mol_sites != 0) > 0:
         print(f'In {np.sum(frac_ambig_mol_sites != 0)} out of {len(alns)} MSAs '
               f'{np.round((np.sum(frac_ambig_mol_sites) / len(frac_ambig_mol_sites)) * 100, 2)}% sites '
