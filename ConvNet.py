@@ -125,8 +125,7 @@ class ConvNet(nn.Module):
             elif p['do_maxpool'] == 2 and i == nb_conv_layer - 1:
                 # global pooling
                 ks = int(p['input_size'] / 2 ** max(nb_conv_layer - 1, 0))
-                self.conv_layers.append(nn.MaxPool1d(kernel_size=ks,
-                                                     stride=1))
+                self.conv_layers.append(nn.MaxPool1d(kernel_size=ks))
 
         self.conv_layers.append(nn.Dropout(0.25))
 
