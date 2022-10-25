@@ -197,7 +197,7 @@ class ConvNet(nn.Module):
 
         criterion = nn.BCEWithLogitsLoss()
         loss = criterion(out, torch.reshape(labels, out.shape))
-        acc = accuracy(out, labels)
+        acc = accuracy(out, labels)[0]
 
         return {'loss': loss.detach(), 'acc': acc.detach()}
 
@@ -272,8 +272,16 @@ def accuracy(outputs, labels):
         compute_device)
 
     acc = torch.tensor(balanced_accuracy_score(labels.detach().cpu().numpy(),
-                                               preds.detach().cpu().numpy()))
+                                               preds.detach().cpu().numpy()),
+                       dtype=torch.float32)
+
+    emp_mask = labels == 0
+    sim_mask = labels == 1
+    acc_emp = torch.sum(preds[emp_mask] == labels[emp_mask]).item()
+    acc_emp /= torch.sum(emp_mask)
+    acc_sim = torch.sum(preds[sim_mask] == labels[sim_mask]).item()
+    acc_sim /= torch.sum(sim_mask)
 
     # acc = torch.tensor((torch.sum(preds == labels).item() / len(preds)))
 
-    return acc
+    return acc, acc_emp, acc_sim

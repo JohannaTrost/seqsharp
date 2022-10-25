@@ -45,7 +45,7 @@ def evaluate(model, val_loader):
         labels = (labels_batch if len(labels) == 0
                   else torch.cat((labels, labels_batch))).to(compute_device)
 
-    epoch_acc = accuracy(outputs, labels)
+    epoch_acc = accuracy(outputs, labels)[0]
     epoch_loss = torch.stack(losses).mean()
 
     return {'loss': epoch_loss.item(), 'acc': epoch_acc.item()}
