@@ -3,15 +3,23 @@
 import json
 import os
 import errno
+import pickle
 import warnings
 
 import numpy as np
 import matplotlib.transforms as transforms
+from tompy import CustomPDF
 
 from ConvNet import load_net
 from matplotlib import pylab as plt
 from matplotlib.patches import Ellipse
 
+
+def save_dict2table(dict, path):
+    header = ','.join(list(dict.keys()))
+    values = list(dict.values())
+
+    np.savetxt(values, )
 
 def write_cfg_file(cfg, model_path, cfg_path, timestamp):
     """Save parameters in a json file
@@ -135,7 +143,7 @@ def dim(lst):
     return 1 + dim(lst[0])
 
 
-def collect_histories_folds(path, nb_folds, model_params):
+def get_histories_folds(path, nb_folds, model_params):
     """Gets validation and training history from models in *path* directory
 
     :param path: <path/to> directory containing .pth file(s) (string)
@@ -154,36 +162,24 @@ def collect_histories_folds(path, nb_folds, model_params):
         train_history_folds.append(model.train_history)
         val_history_folds.append(model.val_history)
 
-    return train_history_folds, val_history_folds
+    return merge_fold_hist_dicts(train_history_folds, val_history_folds)
 
 
-def extract_accuary_loss(train_history_folds, val_history_folds):
+def merge_fold_hist_dicts(train_history_folds, val_history_folds):
     """Extracts losses and accuracies from training and validation history"""
-
-    accs_train_folds = []
-    losses_train_folds = []
-    accs_val_folds = []
-    losses_val_folds = []
-
+    # init dicts
+    train_folds, val_folds = {}, {}
+    for key in train_history_folds[0].keys():
+        train_folds[key] = []
+        val_folds[key] = []
+    # populate dicts merging dicts of multiple folds
     for fold in range(len(train_history_folds)):
-        accs_train_fold = []
-        losses_train_fold = []
-        accs_val_fold = []
-        losses_val_fold = []
+        for key, hist in train_history_folds[fold].items():
+            train_folds[key].append(hist)
+        for key, hist in val_history_folds[fold].items():
+            val_folds[key].append(hist)
 
-        for i in range(len(train_history_folds[fold])):
-            accs_train_fold.append(train_history_folds[fold][i]['acc'])
-            losses_train_fold.append(train_history_folds[fold][i]['loss'])
-            accs_val_fold.append(val_history_folds[fold][i]['acc'])
-            losses_val_fold.append(val_history_folds[fold][i]['loss'])
-
-        accs_train_folds.append(accs_train_fold)
-        losses_train_folds.append(losses_train_fold)
-        accs_val_folds.append(accs_val_fold)
-        losses_val_folds.append(losses_val_fold)
-
-    return (accs_train_folds, losses_train_folds,
-            accs_val_folds, losses_val_folds)
+    return train_folds, val_folds
 
 
 def largest_remainder_method(fractions, total):
@@ -323,3 +319,17 @@ def load_weights(weights_path, n_clusters, n_profiles, n_runs, best=True):
                     warnings.warn(f'No profile weights for run {run+1}')
 
     return cl_w_runs, pro_w_runs
+
+
+def save_custom_distr(data, file_path):
+    with open(file_path, 'wb') as file:
+        pickle.dump(CustomPDF(data), file)
+
+
+def load_custom_distr(file_path):
+    with open(file_path, 'rb') as file:
+        return pickle.load(file)
+
+
+n_sites_pdf = load_custom_distr('../../data/sites_emp_5797.CustomPDF')
+gamma_shape_pdf = load_custom_distr('../../data/gamma_shape.CustomPDF')

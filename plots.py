@@ -10,7 +10,7 @@ from matplotlib import pylab as plt
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
-from utils import extract_accuary_loss, confidence_ellipse, pred_runtime
+from utils import merge_fold_hist_dicts, confidence_ellipse, pred_runtime
 
 
 # matplotlib.use("Agg")
@@ -143,22 +143,16 @@ def plot_folds(train_history_folds, val_history_folds, std=True, same_col=False,
 
     nb_folds = len(train_history_folds)
 
-    results = extract_accuary_loss(train_history_folds, val_history_folds)
-    accs_folds_t, losses_folds_t, accs_folds_v, losses_folds_v = results
+    # calculate mean/std over folds per epoch
+    avg_train, std_train, avg_val, std_val = {}, {}, {}, {}
+    for key, hist in train_history_folds.items():
+        avg_train[key] = np.mean(hist, axis=0)
+        std_train[key] = np.std(hist, axis=0)
+    for key, hist in val_history_folds.items():
+        avg_val[key] = np.mean(hist, axis=0)
+        std_val[key] = np.std(hist, axis=0)
 
-    # calculate mean over folds per epoch
-    avg_accs_t = np.mean(accs_folds_t, axis=0)
-    avg_losses_t = np.mean(losses_folds_t, axis=0)
-    avg_accs_v = np.mean(accs_folds_v, axis=0)
-    avg_losses_v = np.mean(losses_folds_v, axis=0)
-
-    # calculate standard deviation over folds per epoch
-    std_accs_train = np.std(accs_folds_t, axis=0)
-    std_accs_val = np.std(accs_folds_v, axis=0)
-    std_losses_train = np.std(losses_folds_t, axis=0)
-    std_losses_val = np.std(losses_folds_v, axis=0)
-
-    del accs_folds_t, losses_folds_t, accs_folds_v, losses_folds_v
+    del train_history_folds, val_history_folds
 
     # plot the model evaluation
     fig, axs = (plt.subplots(ncols=2, sharex=True, figsize=(12., 6.))
@@ -170,52 +164,52 @@ def plot_folds(train_history_folds, val_history_folds, std=True, same_col=False,
     axs[0].set_title(f'Avg. accuracy vs. No. of epochs over {nb_folds} folds')
 
     if col is None:
-        line_val, = axs[0].plot(avg_accs_v, '-',
+        line_val, = axs[0].plot(avg_val['acc'], '-',
                                 label=f'validation {plotname}')
     else:
-        line_val, = axs[0].plot(avg_accs_v, '-', color=col,
+        line_val, = axs[0].plot(avg_val['acc'], '-', color=col,
                                 label=f'validation {plotname}')
 
     if not same_col:
-        line_train, = axs[0].plot(avg_accs_t, '-',
+        line_train, = axs[0].plot(avg_train['acc'], '-',
                                   label=f'training {plotname}')
     else:  # usually in case of multiple models for easier comparison
-        line_train, = axs[0].plot(avg_accs_t, '-',
+        line_train, = axs[0].plot(avg_train['acc'], '-',
                                   label=f'training {plotname}',
                                   color=line_val.get_color(), alpha=0.4)
 
     if std:
-        axs[0].fill_between(range(len(avg_accs_t)),
-                            avg_accs_t - std_accs_train,
-                            avg_accs_t + std_accs_train,
+        axs[0].fill_between(range(len(avg_train['acc'])),
+                            avg_train['acc'] - std_train['acc'],
+                            avg_train['acc'] + std_train['acc'],
                             color=line_train.get_color(), alpha=0.3)
-        axs[0].fill_between(range(len(avg_accs_v)),
-                            avg_accs_v - std_accs_val,
-                            avg_accs_v + std_accs_val,
+        axs[0].fill_between(range(len(avg_val['acc'])),
+                            avg_val['acc'] - std_val['acc'],
+                            avg_val['acc'] + std_val['acc'],
                             color=line_val.get_color(),
                             alpha=0.3)
     # axs[0].set_ylim([np.floor(plt.ylim()[0] * 100) / 100, 1.0])
 
     # 2. subplot: loss
     if col is not None:
-        val_loss_line, = axs[1].plot(avg_losses_v, '-', color=col)
+        val_loss_line, = axs[1].plot(avg_val['loss'], '-', color=col)
     else:
-        val_loss_line, = axs[1].plot(avg_losses_v, '-')
+        val_loss_line, = axs[1].plot(avg_val['loss'], '-')
 
     if not same_col:
-        axs[1].plot(avg_losses_t, '-')
+        axs[1].plot(avg_train['loss'], '-')
     else:  # makes comparison of multiple models easier
-        axs[1].plot(avg_losses_t, '-', color=val_loss_line.get_color(),
+        axs[1].plot(avg_train['loss'], '-', color=val_loss_line.get_color(),
                     alpha=0.4)
 
     if std:
-        axs[1].fill_between(range(len(avg_losses_t)),
-                            avg_losses_t - std_losses_train,
-                            avg_losses_t + std_losses_train,
+        axs[1].fill_between(range(len(avg_train['loss'])),
+                            avg_train['loss'] - std_train['loss'],
+                            avg_train['loss'] + std_train['loss'],
                             color=line_train.get_color(), alpha=0.3)
-        axs[1].fill_between(range(len(avg_accs_v)),
-                            avg_losses_v - std_losses_val,
-                            avg_losses_v + std_losses_val,
+        axs[1].fill_between(range(len(avg_val['loss'])),
+                            avg_val['loss'] - std_val['loss'],
+                            avg_val['loss'] + std_val['loss'],
                             color=line_val.get_color(),
                             alpha=0.3)
 

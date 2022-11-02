@@ -155,14 +155,13 @@ def aln_from_fasta(filename):
     :param filename: <path/to/> alignments (string)
     :return: list of strings
     """
-
     alned_seqs_raw = [str(seq_record.seq) for seq_record in
                       SeqIO.parse(open(filename, encoding='utf-8'), "fasta")]
     return alned_seqs_raw
 
 
 def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
-                     molecule_type='protein', rem_ambig_chars='repl_unif'):
+                     molecule_type='protein', rem_ambig_chars='remove'):
     """Extracts alignments from fasta files in given directory
 
     :param rem_ambig_chars: indicate how to remove ambiguous letters: either
@@ -202,12 +201,13 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
     frac_ambig_mol_sites = []
     count_empty, count_wrong_mol_type = 0, 0
     for file in tqdm(fasta_files):
-        if file.endswith('.fasta'):
+        if file.endswith('.fasta') or file.endswith('.fa'):
             aln = aln_from_fasta(fasta_dir + '/' + file)
             if len(aln) > 0:  # check if no sequences
                 if len(aln[0]) > 0:  # check if no sites
                     # clean up
                     if is_mol_type(aln, molecule_type):
+                        # deal with ambiguous letters
                         frac_ambig = get_frac_sites_with(ambig_chars, aln)
                         if frac_ambig > 0:
                             if rem_ambig_chars == 'remove':
@@ -226,6 +226,9 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
                     count_empty += 1
             else:
                 count_empty += 1
+
+        if n_alns is not None and n_alns == len(alns):
+            break
 
     fastas = np.asarray(fastas)
     frac_ambig_mol_sites = np.asarray(frac_ambig_mol_sites)
@@ -264,7 +267,7 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
         alns = [alns[i] for i in ind_q_sl]
 
     if n_alns is not None:  # optional
-        if (n_alns - len(fastas)) > 0:  # we get less MSAs than wanted
+        if (np.sum(n_alns) - len(fastas)) > 0:  # we get less MSAs than wanted
             print('Only {} / {} fasta files taken into account.'.format(
                 len(fastas), n_alns))
         else:  # restrict number of MSAs to n_alns
@@ -498,7 +501,7 @@ class DatasetAln(Dataset):
         return self.data.size(0)
 
 
-def raw_alns_prepro(fasta_paths, params, quantiles=None, shuffle=False,
+def raw_alns_prepro(fasta_paths, n_alns=None, quantiles=None, shuffle=False,
                     molecule_type='protein'):
     """Loads and preprocesses raw (not encoded) alignments
 
@@ -512,11 +515,10 @@ def raw_alns_prepro(fasta_paths, params, quantiles=None, shuffle=False,
     :return: ids, preprocessed string alignments, updated param. dict.
     """
 
-    if quantiles is None:
-        quantiles = [False] * len(fasta_paths)
-
-    n_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
+    quantiles = [False] * len(fasta_paths) if quantiles is None else quantiles
     n_alns = None if n_alns == '' else n_alns
+
+    params = {}
 
     print("Loading alignments ...")
 
@@ -623,20 +625,19 @@ def shuffle_sites(msa_ds):
     return msa_ds
 
 
-def make_msa_reprs(alns, fastas, params, pairs=False, csv_path=None,
-                   molecule_type='protein'):
+def make_msa_reprs(alns, fastas, seq_len, padding='zeros', pairs=False,
+                   csv_path=None, molecule_type='protein'):
     """Encodes alignments and generates their representations
 
+    :param padding: TODO
     :param molecule_type: either protein or DNA sequences
     :param fastas: a set of lists of alignment identifiers (2D string list )
     :param alns: preprocessed raw alignment sets (3D string list)
-    :param params: parameters for preprocessing (dictionary)
     :param pairs: choose representation by pairs if true (boolean)
     :param csv_path: <path/to> store csv file with info about alignments
     :return: alignment representations
     """
 
-    n_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
     alns_reprs = []
 
     print("Generating alignment representations ...")

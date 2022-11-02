@@ -6,7 +6,6 @@ import pandas as pd
 from scipy import stats as st
 from scipy.stats._continuous_distns import _distn_names
 from sklearn.decomposition import PCA
-
 from utils import dim
 
 
@@ -181,12 +180,10 @@ def best_fit_distribution(data, bins=200, ax=None):
                      if distname != 'levy_stable']
 
     # Best holders
-    best_distribution = st.norm
-    best_params = (0.0, 1.0)
-    best_sse = np.inf
+    best_distr = []
 
     # Estimate distribution parameters from data
-    for distribution in distributions:
+    for distribution in tqdm(distributions):
         # Try to fit the distribution
         try:
             # Ignore warnings from data that can't be fit
@@ -213,16 +210,13 @@ def best_fit_distribution(data, bins=200, ax=None):
                     pass
 
                 # identify if this distribution is better
-                if best_sse > sse > 0:
-                    best_distribution = distribution
-                    best_params = params
-                    best_sse = sse
+                best_distr.append((distribution, params, sse))
 
         except Exception:
             print(f'Could not use {distribution.name}')
             pass
 
-    return best_distribution.name, best_params
+    return sorted(best_distr, key=lambda x: x[2])
 
 
 def generate_data_from_dist(data):
