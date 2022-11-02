@@ -79,7 +79,6 @@ class ConvNet(nn.Module):
             performs feed forward pass
         training_step(batch)
         validation_step(batch)
-        validation_epoch_end(outputs)
             combines losses and accuracies for all batches
         plot(path=None)
             plots performance of the network
@@ -118,14 +117,16 @@ class ConvNet(nn.Module):
 
             self.conv_layers += [conv1d, nn.ReLU()]
 
-            if p['do_maxpool'] == 1:  # down sampling
+            if (p['do_maxpool'] == 1 or
+                    (p['do_maxpool'] == 2 and i < nb_conv_layer - 1)):
+                # local pooling
                 self.conv_layers.append(nn.MaxPool1d(kernel_size=2, stride=2))
+            elif p['do_maxpool'] == 2 and i == nb_conv_layer - 1:
+                # global pooling
+                ks = int(p['input_size'] / 2 ** max(nb_conv_layer - 1, 0))
+                self.conv_layers.append(nn.MaxPool1d(kernel_size=ks))
 
         self.conv_layers.append(nn.Dropout(0.25))
-
-        if p['do_maxpool'] == 2 and nb_conv_layer > 0:  # global pooling
-            self.conv_layers.append(nn.MaxPool1d(kernel_size=p['input_size'],
-                                                 stride=1))
 
         self.conv_layers = (nn.Sequential(*self.conv_layers)
                             if nb_conv_layer > 0 else None)
@@ -156,8 +157,10 @@ class ConvNet(nn.Module):
         self.global_avgpool = (nn.AdaptiveAvgPool1d(1)
                                if p['nb_lin_layer'] == 0 else None)
 
-        self.train_history = []
-        self.val_history = []
+        self.train_history = {'loss': [], 'acc': [], 'acc_emp': [],
+                              'acc_sim': []}
+        self.val_history = {'loss': [], 'acc': [], 'acc_emp': [],
+                            'acc_sim': []}
 
     def forward(self, x):
         if self.conv_layers is not None:
@@ -173,23 +176,11 @@ class ConvNet(nn.Module):
 
         return out
 
-    def training_step(self, batch):
+    def feed(self, batch):
         alns, labels = batch
 
         alns = alns.to(compute_device)
         labels = labels.to(compute_device)
-
-        out = self(alns)  # generate predictions, forward pass
-        criterion = nn.BCEWithLogitsLoss()
-        loss = criterion(out, torch.reshape(labels, out.shape))
-
-        return loss
-
-    def validation_step(self, batch):
-        alns, labels = batch
-
-        alns, labels = alns.to(compute_device), labels.to(
-            compute_device)
 
         out = self(alns)  # generate predictions
 
@@ -197,16 +188,7 @@ class ConvNet(nn.Module):
         loss = criterion(out, torch.reshape(labels, out.shape))
         acc = accuracy(out, labels)
 
-        return {'loss': loss.detach(), 'acc': acc.detach()}
-
-    def validation_epoch_end(self, outputs):
-        batch_losses = [x['loss'] for x in outputs]
-        epoch_loss = torch.stack(batch_losses).mean()  # combine losses
-
-        batch_accs = [x['acc'] for x in outputs]
-        epoch_acc = torch.stack(batch_accs).mean()  # combine accuracies
-
-        return {'loss': epoch_loss.item(), 'acc': epoch_acc.item()}
+        return loss, acc
 
     def plot(self, path=None):
         """Generates a figure with 2 plots for loss and accuracy over epochs
@@ -214,29 +196,33 @@ class ConvNet(nn.Module):
         :param path: <path/to/> directory to save the plot to (string/None)
         """
 
-        if len(self.train_history) > 0 and len(self.val_history) > 0:
-            accuracies_train = [result['acc'] for result in self.train_history]
-            losses_train = [result['loss'] for result in self.train_history]
-
-            accuracies_val = [result['acc'] for result in self.val_history]
-            losses_val = [result['loss'] for result in self.val_history]
+        if len(self.train_history['loss']) > 0:
+            train_col, val_col = (0.518, 0.753, 0.776), (0.576, 1.0, 0.588)
+            keys = ['acc', 'acc_emp', 'acc_sim']
+            line_styles = ['-', '--', ':']
+            labels = ['', 'empirical', 'simulated']
 
             fig, axs = plt.subplots(ncols=2, sharex=True, figsize=(12., 6.))
 
-            train_col = (0.518, 0.753, 0.776)
-            val_col = (0.576, 1.0, 0.588)
+            for key, line_style, label in zip(keys, line_styles, labels):
+                axs[0].plot(self.train_history[key], linestyle=line_style,
+                            label=f'{label} (train.)' if label != '' else '',
+                            color=train_col)
+                axs[0].plot(self.val_history[key], linestyle=line_style,
+                            label=f'{label} (val.)' if label != '' else '',
+                            color=val_col)
 
-            axs[0].plot(accuracies_train, '-x', label='training',
-                        color=train_col)
-            axs[0].plot(accuracies_val, '-x', label='validation', color=val_col)
             # axs[0].set_ylim([floor(plt.ylim()[0] * 100) / 100, 1.0])
             axs[0].set_xlabel('epoch')
             axs[0].set_ylabel('accuracy')
             axs[0].set_title(f'Accuracy vs. No. of epochs')
+            axs[0].legend()
 
-            line_train, = axs[1].plot(losses_train, '-x', label='training',
+            line_train, = axs[1].plot(self.train_history['loss'],
+                                      label='training',
                                       color=train_col)
-            line_val, = axs[1].plot(losses_val, '-x', label='validation',
+            line_val, = axs[1].plot(self.val_history['loss'],
+                                    label='validation',
                                     color=val_col)
             axs[1].set_xlabel('epoch')
             axs[1].set_ylabel('loss')
@@ -265,12 +251,19 @@ def accuracy(outputs, labels):
     :param labels: 0 and 1 labels (0: empirircal, 1:simulated) (torch tensor)
     :return: accuracy values (between 0 and 1) (torch tensor)
     """
-
+    accs = {}
     preds = torch.round(torch.flatten(torch.sigmoid(outputs))).to(
         compute_device)
 
-    acc = torch.tensor(balanced_accuracy_score(labels.detach().cpu().numpy(),
-                                               preds.detach().cpu().numpy()))
-    # acc = torch.tensor((torch.sum(preds == labels).item() / len(preds)))
+    accs['acc'] = torch.tensor(balanced_accuracy_score(
+        labels.detach().cpu().numpy(), preds.detach().cpu().numpy()),
+        dtype=torch.float32)
 
-    return acc
+    for label, key in enumerate(['acc_emp', 'acc_sim']):
+        class_mask = (labels == label).clone().detach()
+        n = torch.sum(class_mask)
+        n_correct = torch.sum(preds[class_mask] == labels[class_mask]).item()
+        accs[key] = n_correct / n if n_correct > 0 else torch.tensor(0.0)
+
+    # acc = torch.tensor((torch.sum(preds == labels).item() / len(preds)))
+    return accs

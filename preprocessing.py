@@ -155,16 +155,17 @@ def aln_from_fasta(filename):
     :param filename: <path/to/> alignments (string)
     :return: list of strings
     """
-
     alned_seqs_raw = [str(seq_record.seq) for seq_record in
                       SeqIO.parse(open(filename, encoding='utf-8'), "fasta")]
     return alned_seqs_raw
 
 
 def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
-                     molecule_type='protein'):
+                     molecule_type='protein', rem_ambig_chars='remove'):
     """Extracts alignments from fasta files in given directory
 
+    :param rem_ambig_chars: indicate how to remove ambiguous letters: either
+    replace randomly 'repl_unif' or remove respective sites 'remove'
     :param fasta_dir: <path/to/> fasta files
     :param quantiles: if True keep MSAs where seq. len. and n. seq.
     within quantiles
@@ -176,11 +177,13 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
 
     # load fasta filenames
     if fasta_dir.endswith('.txt'):
-        # files in txt file must be in fasta_dir!
+        # files in txt file must be in same directory as the txt file!
         fasta_files = np.genfromtxt(fasta_dir, dtype=str)
-        fasta_files = np.core.defchararray.add(fasta_files,
-                                               np.repeat('.fasta',
-                                                         len(fasta_files)))
+        if not fasta_files[0].endswith('.fasta'):
+            fasta_files = np.core.defchararray.add(fasta_files,
+                                                   np.repeat('.fasta',
+                                                             len(fasta_files)))
+        fasta_dir = '/'.join(fasta_dir.split('/')[:-1])
     else:
         fasta_files = np.asarray(os.listdir(fasta_dir))
 
@@ -188,32 +191,47 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
         raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
                          f'No fasta files in directory {fasta_dir}')
 
-    # load MSAs
+    if molecule_type == 'protein':
+        ambig_chars = PROTEIN_AMBIG.keys()
+    else:
+        ambig_chars = DNA_AMBIG.keys()
+
+    # load and preprocess MSAs
     alns, fastas = [], []
-    removed = []
+    frac_ambig_mol_sites = []
     count_empty, count_wrong_mol_type = 0, 0
     for file in tqdm(fasta_files):
-        aln = aln_from_fasta(fasta_dir + '/' + file)
-        if len(aln) > 0:  # # check if no sequences
-            if len(aln[0]) > 0:  # check if no sites
-                # clean up
-                if is_mol_type(aln, molecule_type):
-                    n_sites_before = len(aln[0])
-                    aln = remove_ambig_pos_sites(aln, molecule_type)
-                    n_sites_removed = n_sites_before - len(aln[0])
-                    if n_sites_removed > 0:
-                        removed.append(n_sites_removed / n_sites_before)
+        if file.endswith('.fasta') or file.endswith('.fa'):
+            aln = aln_from_fasta(fasta_dir + '/' + file)
+            if len(aln) > 0:  # check if no sequences
+                if len(aln[0]) > 0:  # check if no sites
+                    # clean up
+                    if is_mol_type(aln, molecule_type):
+                        # deal with ambiguous letters
+                        frac_ambig = get_frac_sites_with(ambig_chars, aln)
+                        if frac_ambig > 0:
+                            if rem_ambig_chars == 'remove':
+                                aln = remove_ambig_pos_sites(aln, molecule_type)
+                            elif rem_ambig_chars == 'repl_unif':
+                                aln = replace_ambig_chars(','.join(aln),
+                                                          molecule_type)
+                                aln = aln.split(',')
+                        frac_ambig_mol_sites.append(frac_ambig)
 
-                    alns.append(aln)
-                    fastas.append(file)
+                        alns.append(aln)
+                        fastas.append(file)
+                    else:
+                        count_wrong_mol_type += 1
                 else:
-                    count_wrong_mol_type += 1
+                    count_empty += 1
             else:
                 count_empty += 1
-        else:
-            count_empty += 1
+
+        if n_alns is not None and n_alns == len(alns):
+            break
 
     fastas = np.asarray(fastas)
+    frac_ambig_mol_sites = np.asarray(frac_ambig_mol_sites)
 
     print('\n')
     if count_empty > 0:
@@ -221,10 +239,11 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
     if count_wrong_mol_type > 0:
         print(f'{count_wrong_mol_type} fasta file(s) did not contain '
               f'{molecule_type} sequences')
-    if len(removed) > 0:
-        print(f'In {len(removed)} out of {len(alns)} MSAs '
-              f'{np.round((np.sum(removed) / len(removed)) * 100, 2)}% sites '
-              f'were removed.')
+
+    if np.sum(frac_ambig_mol_sites != 0) > 0:
+        print(f'In {np.sum(frac_ambig_mol_sites != 0)} out of {len(alns)} MSAs '
+              f'{np.round((np.sum(frac_ambig_mol_sites) / len(frac_ambig_mol_sites)) * 100, 2)}% sites '
+              f'include ambiguous letters.')
 
     n_seqs = np.asarray(get_n_seqs_per_msa(alns))  # msa rows
     n_sites = np.asarray(get_n_sites_per_msa(alns))  # msa columns
@@ -248,18 +267,14 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
         alns = [alns[i] for i in ind_q_sl]
 
     if n_alns is not None:  # optional
-        if (n_alns - len(fastas)) > 0:  # we get less MSAs than wanted
+        if (np.sum(n_alns) - len(fastas)) > 0:  # we get less MSAs than wanted
             print('Only {} / {} fasta files taken into account.'.format(
                 len(fastas), n_alns))
-        else:  # restrict number of MSAs as given by n_alns
+        else:  # restrict number of MSAs to n_alns
             fastas = fastas[:n_alns]
             n_seqs = n_seqs[:n_alns]
             n_sites = n_sites[:n_alns]
             alns = alns[:n_alns]
-
-    # replace ambiguous nucleotides/AAs
-    # alns = [replace_ambig_chars(','.join(aln), molecule_type).split(',')
-    #         for aln in alns]
 
     print(f'\n{len(alns)} MSAs loaded from {fasta_dir}\n')
 
@@ -486,7 +501,7 @@ class DatasetAln(Dataset):
         return self.data.size(0)
 
 
-def raw_alns_prepro(fasta_paths, params, quantiles=None, shuffle=False,
+def raw_alns_prepro(fasta_paths, n_alns=None, quantiles=None, shuffle=False,
                     molecule_type='protein'):
     """Loads and preprocesses raw (not encoded) alignments
 
@@ -500,11 +515,10 @@ def raw_alns_prepro(fasta_paths, params, quantiles=None, shuffle=False,
     :return: ids, preprocessed string alignments, updated param. dict.
     """
 
-    if quantiles is None:
-        quantiles = [False] * len(fasta_paths)
-
-    n_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
+    quantiles = [False] * len(fasta_paths) if quantiles is None else quantiles
     n_alns = None if n_alns == '' else n_alns
+
+    params = {}
 
     print("Loading alignments ...")
 
@@ -583,8 +597,8 @@ def raw_alns_prepro(fasta_paths, params, quantiles=None, shuffle=False,
             alns[i] = [alns[i][ind] for ind in inds]
             fastas[i] = [fastas[i][ind] for ind in inds]
 
-    params['nb_sites'] = int(np.mean([ds_stats['seq_lens_avg']
-                                      for ds_stats in stats]))
+    params['nb_sites'] = int(np.max([ds_stats['seq_lens_max']
+                                     for ds_stats in stats]))
     # before it was int(min(seq_len, stats[0]['seq_lens_max'])), why?
     n_msa_ds = len(alns)
     nb_seqs = [get_n_seqs_per_msa(alns[i]) for i in range(n_msa_ds)]
@@ -611,20 +625,19 @@ def shuffle_sites(msa_ds):
     return msa_ds
 
 
-def make_msa_reprs(alns, fastas, params, pairs=False, csv_path=None,
-                   molecule_type='protein'):
+def make_msa_reprs(alns, fastas, seq_len, padding='zeros', pairs=False,
+                   csv_path=None, molecule_type='protein'):
     """Encodes alignments and generates their representations
 
+    :param padding: TODO
     :param molecule_type: either protein or DNA sequences
     :param fastas: a set of lists of alignment identifiers (2D string list )
     :param alns: preprocessed raw alignment sets (3D string list)
-    :param params: parameters for preprocessing (dictionary)
     :param pairs: choose representation by pairs if true (boolean)
     :param csv_path: <path/to> store csv file with info about alignments
     :return: alignment representations
     """
 
-    n_alns, min_nb_seqs, max_nb_seqs, seq_len, padding = params.values()
     alns_reprs = []
 
     print("Generating alignment representations ...")

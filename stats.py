@@ -6,7 +6,6 @@ import pandas as pd
 from scipy import stats as st
 from scipy.stats._continuous_distns import _distn_names
 from sklearn.decomposition import PCA
-
 from utils import dim
 
 
@@ -41,6 +40,21 @@ def get_n_sites_per_msa(alns):
                 for dataset in alns]
 
     return [len(aln[0]) if len(aln) > 0 else 0 for aln in alns]
+
+
+def get_frac_sites_with(chars, aln):
+    """TODO
+
+    :param chars:
+    :param aln:
+    :return:
+    """
+    aln_arr = np.asarray([list(seq) for seq in aln])
+    n_sites = aln_arr.shape[1]
+    n_sites_with_chars = np.sum(
+        [any([c in ''.join(aln_arr[:, j]) for c in chars])
+         for j in range(n_sites)])
+    return n_sites_with_chars / n_sites if n_sites_with_chars > 0 else 0
 
 
 def get_aa_freqs(alns, gaps=True, dict=True):
@@ -114,7 +128,7 @@ def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
         seq_length += get_n_sites_per_msa(alns[i])
 
         dists = np.asarray([[mse(aln1, aln2) for aln2 in alns_repr[i]]
-                                 for aln1 in alns_repr[i]])
+                            for aln1 in alns_repr[i]])
 
         mean_mse_all += list(distance_stats(dists)['mean'])
         max_mse_all += list(distance_stats(dists)['max'])
@@ -166,12 +180,10 @@ def best_fit_distribution(data, bins=200, ax=None):
                      if distname != 'levy_stable']
 
     # Best holders
-    best_distribution = st.norm
-    best_params = (0.0, 1.0)
-    best_sse = np.inf
+    best_distr = []
 
     # Estimate distribution parameters from data
-    for distribution in distributions:
+    for distribution in tqdm(distributions):
         # Try to fit the distribution
         try:
             # Ignore warnings from data that can't be fit
@@ -198,16 +210,13 @@ def best_fit_distribution(data, bins=200, ax=None):
                     pass
 
                 # identify if this distribution is better
-                if best_sse > sse > 0:
-                    best_distribution = distribution
-                    best_params = params
-                    best_sse = sse
+                best_distr.append((distribution, params, sse))
 
         except Exception:
             print(f'Could not use {distribution.name}')
             pass
 
-    return best_distribution.name, best_params
+    return sorted(best_distr, key=lambda x: x[2])
 
 
 def generate_data_from_dist(data):

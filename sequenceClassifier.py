@@ -28,7 +28,7 @@ from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
     make_msa_reprs, load_msa_reprs
 from plots import plot_folds, plot_hist_quantiles
 from stats import get_n_sites_per_msa, get_n_seqs_per_msa
-from utils import write_cfg_file, read_cfg_file
+from utils import write_cfg_file, read_cfg_file, merge_fold_hist_dicts
 from train_eval import fit, eval_per_align, generate_eval_dict, evaluate
 
 torch.cuda.empty_cache()
@@ -58,10 +58,10 @@ def main():
                              'These models will then be tested on a given data '
                              'set. --cfg, --datasets and --test are '
                              'required for this option.')
-    parser.add_argument('--real', action='store_true',
+    parser.add_argument('--real', nargs='*', type=int,
                         help='Indicates that given data set has empirical '
                              'alignments for --models option. '
-                             'Otherwise they are assumed to be simulated')
+                             'Otherwise they are assumed to be simulated')  # TODO
     parser.add_argument('-c', '--cfg', type=str,
                         help='<path/to> cfg file (.json) or directory '
                              'containing: hyperparameters, data specific '
@@ -104,10 +104,6 @@ def main():
 
     if args.test and (not args.models or not args.datasets):
         parser.error('--test requires --modles and --datasets')
-
-    if args.test and len(args.datasets) > 1:
-        parser.error('--test only takes one set of alignments '
-                     '(one directory specified with --datasets)')
 
     if args.training and len(args.datasets) != 2:
         parser.error('Training requires exactly 2 datasets: one directory '
@@ -224,26 +220,38 @@ def main():
 
         first_input_file = os.listdir(real_fasta_path)[0]
         if first_input_file.endswith('.fasta'):
-            alns, fastas, cfg['data'] = raw_alns_prepro([real_fasta_path,
-                                                         sim_fasta_path],
-                                                        cfg['data'],
-                                                        shuffle=shuffle,
-                                                        molecule_type=molecule_type)
+            alns, fastas, data_dict = raw_alns_prepro(
+                [real_fasta_path, sim_fasta_path],
+                cfg['data']['nb_alignments'],
+                shuffle=shuffle,
+                molecule_type=molecule_type)
             fastas_real, fastas_sim = fastas.copy()
 
-            real_alns, sim_alns = make_msa_reprs(alns, fastas, cfg['data'],
+            # update config with info from loaded data
+            for key, val in data_dict.items():
+                cfg['data'][key] = val
+
+
+            for i in range(len(alns)):
+                # remove first 2 sites !! TODO remove eventually
+                alns[i] = [[seq[2:] for seq in aln] for aln in alns[i]]
+
+            real_alns, sim_alns = make_msa_reprs(alns, fastas,
+                                                 cfg['data']['nb_sites'],
+                                                 cfg['data']['padding'],
                                                  pairs,
                                                  csv_path=(
-                                                    f'{result_path}/'
-                                                    f'alns_stats.csv'
-                                                    if args.track_stats
-                                                    else None),
+                                                     f'{result_path}/'
+                                                     f'alns_stats.csv'
+                                                     if args.track_stats
+                                                     else None),
                                                  molecule_type=molecule_type
                                                  )
             del alns, fastas
         elif first_input_file.endswith('.csv'):  # msa representations given
             real_alns, fastas_real = load_msa_reprs(real_fasta_path, pairs,
-                                                    cfg['data']['nb_alignments'])
+                                                    cfg['data'][
+                                                        'nb_alignments'])
             sim_alns, fastas_sim = load_msa_reprs(real_fasta_path, pairs,
                                                   cfg['data']['nb_alignments'])
 
@@ -264,7 +272,7 @@ def main():
 
         if batch_size == '' and lr == '':
             param_space = {
-                'batch_size': [32, 64, 128, 256, 512],
+                'batch_size': [32, 64, 128],
                 'lr': [0.1, 0.01, 0.001, 0.0001]
             }
         else:
@@ -304,7 +312,6 @@ def main():
 
             for fold, (train_ids, val_ids) in enumerate(kfold.split(data,
                                                                     labels)):
-
                 print(f'FOLD {fold + 1}')
                 print(sep_line)
 
@@ -337,16 +344,19 @@ def main():
                 models.append(model.to('cpu'))
 
                 if args.track_stats:
+                    real_train_ids = train_ids[:(len(train_ds) // 2)]
+                    sim_train_ids = train_ids[(len(train_ds) // 2):]
+                    sim_train_ids -= n_real_alns
                     real_pred_tr, sim_pred_tr = eval_per_align(model, real_alns,
                                                                sim_alns,
                                                                fastas_real,
                                                                fastas_sim,
-                                                               train_ids)
+                                                               real_train_ids)
                     real_pred_va, sim_pred_va = eval_per_align(model, real_alns,
                                                                sim_alns,
                                                                fastas_real,
                                                                fastas_sim,
-                                                               val_ids)
+                                                               sim_train_ids)
 
                     df = generate_eval_dict(fold, real_pred_tr, sim_pred_tr,
                                             real_pred_va, sim_pred_va,
@@ -356,13 +366,13 @@ def main():
             # evaluation index summing accuracies and
             # substracting standard deviation
             param_eval = {}
-            param_eval['val_acc'] = np.mean([model.val_history[-1]['acc']
+            param_eval['val_acc'] = np.mean([model.val_history['acc'][-1]
                                              for model in models])
-            param_eval['train_acc'] = np.mean([model.train_history[-1]['acc']
+            param_eval['train_acc'] = np.mean([model.train_history['acc'][-1]
                                                for model in models])
-            param_eval['val_std'] = np.std([model.val_history[-1]['acc']
+            param_eval['val_std'] = np.std([model.val_history['acc'][-1]
                                             for model in models])
-            param_eval['train_std'] = np.std([model.train_history[-1]['acc']
+            param_eval['train_std'] = np.std([model.train_history['acc'][-1]
                                               for model in models])
 
             if param_eval['val_acc'] > best['param_eval']['val_acc']:
@@ -371,6 +381,14 @@ def main():
                 best['dfs'] = dfs
                 best['batch_size'] = param_space['batch_size'][bs_ind]
                 best['lr'] = param_space['lr'][lr_ind]
+
+                # plot learning curve
+                for fold, model in enumerate(models):
+                    if result_path is not None:
+                        model.save(f'{result_path}/model-fold-{fold + 1}.pth')
+                        model.plot(f'{result_path}/fig-fold-{fold + 1}.png')
+                    else:
+                        model.plot()
 
         # -------------------------- treat results -------------------------- #
 
@@ -387,18 +405,17 @@ def main():
               f"\tLearning rate: {best['lr']}")
 
         # print/save overall fold results
-        plot_folds([model.train_history for model in best['models']],
-                   [model.val_history for model in best['models']],
-                   path=f'{result_path}/fig-fold-eval.png'
-                   if result_path is not None else None)
-
-        # save plots for each fold
-        for fold, model in enumerate(best['models']):
-            if result_path is not None:
-                model.save(f'{result_path}/model-fold-{fold + 1}.pth')
-                model.plot(f'{result_path}/fig-fold-{fold + 1}.png')
-            else:
-                model.plot()
+        if result_path is not None:
+            history_folds = merge_fold_hist_dicts(
+                [model.train_history for model in best['models']],
+                [model.val_history for model in best['models']])
+            plot_folds(*history_folds, path=f'{result_path}/fig-fold-eval.png')
+            # save last epochs acc., emp. acc., sim. acc, and loss
+            val_last_epoch = list(history_folds[1].values())
+            val_last_epoch = np.asarray(val_last_epoch)[:, :, -1].T
+            np.savetxt(f'{result_path}/fold-validation.csv', val_last_epoch,
+                       header=','.join(list(history_folds[1].keys())),
+                       comments='', delimiter=',')
 
         # save statistics of training process
         if len(best['dfs']) > 0 and result_path is not None:
@@ -414,7 +431,7 @@ def main():
         print(
             '----------------------------------------------------------------')
 
-        fold_eval = [model.val_history[-1]['acc'] for model in best['models']]
+        fold_eval = [model.val_history['acc'][-1] for model in best['models']]
 
         for i, acc in enumerate(fold_eval):
             print(f'\tFold {(i + 1)}: {acc} %')
@@ -430,16 +447,14 @@ def main():
 
     if args.test:
         model_path = args.models
-        fasta_path = args.datasets[0]
+        fasta_paths = args.datasets
         pairs = args.pairs
         cfg_path = args.cfg
         is_real = args.real
 
-        timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
+        print(is_real)
 
-        if not os.path.exists(fasta_path):
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    fasta_path)
+        np.random.seed(42)
 
         if not os.path.exists(cfg_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
@@ -457,11 +472,9 @@ def main():
 
         # -------------------- cfgure parameters -------------------- #
 
-        cfg = read_cfg_file(cfg_path)
-
-        model_params = cfg['conv_net_parameters']
-
-        batch_size = cfg['hyperparameters']['batch_size']
+        cfg_model = read_cfg_file(f'{model_path}/cfg.json')
+        model_params = cfg_model['conv_net_parameters']
+        batch_size = cfg_model['hyperparameters']['batch_size']
 
         torch.manual_seed(42)
         random.seed(42)
@@ -469,55 +482,56 @@ def main():
 
         # ------------------------- data preparation ------------------------- #
 
-        first_input_file = os.listdir(fasta_path)[0]
-        if first_input_file.endswith('.fasta'):
-            alns, fastas, cfg['data'] = raw_alns_prepro([fasta_path],
-                                                        cfg['data'],
-                                                        quantiles=[
-                                                            False])
-
-            alns = make_msa_reprs(alns, fastas, cfg['data'], pairs,
-                                  molecule_type=molecule_type)[0]
-
-        elif first_input_file.endswith('.csv'):  # msa representations given
-            alns, fastas = load_msa_reprs(fasta_path, pairs)
+        alns, fastas, _ = raw_alns_prepro(fasta_paths,
+                                          molecule_type=molecule_type)
+        alns_repr = make_msa_reprs(alns, fastas, cfg_model['data'], pairs,
+                              molecule_type=molecule_type)
+        del alns
 
         # ------------------ load and evaluate model(s) ------------------- #
 
-        print("Building validation dataset ...\n")
+        for alns_set, is_real_set, fasta_path in zip(alns_repr, is_real,
+                                                     fasta_paths):
 
-        if is_real:
-            ds = TensorDataset(alns, [])
-        else:
-            ds = TensorDataset([], alns)
+            print("Building validation dataset ...\n")
 
-        loader = DataLoader(ds, batch_size)
+            if is_real_set:
+                ds = TensorDataset(np.asarray(alns_set),
+                                   np.zeros(len(alns_set)), pairs)
+            else:
+                ds = TensorDataset(np.asarray(alns_set),
+                                   np.ones(len(alns_set)), pairs)
 
-        model_params['input_size'] = ds.data.shape[2]  # seq len
-        model_params['nb_chnls'] = ds.data.shape[1]  # 1 channel per aa
+            loader = DataLoader(ds, batch_size)
 
-        accs = []
-        accs_after_train = []
+            accs = []
+            accs_after_train = []
 
-        for i, path in enumerate(model_paths):
-            # generate model
-            model = load_net(path, model_params, state='eval')
-            with torch.no_grad():
-                result = evaluate(model, loader)
+            for i, path in enumerate(model_paths):
+                # generate model
+                model = load_net(path, model_params, state='eval')
 
-                accs.append(result['acc'])
-                accs_after_train.append(model.val_history[-1]['acc'])
+                with torch.no_grad():
+                    result = evaluate(model, loader)
 
-                print(f"model {i + 1}, accuracy: {np.round(result['acc'], 4)}"
-                      f"(val. of trained model {np.round(accs_after_train[i], 4)})")
+                    accs.append(result['acc'])
+                    accs_after_train.append(model.val_history[-1]['acc'])
 
-        if len(accs) > 1:
-            print(f'\nAverage: {np.round(np.mean(accs), 4)}, '
-                  f'Standard deviation: {np.round(np.std(accs), 4)}\n'
-                  f'Average acc. after training: '
-                  f'{np.round(np.mean(accs_after_train), 4)}, '
-                  f'Standard deviation: '
-                  f'{np.round(np.std(accs_after_train), 4)}')
+                    print(f"\nmodel {i + 1}, accuracy: {np.round(result['acc'], 4)}"
+                          f"(val. of trained model {np.round(accs_after_train[i], 4)})")
+
+            if len(accs) > 1:
+                print(f'\nMin: {np.round(np.min(accs), 2)}, '
+                      f'Average: {np.round(np.mean(accs), 2)}, '
+                      f'Max: {np.round(np.max(accs), 2)}, '
+                      f'Standard deviation: {np.round(np.std(accs), 4)}\n'
+                      f'Average acc. after training: '
+                      f'{np.round(np.mean(accs_after_train), 2)}, '
+                      f'Standard deviation: '
+                      f'{np.round(np.std(accs_after_train), 4)}')
+
+            filename = f'test_accs_{fasta_path.split("/")[-1]}.csv'
+            np.savetxt(f'{model_path}/{filename}', accs, delimiter=',')
 
 
 if __name__ == '__main__':

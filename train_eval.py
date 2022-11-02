@@ -25,30 +25,23 @@ def evaluate(model, val_loader):
     :return: losses and accuracies for each data batch (dict)
     """
 
-    outputs, losses, labels = [], [], []
+    losses, accs, accs_emp, accs_sim = [], [], [], []
 
     for batch in val_loader:
-        alns, labels_batch = batch
+        batch_loss, batch_acc = model.feed(batch)
+        losses.append(batch_loss)
 
-        alns = alns.to(compute_device)
-        labels_batch = labels_batch.to(compute_device)
-
-        out = model(alns)  # generate predictions
-
-        criterion = nn.BCEWithLogitsLoss()
-        loss = criterion(out, torch.reshape(labels_batch, out.shape))
-
-        losses.append(loss.detach())
-
-        outputs = (out if len(outputs) == 0
-                   else torch.cat((outputs, out)).to(compute_device))
-        labels = (labels_batch if len(labels) == 0
-                  else torch.cat((labels, labels_batch))).to(compute_device)
-
-    epoch_acc = accuracy(outputs, labels)
+        accs.append(batch_acc['acc'])
+        accs_emp.append(batch_acc['acc_emp'])
+        accs_sim.append(batch_acc['acc_sim'])
+    # combine losses and accuracies
     epoch_loss = torch.stack(losses).mean()
+    epoch_acc = torch.stack(accs).mean()
+    epoch_emp_acc = torch.stack(accs_emp).mean()
+    epoch_sim_acc = torch.stack(accs_sim).mean()
 
-    return {'loss': epoch_loss.item(), 'acc': epoch_acc.item()}
+    return {'loss': epoch_loss.item(), 'acc': epoch_acc.item(),
+            'acc_emp': epoch_emp_acc.item(), 'acc_sim': epoch_sim_acc.item()}
 
 
 def fit(epochs, lr, model, train_loader, val_loader,
@@ -71,12 +64,15 @@ def fit(epochs, lr, model, train_loader, val_loader,
     with torch.no_grad():
         # eval for training dataset
         train_result = evaluate(model, train_loader)
-        model.train_history.append(train_result)
+        for key, val in train_result.items():
+            model.train_history[key].append(val)
         # eval for validataion dataset
         val_result = evaluate(model, val_loader)
+        for key, val in val_result.items():
+            model.val_history[key].append(val)
+
         print(f"Epoch [0], loss: {val_result['loss']}, "
               f"acc: {val_result['acc']}")
-        model.val_history.append(val_result)
 
     for epoch in range(1, epochs + 1):
 
@@ -85,7 +81,7 @@ def fit(epochs, lr, model, train_loader, val_loader,
         # training Phase
         model.train()
         for i, batch in enumerate(train_loader):
-            loss = model.training_step(batch)
+            loss, _ = model.feed(batch)
             optimizer.zero_grad()
             loss.backward()  # calcul of gradients
             optimizer.step()
@@ -95,14 +91,16 @@ def fit(epochs, lr, model, train_loader, val_loader,
         with torch.no_grad():
             # eval for training dataset
             train_result = evaluate(model, train_loader)
+            for key, val in train_result.items():
+                model.train_history[key].append(val)
             print(f"Training: Loss: {np.round(train_result['loss'], 4)}, "
                   f"Acc.: {np.round(train_result['acc'], 4)}")
-            model.train_history.append(train_result)
             # eval for validataion dataset
             val_result = evaluate(model, val_loader)
+            for key, val in val_result.items():
+                model.val_history[key].append(val)
             print(f"Validation: Loss: {np.round(val_result['loss'], 4)}, "
                   f"Acc.: {np.round(val_result['acc'], 4)}")
-            model.val_history.append(val_result)
 
 
 def eval_per_align(conv_net, real_alns, sim_alns,
