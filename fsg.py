@@ -11,8 +11,7 @@ import numpy as np
 from Bio import Phylo, SeqIO, Seq
 
 from preprocessing import alns_from_fastas, aa_freq_samples
-from simulation import get_leaves_count
-from stats import get_aa_freqs, generate_data_from_dist, get_n_seqs_per_msa
+from stats import *
 from utils import largest_remainder_method
 from tqdm import tqdm
 
@@ -214,9 +213,9 @@ def main():
         alignments, fastas, lims = alns_from_fastas(hogenom_fasta_path,
                                                     n_alns=n_alns)
         # get lengths and frequences from hogenom aligned sequences
-        seq_lens = [len(aln[0]) for aln in alignments]
-        seq_lens = generate_data_from_dist(seq_lens)
-        n_seqs = np.asarray(n_seqs(alignments))
+        seq_lens = get_n_sites_per_msa(alignments)
+        seq_lens = CustomProbDensFct(seq_lens).draw(size=len(alignments))
+        # n_seqs = np.asarray(n_seqs(alignments))
         aa_freqs = get_aa_freqs(alignments, gaps=False, dict=False)
 
         # get em run "ids" from parameter directory
@@ -322,7 +321,7 @@ def main():
                     bash_cmd = (
                         f'{sim_path} --tree {tree_in_path} '
                         f'--profiles {profile_path} '
-                        f'--wag {fix_param_dir}/unif.dat '
+                        f'--wag {fix_param_dir}/wag.dat '
                         f'--profile-weights {param_dir}/{pro_w_file} '
                         f'-o {fasta_out_path} '
                         f'--mu 0.0 --lambda 0.0 '
