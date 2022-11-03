@@ -264,6 +264,7 @@ def accuracy(outputs, labels):
         n = torch.sum(class_mask)
         n_correct = torch.sum(preds[class_mask] == labels[class_mask]).item()
         accs[key] = n_correct / n if n_correct > 0 else torch.tensor(0.0)
+        accs[key].to(compute_device)
 
     # acc = torch.tensor((torch.sum(preds == labels).item() / len(preds)))
     return accs
