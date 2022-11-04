@@ -32,8 +32,10 @@ def evaluate(model, val_loader):
         losses.append(batch_loss)
 
         accs.append(batch_acc['acc'])
-        accs_emp.append(batch_acc['acc_emp'])
-        accs_sim.append(batch_acc['acc_sim'])
+        if batch_acc['acc_emp'] != -1:  # if == -1 no emp. data in this batch
+            accs_emp.append(batch_acc['acc_emp'])
+        if batch_acc['acc_sim'] != -1:  # if == -1 no sim. data in this batch
+            accs_sim.append(batch_acc['acc_sim'])
     # combine losses and accuracies
     epoch_loss = torch.stack(losses).mean()
     epoch_acc = torch.stack(accs).mean()
