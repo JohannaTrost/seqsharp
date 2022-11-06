@@ -219,7 +219,8 @@ def main():
         # ------------------------- data preparation ------------------------- #
 
         first_input_file = os.listdir(real_fasta_path)[0]
-        if first_input_file.endswith('.fasta'):
+        fmts = ['.fa', '.fasta', '.phy']
+        if np.any([first_input_file.endswith(f) for f in fmts]):
             alns, fastas, data_dict = raw_alns_prepro(
                 [real_fasta_path, sim_fasta_path],
                 cfg['data']['nb_alignments'],
@@ -231,10 +232,10 @@ def main():
             for key, val in data_dict.items():
                 cfg['data'][key] = val
 
-
-            for i in range(len(alns)):
-                # remove first 2 sites !! TODO remove eventually
-                alns[i] = [[seq[2:] for seq in aln] for aln in alns[i]]
+            if molecule_type == 'protein':
+                for i in range(len(alns)):
+                    # remove first 2 sites
+                    alns[i] = [[seq[2:] for seq in aln] for aln in alns[i]]
 
             real_alns, sim_alns = make_msa_reprs(alns, fastas,
                                                  cfg['data']['nb_sites'],
