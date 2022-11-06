@@ -25,26 +25,22 @@ def evaluate(model, val_loader):
     :return: losses and accuracies for each data batch (dict)
     """
 
-    losses, accs, accs_emp, accs_sim = [], [], [], []
+    losses, preds, labels = [], torch.tensor([]), torch.tensor([])
 
     for batch in val_loader:
-        batch_loss, batch_acc = model.feed(batch)
+        batch_loss, batch_y_pred, batch_y_true = model.feed(batch)
         losses.append(batch_loss)
+        preds = torch.cat((preds, batch_y_pred))
+        labels = torch.cat((labels, batch_y_true))
 
-        accs.append(batch_acc['acc'])
-        if batch_acc['acc_emp'] != -1:  # if == -1 no emp. data in this batch
-            accs_emp.append(batch_acc['acc_emp'])
-        if batch_acc['acc_sim'] != -1:  # if == -1 no sim. data in this batch
-            accs_sim.append(batch_acc['acc_sim'])
     # combine losses and accuracies
-    epoch_loss = torch.stack(losses).mean()
-    epoch_acc = torch.stack(accs).mean()
-    epoch_emp_acc = torch.stack(accs_emp).mean()
-    epoch_sim_acc = torch.stack(accs_sim).mean()
+    epoch_acc_loss = accuracy(preds, labels)
+    epoch_acc_loss['loss'] = torch.stack(losses).mean()
 
-    return {'loss': epoch_loss.item(), 'acc': epoch_acc.item(),
-            'acc_emp': epoch_emp_acc.item(), 'acc_sim': epoch_sim_acc.item()}
+    for key, val in epoch_acc_loss.items():
+        epoch_acc_loss[key] = val.item()
 
+    return epoch_acc_loss
 
 def fit(epochs, lr, model, train_loader, val_loader,
         opt_func=torch.optim.Adagrad):
@@ -74,7 +70,8 @@ def fit(epochs, lr, model, train_loader, val_loader,
             model.val_history[key].append(val)
 
         print(f"Epoch [0], loss: {val_result['loss']}, "
-              f"acc: {val_result['acc']}")
+              f"acc: {val_result['acc']}, emp. acc: {val_result['acc_emp']}, "
+              f"sim. acc: {val_result['acc_sim']}")
 
     for epoch in range(1, epochs + 1):
 
@@ -83,7 +80,7 @@ def fit(epochs, lr, model, train_loader, val_loader,
         # training Phase
         model.train()
         for i, batch in enumerate(train_loader):
-            loss, _ = model.feed(batch)
+            loss, _, _ = model.feed(batch)
             optimizer.zero_grad()
             loss.backward()  # calcul of gradients
             optimizer.step()
@@ -102,7 +99,9 @@ def fit(epochs, lr, model, train_loader, val_loader,
             for key, val in val_result.items():
                 model.val_history[key].append(val)
             print(f"Validation: Loss: {np.round(val_result['loss'], 4)}, "
-                  f"Acc.: {np.round(val_result['acc'], 4)}")
+                  f"Acc.: {np.round(val_result['acc'], 4)}, "
+                  f"Emp. acc.: {np.round(val_result['acc_emp'], 4)}, "
+                  f"Sim. acc.: {np.round(val_result['acc_sim'], 4)}")
 
 
 def eval_per_align(conv_net, real_alns, sim_alns,
