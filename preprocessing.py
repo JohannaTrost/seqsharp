@@ -149,14 +149,23 @@ def remove_ambig_pos_sites(aln, molecule_type):
     return [''.join([aa for aa in seq]) for seq in aln_arr]
 
 
-def aln_from_fasta(filename):
+def load_msa(filename):
     """Gets aligned sequences from given file
 
     :param filename: <path/to/> alignments (string)
     :return: list of strings
     """
+    if filename.endswith('.fa') or filename.endswith('.fasta'):
+        format = 'fasta'
+    elif filename.endswith('.phy'):
+        format = 'phylip'
+    else:
+        raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
+                         f'File format not recognized: '
+                         f'{filename.split(".")[-1]}')
+
     alned_seqs_raw = [str(seq_record.seq) for seq_record in
-                      SeqIO.parse(open(filename, encoding='utf-8'), "fasta")]
+                      SeqIO.parse(open(filename, encoding='utf-8'), format)]
     return alned_seqs_raw
 
 
@@ -201,31 +210,30 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
     frac_ambig_mol_sites = []
     count_empty, count_wrong_mol_type = 0, 0
     for file in tqdm(fasta_files):
-        if file.endswith('.fasta') or file.endswith('.fa'):
-            aln = aln_from_fasta(fasta_dir + '/' + file)
-            if len(aln) > 0:  # check if no sequences
-                if len(aln[0]) > 0:  # check if no sites
-                    # clean up
-                    if is_mol_type(aln, molecule_type):
-                        # deal with ambiguous letters
-                        frac_ambig = get_frac_sites_with(ambig_chars, aln)
-                        if frac_ambig > 0:
-                            if rem_ambig_chars == 'remove':
-                                aln = remove_ambig_pos_sites(aln, molecule_type)
-                            elif rem_ambig_chars == 'repl_unif':
-                                aln = replace_ambig_chars(','.join(aln),
-                                                          molecule_type)
-                                aln = aln.split(',')
-                        frac_ambig_mol_sites.append(frac_ambig)
+        aln = load_msa(fasta_dir + '/' + file)
+        if len(aln) > 0:  # check if no sequences
+            if len(aln[0]) > 0:  # check if no sites
+                # clean up
+                if is_mol_type(aln, molecule_type):
+                    # deal with ambiguous letters
+                    frac_ambig = get_frac_sites_with(ambig_chars, aln)
+                    if frac_ambig > 0:
+                        if rem_ambig_chars == 'remove':
+                            aln = remove_ambig_pos_sites(aln, molecule_type)
+                        elif rem_ambig_chars == 'repl_unif':
+                            aln = replace_ambig_chars(','.join(aln),
+                                                      molecule_type)
+                            aln = aln.split(',')
+                    frac_ambig_mol_sites.append(frac_ambig)
 
-                        alns.append(aln)
-                        fastas.append(file)
-                    else:
-                        count_wrong_mol_type += 1
+                    alns.append(aln)
+                    fastas.append(file)
                 else:
-                    count_empty += 1
+                    count_wrong_mol_type += 1
             else:
                 count_empty += 1
+        else:
+            count_empty += 1
 
         if n_alns is not None and n_alns == len(alns):
             break
