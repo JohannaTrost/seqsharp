@@ -16,6 +16,25 @@ from utils import merge_fold_hist_dicts, confidence_ellipse, pred_runtime
 # matplotlib.use("Agg")
 
 
+def plot_comp_model_accs(accs, model_names, save=''):
+    """TODO
+
+    :param accs: n_models x n_folds array
+    :return:
+    """
+    x = np.arange(accs.shape[0]).repeat(accs.shape[1])
+    fig, ax = plt.subplots()
+    ax.scatter(x, accs.flatten(), alpha=0.5)
+    ax.set_xticks(np.arange(accs.shape[0]))
+    ax.set_xticklabels(model_names, rotation=45)
+    ax.plot(accs.mean(axis=1))
+    ax.set_ylabel('accuracy')
+    plt.tight_layout()
+    if save != '':
+        plt.savefig(save, format='svg')
+    plt.close('all')
+
+
 def plot_aa_dens(real, sim, save, aas='ARNDCQEGHILKMFPSTWYV'):
     n_rows, n_cols = 4, 5
     fig, axs = plt.subplots(n_rows, n_cols, figsize=(16, 9))
