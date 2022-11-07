@@ -169,7 +169,7 @@ def load_msa(filename):
     return alned_seqs_raw
 
 
-def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
+def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None, max_seq_len=None,
                      molecule_type='protein', rem_ambig_chars='remove'):
     """Extracts alignments from fasta files in given directory
 
@@ -208,28 +208,31 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
     # load and preprocess MSAs
     alns, fastas = [], []
     frac_ambig_mol_sites = []
-    count_empty, count_wrong_mol_type = 0, 0
+    count_empty, count_wrong_mol_type, count_gt_max_seq_len = 0, 0, 0
     for file in tqdm(fasta_files):
         aln = load_msa(fasta_dir + '/' + file)
         if len(aln) > 0:  # check if no sequences
             if len(aln[0]) > 0:  # check if no sites
-                # clean up
-                if is_mol_type(aln, molecule_type):
-                    # deal with ambiguous letters
-                    frac_ambig = get_frac_sites_with(ambig_chars, aln)
-                    if frac_ambig > 0:
-                        if rem_ambig_chars == 'remove':
-                            aln = remove_ambig_pos_sites(aln, molecule_type)
-                        elif rem_ambig_chars == 'repl_unif':
-                            aln = replace_ambig_chars(','.join(aln),
-                                                      molecule_type)
-                            aln = aln.split(',')
-                    frac_ambig_mol_sites.append(frac_ambig)
+                if max_seq_len is not None and len(aln[0]) <= max_seq_len:
+                    # clean up
+                    if is_mol_type(aln, molecule_type):
+                        # deal with ambiguous letters
+                        frac_ambig = get_frac_sites_with(ambig_chars, aln)
+                        if frac_ambig > 0:
+                            if rem_ambig_chars == 'remove':
+                                aln = remove_ambig_pos_sites(aln, molecule_type)
+                            elif rem_ambig_chars == 'repl_unif':
+                                aln = replace_ambig_chars(','.join(aln),
+                                                          molecule_type)
+                                aln = aln.split(',')
+                        frac_ambig_mol_sites.append(frac_ambig)
 
-                    alns.append(aln)
-                    fastas.append(file)
+                        alns.append(aln)
+                        fastas.append(file)
+                    else:
+                        count_wrong_mol_type += 1
                 else:
-                    count_wrong_mol_type += 1
+                    count_gt_max_seq_len += 1
             else:
                 count_empty += 1
         else:
@@ -243,11 +246,13 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None,
 
     print('\n')
     if count_empty > 0:
-        print(f'{count_empty} empty fasta file(s)')
+        print(f'{count_empty} empty file(s)')
+    if count_gt_max_seq_len > 0:
+        print(f'{count_gt_max_seq_len} MSA(s) exceed max. sequencle '
+              f'length of {max_seq_len}')
     if count_wrong_mol_type > 0:
-        print(f'{count_wrong_mol_type} fasta file(s) did not contain '
+        print(f'{count_wrong_mol_type} file(s) did not contain '
               f'{molecule_type} sequences')
-
     if np.sum(frac_ambig_mol_sites != 0) > 0:
         print(f'In {np.sum(frac_ambig_mol_sites != 0)} out of {len(alns)} MSAs '
               f'{np.round((np.sum(frac_ambig_mol_sites) / len(frac_ambig_mol_sites)) * 100, 2)}% sites '
@@ -509,7 +514,8 @@ class DatasetAln(Dataset):
         return self.data.size(0)
 
 
-def raw_alns_prepro(fasta_paths, n_alns=None, quantiles=None, shuffle=False,
+def raw_alns_prepro(fasta_paths, n_alns=None, max_seq_len=None,
+                    quantiles=None, shuffle=False,
                     molecule_type='protein'):
     """Loads and preprocesses raw (not encoded) alignments
 
@@ -542,7 +548,7 @@ def raw_alns_prepro(fasta_paths, n_alns=None, quantiles=None, shuffle=False,
             sim_alns, sim_fastas, sim_stats = [], [], {}
             for dir in sim_cl_dirs:
                 sim_data = alns_from_fastas(f'{path}/{dir}', quantiles[i],
-                                            n_alns,
+                                            n_alns, max_seq_len,
                                             molecule_type=molecule_type)
                 # concat remove cluster dimension
                 sim_alns += sim_data[0]
@@ -565,7 +571,7 @@ def raw_alns_prepro(fasta_paths, n_alns=None, quantiles=None, shuffle=False,
             else:
                 raw_data = [sim_alns, sim_fastas, sim_stats]
         else:  # empirical data set or simulations without MSA clusters
-            raw_data = alns_from_fastas(path, quantiles[i], n_alns,
+            raw_data = alns_from_fastas(path, quantiles[i], n_alns, max_seq_len,
                                         molecule_type=molecule_type)
 
         alns.append(raw_data[0])

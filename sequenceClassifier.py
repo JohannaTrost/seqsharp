@@ -98,8 +98,8 @@ def main():
         parser.error('--models cannot be used in combination with --training, '
                      '--shuffle or --track_stats')
 
-    if (args.datasets and not args.cfg) or (
-            args.cfg and not args.datasets):
+    if not args.test and ((args.datasets and not args.cfg) or (
+            args.cfg and not args.datasets)):
         parser.error('--datasets and --cfg have to be used together')
 
     if args.test and (not args.models or not args.datasets):
@@ -194,6 +194,10 @@ def main():
         # -------------------- cfgure parameters -------------------- #
 
         cfg = read_cfg_file(cfg_path)
+        if cfg['data']['nb_alignments'] == '':
+            cfg['data']['nb_alignments'] = None
+        if cfg['data']['max_seqs_per_align'] == '':
+            cfg['data']['max_seqs_per_align'] = None
 
         model_params = cfg['conv_net_parameters']
 
@@ -224,6 +228,7 @@ def main():
             alns, fastas, data_dict = raw_alns_prepro(
                 [real_fasta_path, sim_fasta_path],
                 cfg['data']['nb_alignments'],
+                cfg['data']['max_seqs_per_align'],
                 shuffle=shuffle,
                 molecule_type=molecule_type)
             fastas_real, fastas_sim = fastas.copy()
@@ -450,17 +455,11 @@ def main():
         model_path = args.models
         fasta_paths = args.datasets
         pairs = args.pairs
-        cfg_path = args.cfg
-        is_real = args.real
-
-        print(is_real)
-
-        np.random.seed(42)
+        cfg_path = model_path + '/cfg.json'
 
         if not os.path.exists(cfg_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     cfg_path)
-
         if os.path.isdir(model_path):
             files = os.listdir(model_path)
             model_paths = [f'{model_path}/{file}' for file in files
@@ -473,66 +472,67 @@ def main():
 
         # -------------------- cfgure parameters -------------------- #
 
-        cfg_model = read_cfg_file(f'{model_path}/cfg.json')
+        cfg_model = read_cfg_file(cfg_path)
         model_params = cfg_model['conv_net_parameters']
         batch_size = cfg_model['hyperparameters']['batch_size']
+        nb_folds = cfg_model['hyperparameters']['nb_folds']
 
         torch.manual_seed(42)
         random.seed(42)
         np.random.seed(42)
 
+        # k-fold validator
+        kfold = StratifiedKFold(nb_folds, shuffle=True, random_state=42)
+
         # ------------------------- data preparation ------------------------- #
 
         alns, fastas, _ = raw_alns_prepro(fasta_paths,
                                           molecule_type=molecule_type)
-        alns_repr = make_msa_reprs(alns, fastas, cfg_model['data'], pairs,
-                              molecule_type=molecule_type)
+        alns_repr = make_msa_reprs(alns, fastas, cfg_model['data']['nb_sites'],
+                                   cfg_model['data']['padding'], pairs,
+                                   molecule_type=molecule_type)
         del alns
+        real_alns, sim_alns = alns_repr
+        n_real_alns, n_sim_alns = len(real_alns), len(sim_alns)
+        data = np.asarray(real_alns + sim_alns, dtype='float32')
+        labels = np.concatenate((np.zeros(n_real_alns), np.ones(n_sim_alns)))
 
         # ------------------ load and evaluate model(s) ------------------- #
+        model_val_res = {'acc': [], 'loss': [], 'acc_emp': [], 'acc_sim': []}
+        for fold, (train_ids, val_ids) in enumerate(kfold.split(data,
+                                                                labels)):
+            print(f'FOLD {fold + 1}')
+            print(sep_line)
 
-        for alns_set, is_real_set, fasta_path in zip(alns_repr, is_real,
-                                                     fasta_paths):
+            # splitting dataset by alignments
+            print("Building training and validation dataset ...")
 
-            print("Building validation dataset ...\n")
+            train_ds = TensorDataset(data[train_ids], labels[train_ids],
+                                     pairs)
+            val_ds = TensorDataset(data[val_ids], labels[val_ids], pairs)
 
-            if is_real_set:
-                ds = TensorDataset(np.asarray(alns_set),
-                                   np.zeros(len(alns_set)), pairs)
-            else:
-                ds = TensorDataset(np.asarray(alns_set),
-                                   np.ones(len(alns_set)), pairs)
+            train_loader = DataLoader(train_ds, batch_size, shuffle=True)
+            val_loader = DataLoader(val_ds, batch_size)
 
-            loader = DataLoader(ds, batch_size)
+            # load model
+            model = load_net(model_paths[fold], model_params, state='eval')
 
-            accs = []
-            accs_after_train = []
+            with torch.no_grad():
+                val_result = evaluate(model, val_loader)
+                for key, val in val_result.items():
+                    model_val_res[key].append(val)
+                print(f'Fold [{fold + 1}]')
+                print(f"Validation: Loss: {np.round(val_result['loss'], 4)}, "
+                      f"Acc.: {np.round(val_result['acc'], 4)}, "
+                      f"Emp. acc.: {np.round(val_result['acc_emp'], 4)}, "
+                      f"Sim. acc.: {np.round(val_result['acc_sim'], 4)}")
 
-            for i, path in enumerate(model_paths):
-                # generate model
-                model = load_net(path, model_params, state='eval')
-
-                with torch.no_grad():
-                    result = evaluate(model, loader)
-
-                    accs.append(result['acc'])
-                    accs_after_train.append(model.val_history[-1]['acc'])
-
-                    print(f"\nmodel {i + 1}, accuracy: {np.round(result['acc'], 4)}"
-                          f"(val. of trained model {np.round(accs_after_train[i], 4)})")
-
-            if len(accs) > 1:
-                print(f'\nMin: {np.round(np.min(accs), 2)}, '
-                      f'Average: {np.round(np.mean(accs), 2)}, '
-                      f'Max: {np.round(np.max(accs), 2)}, '
-                      f'Standard deviation: {np.round(np.std(accs), 4)}\n'
-                      f'Average acc. after training: '
-                      f'{np.round(np.mean(accs_after_train), 2)}, '
-                      f'Standard deviation: '
-                      f'{np.round(np.std(accs_after_train), 4)}')
-
-            filename = f'test_accs_{fasta_path.split("/")[-1]}.csv'
-            np.savetxt(f'{model_path}/{filename}', accs, delimiter=',')
+        # print/save overall fold results
+        timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
+        np.savetxt(f'{model_path}/fold-validation-{timestamp}.csv',
+                   model_val_res,
+                   header=','.join(list(model_val_res.keys())),
+                   comments='', delimiter=',')
 
 
 if __name__ == '__main__':
