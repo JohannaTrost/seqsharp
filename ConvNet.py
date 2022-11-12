@@ -182,7 +182,7 @@ class ConvNet(nn.Module):
         alns = alns.to(compute_device)
         labels = labels.to(compute_device)
 
-        out = self(alns)  # generate predictions
+        out = self(alns).to(compute_device)  # generate predictions
 
         criterion = nn.BCEWithLogitsLoss()
         loss = criterion(out, torch.reshape(labels, out.shape))

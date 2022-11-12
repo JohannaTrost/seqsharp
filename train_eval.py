@@ -25,7 +25,9 @@ def evaluate(model, val_loader):
     :return: losses and accuracies for each data batch (dict)
     """
 
-    losses, preds, labels = [], torch.tensor([]), torch.tensor([])
+    losses = []
+    preds = torch.tensor([]).to(compute_device)
+    labels = torch.tensor([]).to(compute_device)
 
     for batch in val_loader:
         batch_loss, batch_y_pred, batch_y_true = model.feed(batch)
