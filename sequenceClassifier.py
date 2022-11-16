@@ -98,8 +98,8 @@ def main():
         parser.error('--models cannot be used in combination with --training, '
                      '--shuffle or --track_stats')
 
-    if (args.datasets and not args.cfg) or (
-            args.cfg and not args.datasets):
+    if args.training and ((args.datasets and not args.cfg) or (
+            args.cfg and not args.datasets)):
         parser.error('--datasets and --cfg have to be used together')
 
     if args.test and (not args.models or not args.datasets):
@@ -165,20 +165,26 @@ def main():
                                     path=f'{path}/hist_nb_seqs-{timestamp}'
                                          f'-{i}.png')
 
-    if args.training:
+    if args.training or args.test:
         real_fasta_path, sim_fasta_path = args.datasets
         shuffle = args.shuffle
         pairs = args.pairs
         result_path = args.save if args.save else None
-        cfg_path = args.cfg
+        if args.training:
+            cfg_path = args.cfg
+        elif args.test:
+            model_path = args.models
+            cfg_path = model_path + '/cfg.json'
 
         timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
 
-        if result_path is not None:
+        if result_path is not None and args.training:
             # create unique subdir for the model(s)
             result_path = result_path + '/cnn-' + str(timestamp)
             if not os.path.exists(result_path):
                 os.makedirs(result_path)
+        elif args.test:
+            result_path = model_path
 
         if not os.path.exists(real_fasta_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
@@ -194,6 +200,8 @@ def main():
         # -------------------- cfgure parameters -------------------- #
 
         cfg = read_cfg_file(cfg_path)
+        if args.test:
+            cfg['data']['nb_alignments'] = None
 
         model_params = cfg['conv_net_parameters']
 
@@ -209,12 +217,14 @@ def main():
             raise ValueError(
                 'Please specify either Adagrad or SGD as optimizer')
 
+
+
+        # k-fold validator (kfold-seed ensures same fold-splits in opt. loop)
+        kfold = StratifiedKFold(nb_folds, shuffle=True, random_state=42)
+
         torch.manual_seed(42)
         random.seed(42)
         np.random.seed(42)
-
-        # k-fold validator
-        kfold = StratifiedKFold(nb_folds, shuffle=True, random_state=42)
 
         # ------------------------- data preparation ------------------------- #
 
@@ -224,6 +234,7 @@ def main():
             alns, fastas, data_dict = raw_alns_prepro(
                 [real_fasta_path, sim_fasta_path],
                 cfg['data']['nb_alignments'],
+                cfg['data']['nb_sites'],
                 shuffle=shuffle,
                 molecule_type=molecule_type)
             fastas_real, fastas_sim = fastas.copy()
@@ -270,6 +281,17 @@ def main():
                               range(len(real_alns))}
             sim_alns_dict = {fastas_sim[i]: sim_alns[i] for i in
                              range(len(sim_alns))}
+
+        if args.test:
+            if os.path.isdir(model_path):
+                files = os.listdir(model_path)
+                model_paths = [f'{model_path}/{file}' for file in files
+                               if file.endswith('.pth')]
+            elif os.path.isfile(model_path):
+                model_paths = [model_path]
+            else:
+                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                        model_path)
 
         if batch_size == '' and lr == '':
             param_space = {
@@ -326,21 +348,37 @@ def main():
 
                 train_loader = DataLoader(train_ds,
                                           param_space['batch_size'][bs_ind],
-                                          shuffle=True)
+                                          shuffle=True, num_workers=24)
                 val_loader = DataLoader(val_ds,
-                                        param_space['batch_size'][bs_ind])
+                                        param_space['batch_size'][bs_ind],
+                                        num_workers=24)
 
                 # generate model
                 model_params['input_size'] = train_ds.data.shape[2]  # seq len
                 model_params['nb_chnls'] = train_ds.data.shape[
                     1]  # 1 channel per amino acid
 
-                model = ConvNet(model_params)
-                model = model.to(compute_device)
+                if args.training:
+                    model = ConvNet(model_params).to(compute_device)
+                    # train and validate model
+                    fit(epochs, param_space['lr'][lr_ind],
+                        model, train_loader, val_loader, optimizer)
+                elif args.test:
+                    model = load_net(model_paths[fold], model_params,
+                                     state='eval').to(compute_device)
+                    with torch.no_grad():
+                        train_result = evaluate(model, train_loader)
+                        for key, val in train_result.items():
+                            model.train_history[key].append(val)
+                        # eval for validataion dataset
+                        val_result = evaluate(model, val_loader)
+                        for key, val in val_result.items():
+                            model.val_history[key].append(val)
 
-                # train and validate model
-                fit(epochs, param_space['lr'][lr_ind],
-                    model, train_loader, val_loader, optimizer)
+                        print(f"loss: {val_result['loss']}, "
+                              f"acc: {val_result['acc']}, "
+                              f"emp. acc: {val_result['acc_emp']}, "
+                              f"sim. acc: {val_result['acc_sim']}")
 
                 models.append(model.to('cpu'))
 
@@ -410,13 +448,18 @@ def main():
             history_folds = merge_fold_hist_dicts(
                 [model.train_history for model in best['models']],
                 [model.val_history for model in best['models']])
-            plot_folds(*history_folds, path=f'{result_path}/fig-fold-eval.png')
+
             # save last epochs acc., emp. acc., sim. acc, and loss
             val_last_epoch = list(history_folds[1].values())
             val_last_epoch = np.asarray(val_last_epoch)[:, :, -1].T
-            np.savetxt(f'{result_path}/fold-validation.csv', val_last_epoch,
+            np.savetxt(f'{result_path}/fold-validation-{timestamp}.csv',
+                       val_last_epoch,
                        header=','.join(list(history_folds[1].keys())),
                        comments='', delimiter=',')
+            # save plot of learning curve
+            if args.training:
+                plot_folds(*history_folds,
+                           path=f'{result_path}/fig-fold-eval.png')
 
         # save statistics of training process
         if len(best['dfs']) > 0 and result_path is not None:
@@ -445,95 +488,6 @@ def main():
             print(f'\nNot saving models and evaluation plots. Please use '
                   f'--save and specify a directory if you want to save your '
                   f'results!\n')
-
-    if args.test:
-        model_path = args.models
-        fasta_paths = args.datasets
-        pairs = args.pairs
-        cfg_path = args.cfg
-        is_real = args.real
-
-        print(is_real)
-
-        np.random.seed(42)
-
-        if not os.path.exists(cfg_path):
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    cfg_path)
-
-        if os.path.isdir(model_path):
-            files = os.listdir(model_path)
-            model_paths = [f'{model_path}/{file}' for file in files
-                           if file.endswith('.pth')]
-        elif os.path.isfile(model_path):
-            model_paths = [model_path]
-        else:
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    model_path)
-
-        # -------------------- cfgure parameters -------------------- #
-
-        cfg_model = read_cfg_file(f'{model_path}/cfg.json')
-        model_params = cfg_model['conv_net_parameters']
-        batch_size = cfg_model['hyperparameters']['batch_size']
-
-        torch.manual_seed(42)
-        random.seed(42)
-        np.random.seed(42)
-
-        # ------------------------- data preparation ------------------------- #
-
-        alns, fastas, _ = raw_alns_prepro(fasta_paths,
-                                          molecule_type=molecule_type)
-        alns_repr = make_msa_reprs(alns, fastas, cfg_model['data'], pairs,
-                              molecule_type=molecule_type)
-        del alns
-
-        # ------------------ load and evaluate model(s) ------------------- #
-
-        for alns_set, is_real_set, fasta_path in zip(alns_repr, is_real,
-                                                     fasta_paths):
-
-            print("Building validation dataset ...\n")
-
-            if is_real_set:
-                ds = TensorDataset(np.asarray(alns_set),
-                                   np.zeros(len(alns_set)), pairs)
-            else:
-                ds = TensorDataset(np.asarray(alns_set),
-                                   np.ones(len(alns_set)), pairs)
-
-            loader = DataLoader(ds, batch_size)
-
-            accs = []
-            accs_after_train = []
-
-            for i, path in enumerate(model_paths):
-                # generate model
-                model = load_net(path, model_params, state='eval')
-
-                with torch.no_grad():
-                    result = evaluate(model, loader)
-
-                    accs.append(result['acc'])
-                    accs_after_train.append(model.val_history[-1]['acc'])
-
-                    print(f"\nmodel {i + 1}, accuracy: {np.round(result['acc'], 4)}"
-                          f"(val. of trained model {np.round(accs_after_train[i], 4)})")
-
-            if len(accs) > 1:
-                print(f'\nMin: {np.round(np.min(accs), 2)}, '
-                      f'Average: {np.round(np.mean(accs), 2)}, '
-                      f'Max: {np.round(np.max(accs), 2)}, '
-                      f'Standard deviation: {np.round(np.std(accs), 4)}\n'
-                      f'Average acc. after training: '
-                      f'{np.round(np.mean(accs_after_train), 2)}, '
-                      f'Standard deviation: '
-                      f'{np.round(np.std(accs_after_train), 4)}')
-
-            filename = f'test_accs_{fasta_path.split("/")[-1]}.csv'
-            np.savetxt(f'{model_path}/{filename}', accs, delimiter=',')
-
 
 if __name__ == '__main__':
     main()
