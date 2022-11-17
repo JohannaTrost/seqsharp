@@ -21,7 +21,7 @@ def save_dict2table(dict, path):
 
     np.savetxt(values, )
 
-def write_cfg_file(cfg, model_path, cfg_path, timestamp):
+def write_cfg_file(cfg, model_path, cfg_path, timestamp=None):
     """Save parameters in a json file
 
     If a recent cfg contains the same parameters it will be put into
@@ -104,7 +104,7 @@ def write_cfg_file(cfg, model_path, cfg_path, timestamp):
 def read_cfg_file(path):
     """Read parameters from a json file
 
-    If directory is given, cfg will be taken fro latest modified file
+    If directory is given, cfg will be taken from latest modified file
 
     :param path: <path/to> cfg file or directory
     :return: data-,model-specific and hyper-parameters (dictionary)

@@ -45,11 +45,12 @@ def evaluate(model, val_loader):
     return epoch_acc_loss
 
 def fit(epochs, lr, model, train_loader, val_loader,
-        opt_func=torch.optim.Adagrad):
+        opt_func=torch.optim.Adagrad, start_epoch=0):
     """
     Training a model to learn a function to distinguish between simulated and
     empirical alignments (with validation step at the end of each epoch)
-    :param epochs: number of repitions of training (integer)
+    :param start_epoch: possibility to continue training from this epoch
+    :param epochs: number of repetitions of training (integer)
     :param lr: learning rate (float)
     :param model: ConvNet object
     :param train_loader: training dataset (DataLoader)
@@ -75,7 +76,7 @@ def fit(epochs, lr, model, train_loader, val_loader,
               f"acc: {val_result['acc']}, emp. acc: {val_result['acc_emp']}, "
               f"sim. acc: {val_result['acc_sim']}")
 
-    for epoch in range(1, epochs + 1):
+    for epoch in range(start_epoch+1, epochs + 1):
 
         print(f'Epoch [{epoch}]')
 

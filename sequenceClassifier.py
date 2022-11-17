@@ -9,7 +9,6 @@ Please execute 'python sequenceClassifier.py --help' to view all the options
 
 import argparse
 import errno
-import itertools
 import os
 import random
 import sys
@@ -87,15 +86,17 @@ def main():
                              'an alignment will be used')
     parser.add_argument('--molecule_type', choices=['DNA', 'protein'],
                         help='Specify if you use DNA or protein MSAs')
+    parser.add_argument('--continu', action='store_true',
+                        help='Continue from given lr-bs-combi within '
+                             'default bs-lr-grid.')
 
     args = parser.parse_args()
 
     # -------------------- verify arguments usage -------------------- #
 
     # exclusive usage of -m
-    if (args.models and any(arg for arg in (args.training, args.track_stats,
-                                            args.shuffle))):
-        parser.error('--models cannot be used in combination with --training, '
+    if (args.models and any(arg for arg in (args.track_stats, args.shuffle))):
+        parser.error('--models cannot be used in combination with '
                      '--shuffle or --track_stats')
 
     if args.training and ((args.datasets and not args.cfg) or (
@@ -170,20 +171,24 @@ def main():
         shuffle = args.shuffle
         pairs = args.pairs
         result_path = args.save if args.save else None
-        if args.training:
-            cfg_path = args.cfg
-        elif args.test:
+
+        if args.models:
             model_path = args.models
-            cfg_path = model_path + '/cfg.json'
+            if os.path.isdir(model_path):
+                cfg_path = model_path + '/cfg.json'
+            elif os.path.isfile(model_path):
+                cfg_path = os.path.dirname(model_path) + '/cfg.json'
+        else:
+            cfg_path = args.cfg
 
         timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
 
-        if result_path is not None and args.training:
+        if result_path is not None and not args.models:
             # create unique subdir for the model(s)
             result_path = result_path + '/cnn-' + str(timestamp)
             if not os.path.exists(result_path):
                 os.makedirs(result_path)
-        elif args.test:
+        elif args.models:
             result_path = model_path
 
         if not os.path.exists(real_fasta_path):
@@ -200,7 +205,7 @@ def main():
         # -------------------- cfgure parameters -------------------- #
 
         cfg = read_cfg_file(cfg_path)
-        if args.test:
+        if args.test or args.models:
             cfg['data']['nb_alignments'] = None
 
         model_params = cfg['conv_net_parameters']
@@ -216,8 +221,6 @@ def main():
         else:
             raise ValueError(
                 'Please specify either Adagrad or SGD as optimizer')
-
-
 
         # k-fold validator (kfold-seed ensures same fold-splits in opt. loop)
         kfold = StratifiedKFold(nb_folds, shuffle=True, random_state=42)
@@ -282,7 +285,7 @@ def main():
             sim_alns_dict = {fastas_sim[i]: sim_alns[i] for i in
                              range(len(sim_alns))}
 
-        if args.test:
+        if args.models:
             if os.path.isdir(model_path):
                 files = os.listdir(model_path)
                 model_paths = [f'{model_path}/{file}' for file in files
@@ -293,7 +296,7 @@ def main():
                 raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                         model_path)
 
-        if batch_size == '' and lr == '':
+        if (batch_size == '' and lr == '') or args.continu:
             param_space = {
                 'batch_size': [32, 64, 128],
                 'lr': [0.1, 0.01, 0.001, 0.0001]
@@ -306,28 +309,31 @@ def main():
                 'lr': lr if isinstance(lr, list) else [lr],
             }
 
-        param_combis = list(itertools.product(
-            *[np.arange(len(param_space['batch_size'])),
-              np.arange(len(param_space['lr']))]))
+        lrs, bss = np.meshgrid(param_space['lr'], param_space['batch_size'])
+        lrs, bss = lrs.flatten(), bss.flatten()
+        if args.continu:
+            continu_ind = [i for i, (lr_c, bs_c) in enumerate(zip(lrs, bss))
+                           if lr_c == lr and bs_c == batch_size][0] + 1
+            lrs, bss = lrs[continu_ind:], bss[continu_ind:]
+            print(lrs)
+            print(bss)
 
         # -------------------- k-fold cross validation -------------------- #
 
         print(f'\nCompute device: {compute_device}\n')
 
-        best = {'param_eval': {
-            'val_acc': -np.inf,
-            'train_acc': -np.inf,
-            'val_std': -np.inf,
-            'train_std': -np.inf,
-        }}
+        if 'val_acc' in cfg.keys():
+            best = {'val_acc': cfg['val_acc']}
+            print(best)
+        else:
+            best = {'val_acc': -np.inf}
 
         # explore hyper-parameter-space
-        for bs_ind, lr_ind in param_combis:
+        for bs, lr in zip(bss, lrs):
 
             print(sep_line)
             print(f"Current Parameters:\n\tBatch size: "
-                  f"{param_space['batch_size'][bs_ind]}\n"
-                  f"\tLearning rate: {param_space['lr'][lr_ind]}")
+                  f"{bs}\n\tLearning rate: {lr}")
             print(sep_line + '\n')
 
             models = []
@@ -346,26 +352,30 @@ def main():
                 val_ds = TensorDataset(data[val_ids], labels[val_ids], pairs)
                 print(f'Finished after {round(time.time() - start, 2)}s\n')
 
-                train_loader = DataLoader(train_ds,
-                                          param_space['batch_size'][bs_ind],
-                                          shuffle=True, num_workers=24)
-                val_loader = DataLoader(val_ds,
-                                        param_space['batch_size'][bs_ind],
-                                        num_workers=24)
+                bs = int(bs)
+                train_loader = DataLoader(train_ds, bs, shuffle=True,
+                                          num_workers=16)
+                val_loader = DataLoader(val_ds, bs, num_workers=16)
 
                 # generate model
                 model_params['input_size'] = train_ds.data.shape[2]  # seq len
                 model_params['nb_chnls'] = train_ds.data.shape[
                     1]  # 1 channel per amino acid
 
-                if args.training:
-                    model = ConvNet(model_params).to(compute_device)
-                    # train and validate model
-                    fit(epochs, param_space['lr'][lr_ind],
-                        model, train_loader, val_loader, optimizer)
-                elif args.test:
-                    model = load_net(model_paths[fold], model_params,
+                if args.models:
+                    # load model if testing or if continuing training
+                    model = load_net(model_paths[fold]
+                                     if len(model_paths) == nb_folds
+                                     else model_paths[0],
+                                     model_params,
                                      state='eval').to(compute_device)
+                else:
+                    model = ConvNet(model_params).to(compute_device)
+
+                if args.training:
+                        fit(epochs, lr, model, train_loader, val_loader,
+                            optimizer)
+                elif args.test:
                     with torch.no_grad():
                         train_result = evaluate(model, train_loader)
                         for key, val in train_result.items():
@@ -402,24 +412,20 @@ def main():
                                             real_alns_dict, sim_alns_dict)
                     dfs.append(df)
 
-            # evaluation index summing accuracies and
-            # substracting standard deviation
-            param_eval = {}
-            param_eval['val_acc'] = np.mean([model.val_history['acc'][-1]
-                                             for model in models])
-            param_eval['train_acc'] = np.mean([model.train_history['acc'][-1]
-                                               for model in models])
-            param_eval['val_std'] = np.std([model.val_history['acc'][-1]
-                                            for model in models])
-            param_eval['train_std'] = np.std([model.train_history['acc'][-1]
-                                              for model in models])
+            # evaluation for hyper-parameter selection
+            val_acc = np.mean([model.val_history['acc'][-1]
+                               for model in models])
 
-            if param_eval['val_acc'] > best['param_eval']['val_acc']:
-                best['param_eval'] = param_eval
+            if val_acc > best['val_acc']:
+                best['val_acc'] = val_acc
                 best['models'] = models
                 best['dfs'] = dfs
-                best['batch_size'] = param_space['batch_size'][bs_ind]
-                best['lr'] = param_space['lr'][lr_ind]
+                best['batch_size'] = bs
+                best['lr'] = lr
+                print(sep_line)
+                print(f'New best lr: {lr} and bs: {bs}')
+
+                # -------------------------- treat results -------------------------- #
 
                 # plot learning curve
                 for fold, model in enumerate(models):
@@ -429,65 +435,64 @@ def main():
                     else:
                         model.plot()
 
-        # -------------------------- treat results -------------------------- #
+                # save cfg
+                cfg['hyperparameters']['batch_size'] = best['batch_size']
+                cfg['hyperparameters']['lr'] = best['lr']
+                cfg['val_acc'] = best['val_acc']
+                write_cfg_file(cfg,
+                               result_path if result_path is not None else '',
+                               cfg_path if cfg_path is not None else '',
+                               timestamp)
 
-        # save cfg
-        cfg['hyperparameters']['batch_size'] = best['batch_size']
-        cfg['hyperparameters']['lr'] = best['lr']
+                # print/save overall fold results
+                history_folds = merge_fold_hist_dicts(
+                    [model.train_history for model in best['models']],
+                    [model.val_history for model in best['models']])
 
-        write_cfg_file(cfg,
-                       result_path if result_path is not None else '',
-                       cfg_path if cfg_path is not None else '',
-                       timestamp)
+                # save last epochs acc., emp. acc., sim. acc, and loss
+                val_last_epoch = list(history_folds[1].values())
+                val_last_epoch = np.asarray(val_last_epoch)[:, :, -1].T
+
+                if result_path is not None:
+                    np.savetxt(f'{result_path}/fold-validation-{timestamp}.csv',
+                               val_last_epoch,
+                               header=','.join(list(history_folds[1].keys())),
+                               comments='', delimiter=',')
+                    # save plot of learning curve
+                    if args.training:
+                        plot_folds(*history_folds,
+                                   path=f'{result_path}/fig-fold-eval.png')
+                    print(f'\nSaved models and evaluation plots to '
+                          f'{result_path}\n')
+                else:
+                    print(
+                        f'\nNot saving models and evaluation plots. Please use '
+                        f'--save and specify a directory if you want to save '
+                        f'your results!\n')
+
+                # save statistics of training process
+                if len(best['dfs']) > 0 and result_path is not None:
+                    df_c = pd.concat(best['dfs'])
+                    csv_string = df_c.to_csv(index=False)
+                    with open(result_path + '/aln_train_eval.csv', 'w') as file:
+                        file.write(csv_string)
+
+                    print(f'Saved statistics to {result_path}'
+                          f'/aln_train_eval.csv ...\n')
+
+                # print k-fold cross-validation evaluation
+                print(sep_line)
+                print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
+                fold_eval = [model.val_history['acc'][-1] for model in
+                             best['models']]
+                for i, acc in enumerate(fold_eval):
+                    print(f'\tFold {(i + 1)}: {acc} %')
+                print(f'Average: {np.mean(fold_eval)} %')
+                print(sep_line)
 
         print(f"\nBest hyper-parameters:\n\tBatch size: {best['batch_size']}\n"
               f"\tLearning rate: {best['lr']}")
 
-        # print/save overall fold results
-        if result_path is not None:
-            history_folds = merge_fold_hist_dicts(
-                [model.train_history for model in best['models']],
-                [model.val_history for model in best['models']])
-
-            # save last epochs acc., emp. acc., sim. acc, and loss
-            val_last_epoch = list(history_folds[1].values())
-            val_last_epoch = np.asarray(val_last_epoch)[:, :, -1].T
-            np.savetxt(f'{result_path}/fold-validation-{timestamp}.csv',
-                       val_last_epoch,
-                       header=','.join(list(history_folds[1].keys())),
-                       comments='', delimiter=',')
-            # save plot of learning curve
-            if args.training:
-                plot_folds(*history_folds,
-                           path=f'{result_path}/fig-fold-eval.png')
-
-        # save statistics of training process
-        if len(best['dfs']) > 0 and result_path is not None:
-            df_c = pd.concat(best['dfs'])
-            csv_string = df_c.to_csv(index=False)
-            with open(result_path + '/aln_train_eval.csv', 'w') as file:
-                file.write(csv_string)
-
-            print(f'Saved statistics to {result_path}/aln_train_eval.csv ...\n')
-
-        # print k-fold cross-validation evaluation
-        print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
-        print(
-            '----------------------------------------------------------------')
-
-        fold_eval = [model.val_history['acc'][-1] for model in best['models']]
-
-        for i, acc in enumerate(fold_eval):
-            print(f'\tFold {(i + 1)}: {acc} %')
-
-        print(f'Average: {np.mean(fold_eval)} %')
-
-        if result_path is not None:
-            print(f'\nSaved models and evaluation plots to {result_path}\n')
-        else:
-            print(f'\nNot saving models and evaluation plots. Please use '
-                  f'--save and specify a directory if you want to save your '
-                  f'results!\n')
 
 if __name__ == '__main__':
     main()
