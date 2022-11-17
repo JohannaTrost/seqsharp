@@ -95,7 +95,7 @@ def main():
     # -------------------- verify arguments usage -------------------- #
 
     # exclusive usage of -m
-    if (args.models and any(arg for arg in (args.track_stats, args.shuffle))):
+    if args.models and any(arg for arg in (args.track_stats, args.shuffle)):
         parser.error('--models cannot be used in combination with '
                      '--shuffle or --track_stats')
 
@@ -184,10 +184,12 @@ def main():
         timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
 
         if result_path is not None and not args.models:
-            # create unique subdir for the model(s)
-            result_path = result_path + '/cnn-' + str(timestamp)
+            if not result_path.split('/')[-1].startswith('cnn-'):
+                # create unique subdir for the model(s)
+                result_path = result_path + '/cnn-' + str(timestamp)
             if not os.path.exists(result_path):
                 os.makedirs(result_path)
+
         elif args.models:
             result_path = model_path
 
