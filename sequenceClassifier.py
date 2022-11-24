@@ -99,10 +99,6 @@ def main():
         parser.error('--models cannot be used in combination with '
                      '--shuffle or --track_stats')
 
-    if args.training and ((args.datasets and not args.cfg) or (
-            args.cfg and not args.datasets)):
-        parser.error('--datasets and --cfg have to be used together')
-
     if args.test and (not args.models or not args.datasets):
         parser.error('--test requires --modles and --datasets')
 
@@ -172,7 +168,7 @@ def main():
         pairs = args.pairs
         result_path = args.save if args.save else None
 
-        if args.models:
+        if args.models and not args.cfg:
             model_path = args.models
             if os.path.isdir(model_path):
                 cfg_path = model_path + '/cfg.json'
@@ -298,7 +294,7 @@ def main():
                 raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                         model_path)
 
-        if (batch_size == '' and lr == '') or args.continu:
+        if (batch_size == '' and lr == '') or (args.continu and not args.models):
             param_space = {
                 'batch_size': [32, 64, 128],
                 'lr': [0.1, 0.01, 0.001, 0.0001]
@@ -313,7 +309,7 @@ def main():
 
         lrs, bss = np.meshgrid(param_space['lr'], param_space['batch_size'])
         lrs, bss = lrs.flatten(), bss.flatten()
-        if args.continu:
+        if args.continu and not args.models:
             continu_ind = [i for i, (lr_c, bs_c) in enumerate(zip(lrs, bss))
                            if lr_c == lr and bs_c == batch_size][0] + 1
             lrs, bss = lrs[continu_ind:], bss[continu_ind:]
@@ -365,12 +361,13 @@ def main():
                     1]  # 1 channel per amino acid
 
                 if args.models:
+                    state = 'train' if args.continu else 'eval'
                     # load model if testing or if continuing training
                     model = load_net(model_paths[fold]
                                      if len(model_paths) == nb_folds
                                      else model_paths[0],
                                      model_params,
-                                     state='eval').to(compute_device)
+                                     state=state).to(compute_device)
                 else:
                     model = ConvNet(model_params).to(compute_device)
 
