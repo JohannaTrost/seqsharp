@@ -160,7 +160,7 @@ def plot_folds(train_history_folds, val_history_folds, std=True, same_col=False,
     :return: figure, axes of matplotlib plot
     """
 
-    nb_folds = len(train_history_folds)
+    nb_folds = len(train_history_folds['acc'])
 
     # calculate mean/std over folds per epoch
     avg_train, std_train, avg_val, std_val = {}, {}, {}, {}

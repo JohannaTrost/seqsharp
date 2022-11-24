@@ -415,7 +415,7 @@ def main():
             val_acc = np.mean([model.val_history['acc'][-1]
                                for model in models])
 
-            if val_acc > best['val_acc']:
+            if val_acc >= best['val_acc']:
                 best['val_acc'] = val_acc
                 best['models'] = models
                 best['dfs'] = dfs
