@@ -2,8 +2,8 @@ import os
 
 import numpy as np
 import seaborn as sns
-#import matplotlib as mpl
-#mpl.use('TkAgg')
+# import matplotlib as mpl
+# mpl.use('TkAgg')
 import pandas as pd
 
 from matplotlib import pylab as plt
@@ -14,6 +14,53 @@ from utils import merge_fold_hist_dicts, confidence_ellipse, pred_runtime
 
 
 # matplotlib.use("Agg")
+
+def plot_model_folds_accs(model_val_paths, model_names, ax=None):
+    headers = [np.asarray(np.genfromtxt(m, names=True,
+                                        delimiter=',').dtype.names)
+               for m in model_val_paths]
+    val_res = np.asarray([np.genfromtxt(m, skip_header=True, delimiter=',')
+                          for m in model_val_paths])
+    n_folds = val_res.shape[1]
+    n_models = val_res.shape[0]
+
+    m_acc = np.asarray([acc[:, h == 'acc'].flatten()
+                        for acc, h in zip(val_res, headers)])
+    m_acc_emp = np.asarray([acc[:, h == 'acc_emp'].flatten()
+                            for acc, h in zip(val_res, headers)])
+    m_acc_sim = np.asarray([acc[:, h == 'acc_sim'].flatten()
+                            for acc, h in zip(val_res, headers)])
+
+    if ax is None:
+        ax = plt.gca()
+    ax.set_ylim([0.6, 1.005])
+
+    # plot mean acc. (BACC, emp. and sim.)
+    x = np.arange(1, n_models + 1)
+    ax.scatter(x, m_acc_emp.mean(axis=1), color='coral', alpha=0.3,
+            label='empirical (folds mean)')
+    ax.scatter(x, m_acc_sim.mean(axis=1), color='c', alpha=0.3,
+               label='simulated (folds mean)')
+    ax.plot(x, m_acc_emp.mean(axis=1), color='coral', alpha=0.3, linestyle=':')
+    ax.plot(x, m_acc_sim.mean(axis=1), color='c', alpha=0.3, linestyle=':')
+    ax.plot(x, m_acc.mean(axis=1), color='grey', label='BACC (folds mean)')
+
+    # plot all folds acc. (BACC, emp. and sim.)
+    x = np.arange(1, n_models + 1).repeat(n_folds)
+    ax.scatter(x, m_acc.flatten(), color='grey', alpha=0.5,
+               label='BACC per fold')
+
+    ax.set_yticks(np.arange(0.5, 1.05, 0.1))
+    ax.set_xticks(np.arange(1, n_models + 1))
+    ax.set_xticklabels(model_names, rotation=45)
+    ax.set(frame_on=False)
+    ax.set_xticks(np.arange(0.5, n_models + 0.5, 0.5), minor=True)
+    ax.set_yticks(np.arange(0.5, 1.05, 0.05), minor=True)
+    ax.grid(which='both', color='grey', linestyle='-', linewidth=0.5,
+            alpha=0.3)
+    ax.legend()
+
+    return ax
 
 
 def plot_aa_dens(real, sim, save, aas='ARNDCQEGHILKMFPSTWYV'):
@@ -141,7 +188,7 @@ def plot_folds(train_history_folds, val_history_folds, std=True, same_col=False,
     :return: figure, axes of matplotlib plot
     """
 
-    nb_folds = len(train_history_folds)
+    nb_folds = len(train_history_folds['acc'])
 
     # calculate mean/std over folds per epoch
     avg_train, std_train, avg_val, std_val = {}, {}, {}, {}
@@ -470,7 +517,6 @@ def pca_plot():  # TODO
 
     confidence_ellipse(pca_msa_freqs[:, 0], pca_msa_freqs[:, 1], ax, n_std=2,
                        edgecolor='coral')
-
 
     for cl in sim_msas[run, sample_sim, 20]:
         col = list(sc.to_rgba(cl))
