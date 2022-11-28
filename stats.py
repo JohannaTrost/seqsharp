@@ -9,6 +9,43 @@ from sklearn.decomposition import PCA
 from utils import dim
 
 
+def effect_size(group1, group2):
+    # cohen's D
+    # group1 > group2
+
+    n1, n2 = len(group1), len(group2)
+    pooled_sd = (n1 - 1) * np.var(group1) + (n2 - 1) * np.var(group2)
+    pooled_sd /= n1 + n2 - 2
+    pooled_sd = pooled_sd ** 0.5
+
+    d = (np.mean(group1) - np.mean(group2)) / pooled_sd
+
+    if ((n1 + n2) / 2) < 50:  # correction for small sample size
+        d *= (((n1 + n2) / 2) - 3) / (((n1 + n2) / 2) - 2.25)
+
+    return d, pooled_sd
+
+
+def interpret_cohens_d(cohens_d):
+    """Determines text interpretation of effect size given Cohen's d value
+
+    param cohens_d: float of Cohen's d value
+    :returns: effect_size_interpretation: adjective to describe magnitude of
+    effect size
+    """
+    if 0 <= cohens_d < 0.1:
+        effect_size_interpretation = "Very Small"
+    elif 0.1 <= cohens_d < 0.35:
+        effect_size_interpretation = "Small"
+    elif 0.35 <= cohens_d < 0.65:
+        effect_size_interpretation = "Medium"
+    elif 0.65 <= cohens_d < 0.9:
+        effect_size_interpretation = "Large"
+    elif cohens_d >= 0.9:
+        effect_size_interpretation = "Very Large"
+    return effect_size_interpretation
+
+
 def mse(aln1, aln2):
     """Mean square error of 2 alignment representations"""
 
@@ -104,7 +141,7 @@ def distance_stats(dists):
 
 
 def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
-                          csv_path=None):
+        csv_path=None):
     """Returns a dataframe with information about input
        alignments with option to save the table as a csv file
 
