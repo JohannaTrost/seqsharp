@@ -17,6 +17,43 @@ torch.cuda.empty_cache()
 gc.collect()
 
 
+def validation(model, train_loader, val_loader):
+    model.eval()
+    with torch.no_grad():
+        # eval for training dataset
+        train_result = evaluate(model, train_loader)
+        # eval for validataion dataset
+        val_result = evaluate(model, val_loader)
+    for key, val in train_result.items():
+        model.train_history[key].append(val)
+    print(f"Training: Loss: {np.round(train_result['loss'], 4)}, "
+          f"Acc.: {np.round(train_result['acc'], 4)}")
+    for key, val in val_result.items():
+        model.val_history[key].append(val)
+    print(f"Validation: Loss: {np.round(val_result['loss'], 4)}, "
+          f"Acc.: {np.round(val_result['acc'], 4)}, "
+          f"Emp. acc.: {np.round(val_result['acc_emp'], 4)}, "
+          f"Sim. acc.: {np.round(val_result['acc_sim'], 4)}")
+    return model
+
+
+def evaluate_folds(val_hist_folds, nb_folds):
+    """Return acc., emp./sim. acc. and loss of best epoch for each fold
+
+    :param val_hist_folds: acc., emp./sim. acc. and loss for each epoch and fold
+    :param nb_folds: number of folds
+    :return: dict with acc., emp./sim. acc. and loss of epoch with min.
+    loss for each fold
+    """
+
+    val_folds = {'loss': [], 'acc': [], 'acc_emp': [], 'acc_sim': []}
+    for fold in range(nb_folds):
+        best_epoch = np.argmin(val_hist_folds['loss'][fold])
+        for key in val_folds.keys():
+            val_folds[key].append(val_hist_folds[key][fold][best_epoch])
+    return val_folds
+
+
 def evaluate(model, val_loader):
     """Feeds the model with data and returns its performance
 
@@ -44,13 +81,16 @@ def evaluate(model, val_loader):
 
     return epoch_acc_loss
 
-def fit(epochs, lr, model, train_loader, val_loader,
-        opt_func=torch.optim.Adagrad, start_epoch=0):
+
+def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
+        start_epoch=0, max_epochs=100, patience=4, min_delta=1e-04):
     """
     Training a model to learn a function to distinguish between simulated and
     empirical alignments (with validation step at the end of each epoch)
+    :param min_delta: threshold for early stopping (min. loss difference)
+    :param patience: nb. of epochs without change that triggers early stopping
+    :param max_epochs: max. number of repetitions of training (integer)
     :param start_epoch: possibility to continue training from this epoch
-    :param epochs: number of repetitions of training (integer)
     :param lr: learning rate (float)
     :param model: ConvNet object
     :param train_loader: training dataset (DataLoader)
@@ -60,23 +100,13 @@ def fit(epochs, lr, model, train_loader, val_loader,
 
     optimizer = opt_func(model.parameters(), lr)
 
+    print('Epoch [0]')
     # validation phase with initialized weights (untrained network)
-    model.eval()
-    with torch.no_grad():
-        # eval for training dataset
-        train_result = evaluate(model, train_loader)
-        for key, val in train_result.items():
-            model.train_history[key].append(val)
-        # eval for validataion dataset
-        val_result = evaluate(model, val_loader)
-        for key, val in val_result.items():
-            model.val_history[key].append(val)
+    model = validation(model, train_loader, val_loader)
+    prev_val_loss = model.val_history['loss'][-1]
 
-        print(f"Epoch [0], loss: {val_result['loss']}, "
-              f"acc: {val_result['acc']}, emp. acc: {val_result['acc_emp']}, "
-              f"sim. acc: {val_result['acc_sim']}")
-
-    for epoch in range(start_epoch+1, epochs + 1):
+    no_imporv_cnt = 0
+    for epoch in range(start_epoch + 1, max_epochs + 1):
 
         print(f'Epoch [{epoch}]')
 
@@ -89,26 +119,23 @@ def fit(epochs, lr, model, train_loader, val_loader,
             optimizer.step()
 
         # validation phase
-        model.eval()
-        with torch.no_grad():
-            # eval for training dataset
-            train_result = evaluate(model, train_loader)
-            for key, val in train_result.items():
-                model.train_history[key].append(val)
-            print(f"Training: Loss: {np.round(train_result['loss'], 4)}, "
-                  f"Acc.: {np.round(train_result['acc'], 4)}")
-            # eval for validataion dataset
-            val_result = evaluate(model, val_loader)
-            for key, val in val_result.items():
-                model.val_history[key].append(val)
-            print(f"Validation: Loss: {np.round(val_result['loss'], 4)}, "
-                  f"Acc.: {np.round(val_result['acc'], 4)}, "
-                  f"Emp. acc.: {np.round(val_result['acc_emp'], 4)}, "
-                  f"Sim. acc.: {np.round(val_result['acc_sim'], 4)}")
+        model = validation(model, train_loader, val_loader)
+
+        if epoch % 2 == 0:  # do eval for early stopping every other epoch
+            curr_val_loss = model.val_history['loss'][-1]
+            if prev_val_loss - curr_val_loss < min_delta:
+                no_imporv_cnt += 1
+                if no_imporv_cnt >= patience:
+                    print(f'\nEarly stopping at epoch {epoch}\n')
+                    break
+            else:
+                no_imporv_cnt = 0
+
+            prev_val_loss = curr_val_loss
 
 
 def eval_per_align(conv_net, real_alns, sim_alns,
-                   fastas_real, fastas_sim, indices, pairs=False):
+        fastas_real, fastas_sim, indices, pairs=False):
     """
     Predicting whether given alignments are simulated or empirical using a
     given (trained) network
@@ -172,7 +199,7 @@ def eval_per_align(conv_net, real_alns, sim_alns,
 
 
 def generate_eval_dict(fold, train_real, train_sim, val_real, val_sim,
-                       real_alns, sim_alns, save=None):
+        real_alns, sim_alns, save=None):
     """
     Generate data frame containing training specific information about the
     alignment e.g. the distance between an alignment and the training data set

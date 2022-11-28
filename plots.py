@@ -189,8 +189,7 @@ def plot_em_learning_curves(n_runs, n_iter, vlbs_dips, vlbs, debug, test,
     plt.close(fig)
 
 
-def plot_folds(train_history_folds, val_history_folds, std=True, same_col=False,
-               plot=None, plotname='', path=None, col=None):
+def plot_folds(train_history_folds, val_history_folds, plotname='', path=None):
     """Plots validation and training history over folds
 
     Left plot with mean and standard diviation of accuracies, right plot with
@@ -208,80 +207,38 @@ def plot_folds(train_history_folds, val_history_folds, std=True, same_col=False,
     """
 
     nb_folds = len(train_history_folds['acc'])
-
-    # calculate mean/std over folds per epoch
-    avg_train, std_train, avg_val, std_val = {}, {}, {}, {}
-    for key, hist in train_history_folds.items():
-        avg_train[key] = np.mean(hist, axis=0)
-        std_train[key] = np.std(hist, axis=0)
-    for key, hist in val_history_folds.items():
-        avg_val[key] = np.mean(hist, axis=0)
-        std_val[key] = np.std(hist, axis=0)
-
-    del train_history_folds, val_history_folds
+    train_col, val_col = (0.518, 0.753, 0.776), (0.576, 1.0, 0.588)
 
     # plot the model evaluation
-    fig, axs = (plt.subplots(ncols=2, sharex=True, figsize=(12., 6.))
-                if plot is None else plot[:2])
+    fig, axs = plt.subplots(ncols=2, sharex=True, figsize=(12., 6.))
 
     # 1. subplot: accuracy
     axs[0].set_xlabel('epoch')
-    axs[0].set_ylabel('accuracy')
-    axs[0].set_title(f'Avg. accuracy vs. No. of epochs over {nb_folds} folds')
+    axs[0].set_ylabel('BACC')
+    axs[0].set_title(f'BACC per fold vs. No. of epochs ({nb_folds} folds)')
 
-    if col is None:
-        line_val, = axs[0].plot(avg_val['acc'], '-',
-                                label=f'validation {plotname}')
-    else:
-        line_val, = axs[0].plot(avg_val['acc'], '-', color=col,
-                                label=f'validation {plotname}')
+    for fold in range(nb_folds):
+        axs[0].plot(val_history_folds['acc'][fold], '-', color=val_col,
+                    label=f'validation {plotname}' if fold == 0 else '',
+                    alpha=0.5)
+        axs[0].plot(train_history_folds['acc'][fold], '-', color=train_col,
+                    label=f'training {plotname}' if fold == 0 else '',
+                    alpha=0.5)
 
-    if not same_col:
-        line_train, = axs[0].plot(avg_train['acc'], '-',
-                                  label=f'training {plotname}')
-    else:  # usually in case of multiple models for easier comparison
-        line_train, = axs[0].plot(avg_train['acc'], '-',
-                                  label=f'training {plotname}',
-                                  color=line_val.get_color(), alpha=0.4)
-
-    if std:
-        axs[0].fill_between(range(len(avg_train['acc'])),
-                            avg_train['acc'] - std_train['acc'],
-                            avg_train['acc'] + std_train['acc'],
-                            color=line_train.get_color(), alpha=0.3)
-        axs[0].fill_between(range(len(avg_val['acc'])),
-                            avg_val['acc'] - std_val['acc'],
-                            avg_val['acc'] + std_val['acc'],
-                            color=line_val.get_color(),
-                            alpha=0.3)
-    # axs[0].set_ylim([np.floor(plt.ylim()[0] * 100) / 100, 1.0])
+    #axs[0].set_ylim([np.floor(plt.ylim()[0] * 100) / 100, 1.0])
 
     # 2. subplot: loss
-    if col is not None:
-        val_loss_line, = axs[1].plot(avg_val['loss'], '-', color=col)
-    else:
-        val_loss_line, = axs[1].plot(avg_val['loss'], '-')
-
-    if not same_col:
-        axs[1].plot(avg_train['loss'], '-')
-    else:  # makes comparison of multiple models easier
-        axs[1].plot(avg_train['loss'], '-', color=val_loss_line.get_color(),
-                    alpha=0.4)
-
-    if std:
-        axs[1].fill_between(range(len(avg_train['loss'])),
-                            avg_train['loss'] - std_train['loss'],
-                            avg_train['loss'] + std_train['loss'],
-                            color=line_train.get_color(), alpha=0.3)
-        axs[1].fill_between(range(len(avg_val['loss'])),
-                            avg_val['loss'] - std_val['loss'],
-                            avg_val['loss'] + std_val['loss'],
-                            color=line_val.get_color(),
-                            alpha=0.3)
-
     axs[1].set_xlabel('epoch')
     axs[1].set_ylabel('loss')
-    axs[1].set_title(f'Avg. loss vs. No. of epochs over {nb_folds} folds')
+    axs[1].set_title(f'Loss per fold vs. No. of epochs ({nb_folds} folds)')
+
+    for fold in range(nb_folds):
+        axs[1].plot(val_history_folds['loss'][fold], '-', color=val_col,
+                    label=f'validation {plotname}' if fold == 0 else '',
+                    alpha=0.5)
+        axs[1].plot(train_history_folds['loss'][fold], '-', color=train_col,
+                    label=f'training {plotname}' if fold == 0 else '',
+                    alpha=0.5)
 
     plt.subplots_adjust(bottom=0.25)
 

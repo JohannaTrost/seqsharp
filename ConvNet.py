@@ -14,9 +14,12 @@ import torch.nn as nn
 # matplotlib.use('Agg')
 from sklearn.metrics import balanced_accuracy_score
 
-compute_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-print(f'\ncompute device: {compute_device}\n')
+if torch.cuda.is_available():
+    compute_device = torch.device("cuda:0")
+elif torch.backends.mps.is_available():
+    compute_device = torch.device("cpu")
+else:
+    compute_device = torch.device("cpu")
 
 
 def init_weights(m):
@@ -200,14 +203,15 @@ class ConvNet(nn.Module):
             keys = ['acc', 'acc_emp', 'acc_sim']
             line_styles = ['-', '--', ':']
             labels = ['', 'empirical', 'simulated']
+            alphas = [1, 0.5, 0.5]
 
             fig, axs = plt.subplots(ncols=2, sharex=True, figsize=(12., 6.))
 
-            for key, line_style, label in zip(keys, line_styles, labels):
-                axs[0].plot(self.train_history[key], linestyle=line_style,
+            for key, ls, label, a in zip(keys, line_styles, labels, alphas):
+                axs[0].plot(self.train_history[key], linestyle=ls, alpha=a,
                             label=f'{label} (train.)' if label != '' else '',
                             color=train_col)
-                axs[0].plot(self.val_history[key], linestyle=line_style,
+                axs[0].plot(self.val_history[key], linestyle=ls, alpha=a,
                             label=f'{label} (val.)' if label != '' else '',
                             color=val_col)
 
@@ -254,16 +258,15 @@ def accuracy(outputs, labels):
     preds = torch.round(torch.flatten(torch.sigmoid(outputs))).to(
         compute_device)
 
-    accs['acc'] = torch.tensor(balanced_accuracy_score(
-        labels.detach().cpu().numpy(), preds.detach().cpu().numpy()),
-        dtype=torch.float32)
+    accs['acc'] = torch.FloatTensor([balanced_accuracy_score(
+        labels.detach().cpu().numpy(), preds.detach().cpu().numpy())])
 
     for label, key in enumerate(['acc_emp', 'acc_sim']):
 
         class_mask = (labels == label).clone().detach()
         n = torch.sum(class_mask)
-        n_correct = torch.sum(preds[class_mask] == labels[class_mask]).item()
-        accs[key] = n_correct / n if n > 0 else torch.tensor(-1)
+        n_correct = torch.sum(preds[class_mask] == labels[class_mask])
+        accs[key] = n_correct / n if n.item() > 0 else torch.FloatTensor(-1)
         accs[key].to(compute_device)
 
     # acc = torch.tensor((torch.sum(preds == labels).item() / len(preds)))

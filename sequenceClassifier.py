@@ -28,7 +28,8 @@ from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
 from plots import plot_folds, plot_hist_quantiles
 from stats import get_n_sites_per_msa, get_n_seqs_per_msa
 from utils import write_cfg_file, read_cfg_file, merge_fold_hist_dicts
-from train_eval import fit, eval_per_align, generate_eval_dict, evaluate
+from train_eval import fit, eval_per_align, generate_eval_dict, evaluate, \
+    evaluate_folds
 
 torch.cuda.empty_cache()
 
@@ -352,8 +353,8 @@ def main():
 
                 bs = int(bs)
                 train_loader = DataLoader(train_ds, bs, shuffle=True,
-                                          num_workers=16)
-                val_loader = DataLoader(val_ds, bs, num_workers=16)
+                                          num_workers=2)
+                val_loader = DataLoader(val_ds, bs, num_workers=2)
 
                 # generate model
                 model_params['input_size'] = train_ds.data.shape[2]  # seq len
@@ -372,8 +373,8 @@ def main():
                     model = ConvNet(model_params).to(compute_device)
 
                 if args.training:
-                        fit(epochs, lr, model, train_loader, val_loader,
-                            optimizer)
+                        fit(lr, model, train_loader, val_loader, optimizer,
+                            max_epochs=epochs)
                 elif args.test:
                     with torch.no_grad():
                         train_result = evaluate(model, train_loader)
@@ -411,9 +412,13 @@ def main():
                                             real_alns_dict, sim_alns_dict)
                     dfs.append(df)
 
+            train_hist_folds, val_hist_folds = merge_fold_hist_dicts(
+                [model.train_history for model in models],
+                [model.val_history for model in models])
+            # get acc., emp. acc., sim. acc, and loss of epoch with min. loss
+            val_folds = evaluate_folds(val_hist_folds, nb_folds)
             # evaluation for hyper-parameter selection
-            val_acc = np.mean([model.val_history['acc'][-1]
-                               for model in models])
+            val_acc = np.mean(val_folds['acc'])
 
             if val_acc >= best['val_acc']:
                 best['val_acc'] = val_acc
@@ -424,7 +429,7 @@ def main():
                 print(sep_line)
                 print(f'New best lr: {lr} and bs: {bs}')
 
-                # -------------------------- treat results -------------------------- #
+                # ------------------------- results ------------------------- #
 
                 # plot learning curve
                 for fold, model in enumerate(models):
@@ -444,22 +449,14 @@ def main():
                                timestamp)
 
                 # print/save overall fold results
-                history_folds = merge_fold_hist_dicts(
-                    [model.train_history for model in best['models']],
-                    [model.val_history for model in best['models']])
-
-                # save last epochs acc., emp. acc., sim. acc, and loss
-                val_last_epoch = list(history_folds[1].values())
-                val_last_epoch = np.asarray(val_last_epoch)[:, :, -1].T
-
                 if result_path is not None:
                     np.savetxt(f'{result_path}/fold-validation-{timestamp}.csv',
-                               val_last_epoch,
-                               header=','.join(list(history_folds[1].keys())),
+                               np.asarray(list(val_folds.values())).T,
+                               header=','.join(list(val_folds.keys())),
                                comments='', delimiter=',')
                     # save plot of learning curve
                     if args.training:
-                        plot_folds(*history_folds,
+                        plot_folds(train_hist_folds, val_hist_folds,
                                    path=f'{result_path}/fig-fold-eval.png')
                     print(f'\nSaved models and evaluation plots to '
                           f'{result_path}\n')
