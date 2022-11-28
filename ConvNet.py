@@ -182,13 +182,12 @@ class ConvNet(nn.Module):
         alns = alns.to(compute_device)
         labels = labels.to(compute_device)
 
-        out = self(alns)  # generate predictions
+        out = self(alns).to(compute_device)  # generate predictions
 
         criterion = nn.BCEWithLogitsLoss()
         loss = criterion(out, torch.reshape(labels, out.shape))
-        acc = accuracy(out, labels)
 
-        return loss, acc
+        return loss, out.squeeze(dim=1), labels
 
     def plot(self, path=None):
         """Generates a figure with 2 plots for loss and accuracy over epochs
@@ -260,6 +259,7 @@ def accuracy(outputs, labels):
         dtype=torch.float32)
 
     for label, key in enumerate(['acc_emp', 'acc_sim']):
+
         class_mask = (labels == label).clone().detach()
         n = torch.sum(class_mask)
         n_correct = torch.sum(preds[class_mask] == labels[class_mask]).item()
