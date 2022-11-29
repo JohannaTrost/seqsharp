@@ -178,15 +178,18 @@ def main():
         else:
             cfg_path = args.cfg
 
-        timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
+        cfg = read_cfg_file(cfg_path)
 
+        timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
         if result_path is not None and not args.models:
             if not result_path.split('/')[-1].startswith('cnn-'):
                 # create unique subdir for the model(s)
-                result_path = result_path + '/cnn-' + str(timestamp)
+                result_path += '/cnn_'
+                result_path += sim_fasta_path.split('/')[-1] + '_k'
+                result_path += str(cfg['conv_net_parameters']['kernel_size'])
+                result_path += '_' + str(timestamp)
             if not os.path.exists(result_path):
                 os.makedirs(result_path)
-
         elif args.models:
             result_path = model_path
 
@@ -203,7 +206,6 @@ def main():
 
         # -------------------- cfgure parameters -------------------- #
 
-        cfg = read_cfg_file(cfg_path)
         if args.test or args.models:
             cfg['data']['nb_alignments'] = None
 
@@ -353,8 +355,8 @@ def main():
 
                 bs = int(bs)
                 train_loader = DataLoader(train_ds, bs, shuffle=True,
-                                          num_workers=2)
-                val_loader = DataLoader(val_ds, bs, num_workers=2)
+                                          num_workers=8)
+                val_loader = DataLoader(val_ds, bs, num_workers=8)
 
                 # generate model
                 model_params['input_size'] = train_ds.data.shape[2]  # seq len

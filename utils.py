@@ -331,5 +331,5 @@ def load_custom_distr(file_path):
         return pickle.load(file)
 
 
-n_sites_pdf = load_custom_distr('../../data/n_sites_hogenom_6971.CustomPDF')
-gamma_shape_pdf = load_custom_distr('../../data/gamma_shape.CustomPDF')
+n_sites_pdf = load_custom_distr('data/n_sites_hogenom_6971.CustomPDF')
+gamma_shape_pdf = load_custom_distr('data/gamma_shape.CustomPDF')
