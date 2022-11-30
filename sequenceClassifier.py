@@ -226,9 +226,11 @@ def main():
         # k-fold validator (kfold-seed ensures same fold-splits in opt. loop)
         kfold = StratifiedKFold(nb_folds, shuffle=True, random_state=42)
 
-        torch.manual_seed(42)
-        random.seed(42)
-        np.random.seed(42)
+        seed = 42 + np.random.randint(100) if args.continu else 42
+        torch.manual_seed(seed)
+        random.seed(seed)
+        np.random.seed(seed)
+        print(f'\nRandom seed: {seed}\n')
 
         # ------------------------- data preparation ------------------------- #
 
