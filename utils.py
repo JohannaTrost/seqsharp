@@ -8,6 +8,7 @@ import warnings
 
 import numpy as np
 import matplotlib.transforms as transforms
+from datetime import datetime
 from tompy import CustomPDF
 
 from ConvNet import load_net
@@ -15,11 +16,57 @@ from matplotlib import pylab as plt
 from matplotlib.patches import Ellipse
 
 
-def save_dict2table(dict, path):
-    header = ','.join(list(dict.keys()))
-    values = list(dict.values())
+def get_model_performance(model_path):
+    """Get array of (most recent) BACC, class acc. and loss of model for all
+    folds
 
-    np.savetxt(values, )
+    :param model_path: <path/to> model containing 'fold-validation'-file
+    :return: array of BACC, class acc. and loss for each fold and csv header
+    """
+    val_files = [f for f in os.listdir(model_path) if
+                 f.startswith('fold-validation')]
+    # get most recent val. results
+    if len(val_files) > 1:
+        file_age = []
+        for f in val_files:
+            if f.startswith('fold-validation-'):  # timestamp given
+                time = datetime.strptime(f.strip('fold-validation-.csv'),
+                                         "%d-%b-%Y-%H:%M:%S.%f")
+            else:  # if timestamp is not given then this is the oldest result
+                time = datetime.strptime('01-Nov-1000-00:00:00.000000',
+                                         "%d-%b-%Y-%H:%M:%S.%f")
+            file_age.append(time)
+        ind_most_recent = np.argmin(file_age)
+        val_file = val_files[ind_most_recent]
+    else:
+        val_file = val_files[0]
+
+    return fold_val_from_csv(f'{model_path}/{val_file}')
+
+
+def fold_val_dict2csv(dict, path):
+    """Save dictionary with BACC, class acc. and loss for each fold to csv
+
+    :param dict: dictionary with BACC, class acc. and loss for each fold
+    :param path: <path/to> csv file
+    :return: -
+    """
+    tab = np.asarray(list(dict.values())).T
+    header = ','.join(list(dict.keys()))
+    np.savetxt(path, tab, header=header, comments='', delimiter=',')
+
+
+def fold_val_from_csv(path):
+    """Get array of BACC, class acc. and loss for each fold and csv header
+
+    :param path: <path/to> csv file
+    :return: array of BACC, class acc. and loss for each fold and csv header
+    """
+    header = np.asarray(np.genfromtxt(path, names=True,
+                                      delimiter=',').dtype.names)
+    val_folds = np.genfromtxt(path, skip_header=True, delimiter=',')
+    return val_folds, header
+
 
 def write_cfg_file(cfg, model_path, cfg_path, timestamp=None):
     """Save parameters in a json file

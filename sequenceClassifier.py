@@ -27,7 +27,8 @@ from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
     make_msa_reprs, load_msa_reprs
 from plots import plot_folds, plot_hist_quantiles
 from stats import get_n_sites_per_msa, get_n_seqs_per_msa
-from utils import write_cfg_file, read_cfg_file, merge_fold_hist_dicts
+from utils import write_cfg_file, read_cfg_file, merge_fold_hist_dicts, \
+    fold_val_dict2csv
 from train_eval import fit, eval_per_align, generate_eval_dict, evaluate, \
     evaluate_folds
 
@@ -357,8 +358,8 @@ def main():
 
                 bs = int(bs)
                 train_loader = DataLoader(train_ds, bs, shuffle=True,
-                                          num_workers=8)
-                val_loader = DataLoader(val_ds, bs, num_workers=8)
+                                          num_workers=4)
+                val_loader = DataLoader(val_ds, bs, num_workers=4)
 
                 # generate model
                 model_params['input_size'] = train_ds.data.shape[2]  # seq len
@@ -454,10 +455,10 @@ def main():
 
                 # print/save overall fold results
                 if result_path is not None:
-                    np.savetxt(f'{result_path}/fold-validation-{timestamp}.csv',
-                               np.asarray(list(val_folds.values())).T,
-                               header=','.join(list(val_folds.keys())),
-                               comments='', delimiter=',')
+                    fold_val_dict2csv(val_folds,
+                                      f'{result_path}/'
+                                      f'fold-validation-{timestamp}.csv')
+
                     # save plot of learning curve
                     if args.training:
                         plot_folds(train_hist_folds, val_hist_folds,

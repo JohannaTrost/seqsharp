@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from ConvNet import compute_device, accuracy
 from preprocessing import DatasetAln
 from stats import mse, distance_stats
+from tompy import median_smooth
 
 torch.cuda.empty_cache()
 
@@ -83,7 +84,8 @@ def evaluate(model, val_loader):
 
 
 def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
-        start_epoch=0, max_epochs=100, patience=4, min_delta=1e-04):
+        start_epoch=0, max_epochs=100, min_epochs=20, patience=4,
+        min_delta=1e-04):
     """
     Training a model to learn a function to distinguish between simulated and
     empirical alignments (with validation step at the end of each epoch)
@@ -103,7 +105,6 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
     print('Epoch [0]')
     # validation phase with initialized weights (untrained network)
     model = validation(model, train_loader, val_loader)
-    prev_val_loss = model.val_history['loss'][-1]
 
     no_imporv_cnt = 0
     for epoch in range(start_epoch + 1, max_epochs + 1):
@@ -121,8 +122,11 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         # validation phase
         model = validation(model, train_loader, val_loader)
 
-        if epoch % 2 == 0:  # do eval for early stopping every other epoch
-            curr_val_loss = model.val_history['loss'][-1]
+        if epoch % 2 == 0 and epoch > min_epochs - 1:
+            # do eval for early stopping every other epoch
+            # after reaching min num epochs
+            smooth_val_loss = median_smooth(model.val_history['loss'], 17)
+            curr_val_loss = smooth_val_loss[-1]
             if prev_val_loss - curr_val_loss < min_delta:
                 no_imporv_cnt += 1
                 if no_imporv_cnt >= patience:
@@ -130,8 +134,9 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
                     break
             else:
                 no_imporv_cnt = 0
-
             prev_val_loss = curr_val_loss
+        elif epoch == min_epochs - 3:
+            prev_val_loss = median_smooth(model.val_history['loss'], 17)[-1]
 
 
 def eval_per_align(conv_net, real_alns, sim_alns,
