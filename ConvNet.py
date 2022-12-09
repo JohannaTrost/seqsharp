@@ -127,7 +127,7 @@ class ConvNet(nn.Module):
             elif p['do_maxpool'] == 2 and i == nb_conv_layer - 1:
                 # global pooling
                 ks = int(p['input_size'] / 2 ** max(nb_conv_layer - 1, 0))
-                self.conv_layers.append(nn.MaxPool1d(kernel_size=ks))
+                self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
 
         self.conv_layers.append(nn.Dropout(0.25))
 
@@ -137,28 +137,26 @@ class ConvNet(nn.Module):
         # fully connected layer(s)
         self.lin_layers = []
         nb_lin_layers = p['nb_lin_layer']
-
-        if nb_lin_layers > 2:
-            # if at least 3 lin layers have a first "input layer" with same
-            # number of output nodes and dropout
-            self.lin_layers += [nn.Linear(out_size, out_size),
-                                nn.ReLU(),
-                                nn.Dropout(0.25)]
-            nb_lin_layers -= 1
-
-        for i in range(max(nb_lin_layers - 1, 0)):
-            self.lin_layers += [nn.Linear(out_size, out_size // 2),
-                                nn.ReLU()]
-            out_size = out_size // 2
-
-        if nb_lin_layers > 0:
-            self.lin_layers.append(nn.Linear(out_size, 1))
+        for i in range(nb_lin_layers):
+            if i == nb_lin_layers - 1:  # the last layer has a single output
+                self.lin_layers.append(nn.Linear(out_size, 1))
+            else:
+                if nb_lin_layers > 2 and i == 0:
+                    # if at least 3 lin layers have a first "input layer" with
+                    # same number of output nodes and dropout
+                    self.lin_layers += [nn.Linear(out_size, out_size),
+                                        nn.ReLU(),
+                                        nn.Dropout(0.25)]
+                elif i < nb_lin_layers - 1:
+                    self.lin_layers += [nn.Linear(out_size, out_size // 2),
+                                        nn.ReLU()]
+                    out_size = out_size // 2
 
         self.lin_layers = (nn.Sequential(*self.lin_layers)
-                           if p['nb_lin_layer'] > 0 else None)
+                           if nb_lin_layers > 0 else None)
 
         self.global_avgpool = (nn.AdaptiveAvgPool1d(1)
-                               if p['nb_lin_layer'] == 0 else None)
+                               if nb_lin_layers == 0 else None)
 
         self.train_history = {'loss': [], 'acc': [], 'acc_emp': [],
                               'acc_sim': []}
