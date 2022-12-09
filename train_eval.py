@@ -84,7 +84,7 @@ def evaluate(model, val_loader):
 
 
 def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
-        start_epoch=0, max_epochs=100, min_epochs=20, patience=4,
+        start_epoch=0, max_epochs=100, min_epochs=20, patience=6,
         min_delta=1e-04):
     """
     Training a model to learn a function to distinguish between simulated and
@@ -150,7 +150,7 @@ def eval_per_align(conv_net, real_alns, sim_alns,
     :param fastas_real: list of alignment identifiers (string list)
     :param fastas_sim: list of alignment identifiers (string list)
     :param indices: list of integers to pick alignments (e.g. from training set)
-    :param pairs: whether or not the alignments are represented as pairs (bool)
+    :param pairs: whether the alignments are represented as pairs (bool)
     (which would mean an additional (pair-)dimension in real_alns, sim_alns)
     :return: acc_real, acc_sim : dictionaries with accuracies and alignment ids
     """
