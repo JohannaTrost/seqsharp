@@ -425,6 +425,11 @@ def main():
             # evaluation for hyper-parameter selection
             val_acc = np.mean(val_folds['acc'])
 
+            # save validation acc./loss for each lr-bs-config
+            if result_path is not None:
+                fold_val_dict2csv(val_folds,
+                                  f'{result_path}/'
+                                  f'fold-validation-{str(bs)}-{str(lr)}.csv')
             if val_acc >= best['val_acc']:
                 best['val_acc'] = val_acc
                 best['models'] = models
@@ -455,10 +460,6 @@ def main():
 
                 # print/save overall fold results
                 if result_path is not None:
-                    fold_val_dict2csv(val_folds,
-                                      f'{result_path}/'
-                                      f'fold-validation-{timestamp}.csv')
-
                     # save plot of learning curve
                     if args.training:
                         plot_folds(train_hist_folds, val_hist_folds,
