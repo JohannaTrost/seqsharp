@@ -220,6 +220,8 @@ def main():
             optimizer = torch.optim.Adagrad
         elif opt == 'SGD':
             optimizer = torch.optim.SGD
+        elif opt == 'Adam':
+            optimizer = torch.optim.Adam
         else:
             raise ValueError(
                 'Please specify either Adagrad or SGD as optimizer')

@@ -129,7 +129,7 @@ class ConvNet(nn.Module):
                 ks = int(p['input_size'] / 2 ** max(nb_conv_layer - 1, 0))
                 self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
 
-        self.conv_layers.append(nn.Dropout(0.25))
+        self.conv_layers.append(nn.Dropout(0.2))
 
         self.conv_layers = (nn.Sequential(*self.conv_layers)
                             if nb_conv_layer > 0 else None)
@@ -146,7 +146,7 @@ class ConvNet(nn.Module):
                     # same number of output nodes and dropout
                     self.lin_layers += [nn.Linear(out_size, out_size),
                                         nn.ReLU(),
-                                        nn.Dropout(0.25)]
+                                        nn.Dropout(0.2)]
                 elif i < nb_lin_layers - 1:
                     self.lin_layers += [nn.Linear(out_size, out_size // 2),
                                         nn.ReLU()]
