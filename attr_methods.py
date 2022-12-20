@@ -13,16 +13,25 @@ from captum.attr import Saliency, DeepLift, IntegratedGradients
 
 
 def plot_summary_attr(map, fig, ax, alphabet, summary_meth='max',
-                      sum_ax='channels'):
-    im = ax.imshow(map, cmap=plt.cm.viridis, interpolation='none',
+                      sum_ax='channels', preds=None):
+    im = ax.imshow(map.T, cmap=plt.cm.viridis, interpolation='none',
                    aspect="auto")
-    fig.colorbar(im, ax=ax)
+    fig.colorbar(im, ax=ax, location='left', aspect=50)
     if sum_ax == 'channels':
-        ax.set_xticks(range(len(alphabet)))
-        ax.set_xticklabels(list(alphabet))
+        ax.set_yticks(range(len(alphabet)))
+        ax.set_yticklabels(list(alphabet))
     if sum_ax == 'sites':
-        ax.set_xlabel(sum_ax)
+        ax.set_ylabel(sum_ax)
     # ax.set_ylabel(f'MSA attributions\n({summary_meth}. over {sum_ax})')
+    if preds is not None:
+        twinx_col = 'coral'
+        ax2 = ax.twinx()
+        ax2.plot(preds, color=twinx_col, linewidth=1)
+        ax2.tick_params(axis="y", labelcolor=twinx_col)
+        ax2.set_ylabel('Prediction score\n(best - left to worst - right)',
+                       color=twinx_col)
+        ax2.set_ylim(0, 1)
+    ax.set_xlabel(f'MSA')
     ax.set(frame_on=False)
 
 
@@ -41,10 +50,10 @@ def get_attr(msa_repr, attr_meth, multiply_by_inputs=False):
         return ig.attribute(input).squeeze().cpu().detach().numpy().T
 
 
-attr_method = 'integratedgradients'
+attr_method = 'saliency'
 xinput = False
 
-seq_type = 'DNA'
+seq_type = 'protein'
 data_dir = '../../data/simulations/dna_sim' if seq_type == 'DNA' \
     else '../../data'
 real_path = f'{data_dir}/treebase_fasta' if seq_type == 'DNA' \
@@ -52,15 +61,18 @@ real_path = f'{data_dir}/treebase_fasta' if seq_type == 'DNA' \
 
 # sims = ['new_bonk', 'alisim', 'modelteller_complex', 'SpartaABC',
 #        'Sparta_modified']
-sims = ['new_bonk']
+sims = ['alisim_lg_gapless']
 
 # first is k1 then k5
 res_path = '../results/dna' if seq_type == 'DNA' else '../results'
-sim_m_paths = [[f'{res_path}/new_bonk/cnn-14-Nov-2022-14:09:25.151821',
-                f'{res_path}/new_bonk/cnn-14-Nov-2022-14:10:08.922490']]
+sim_m_paths = [
+    [f'{res_path}/cnn_alisim_lg_gapless_k1_30-Nov-2022-14:59:01.990550',
+     f'{res_path}/cnn_alisim_lg_gapless_k5_30-Nov-2022-14:59:28.119344']]
 '''
 sim_m_paths = [[f'{res_path}/alisim/cnn-14-Nov-2022-14:08:46.048967',
                 f'{res_path}/alisim/cnn-14-Nov-2022-14:10:08.738292'],
+              [f'{res_path}/new_bonk/cnn-14-Nov-2022-14:09:25.151821',
+               f'{res_path}/new_bonk/cnn-14-Nov-2022-14:10:08.922490']
                [f'{res_path}/modelteller_complex/cnn-14-Nov-2022-14:08:46.045950',
                 f'{res_path}/modelteller_complex/cnn-14-Nov-2022-14:10:08.848031']]
 [f'{res_path}/SpartaABC/cnn-14-Nov-2022-14:09:21.422234',
@@ -68,7 +80,7 @@ f'{res_path}/SpartaABC/cnn-14-Nov-2022-14:10:08.685692'],
 [f'{res_path}/Sparta_modified/cnn-14-Nov-2022-14:09:24.567552', 
 f'{res_path}/Sparta_modified/cnn-14-Nov-2022-14:10:54.429464']]'''
 
-#sim_m_paths = [
+# sim_m_paths = [
 #    [f'{res_path}/cnn_alisim_lg_c60_gapless_k1_02-Dec-2022-17:14:46.840664',
 #     f'{res_path}/cnn_alisim_lg_c60_gapless_k5_02-Dec-2022-17:29:42.178949']]
 
@@ -96,7 +108,7 @@ for sim, model_paths in zip(sims, sim_m_paths):
                                               seq_len=cnn_seq_len,
                                               molecule_type=seq_type)
     sim_fastas, sim_alns = sim_fastas[0], sim_alns[0]
-    seq_lens = get_n_sites_per_msa([real_alns, sim_alns])
+    seq_lens = np.concatenate(get_n_sites_per_msa([real_alns, sim_alns]))
 
     # get MSA embeddings
     aln_reprs_real = make_msa_reprs([real_alns], [real_fastas], cnn_seq_len,
@@ -109,7 +121,7 @@ for sim, model_paths in zip(sims, sim_m_paths):
     del aln_reprs_sim
     labels = np.concatenate((np.zeros(len(real_alns)), np.ones(len(sim_alns))))
 
-    attrs_models, inds_models, val_inds_models = {}, {}, {}
+    xin_models, attrs_models, inds_models, val_inds_models = {}, {}, {}, {}
     preds = {}
     pad = {}
     for model_path in model_paths:
@@ -151,8 +163,9 @@ for sim, model_paths in zip(sims, sim_m_paths):
         # save padding
         padding = {}
         for key, val in inds.items():
-            classe = 0 if 'real' in key else 1
-            cl_sl = np.asarray(seq_lens[classe])[val]
+            cl_inds = (val_ids[labels[val_ids] == 0] if 'real' in key
+                       else val_ids[labels[val_ids] == 1])
+            cl_sl = np.asarray(seq_lens[cl_inds])[val]
             pad_inds = np.zeros((len(val), 2)).astype(int)
 
             pad_before = (np.repeat(cnn_seq_len, len(val)) - cl_sl) // 2
@@ -165,15 +178,20 @@ for sim, model_paths in zip(sims, sim_m_paths):
             padding[key] = pad_inds
 
         # get attributions
-        attrs = {}
+        attrs, xins = {}, {}
         for key, i in inds.items():
             label = 0 if 'real' in key else 1
             attrs[key] = np.asarray([get_attr(msa, attr_method, xinput)
                                      for msa in
                                      val_ds.data[val_ds.labels == label][i]])
+            xins[key] = np.asarray(
+                [get_attr(msa, 'integratedgradients', multiply_by_inputs=True)
+                 for msa in
+                 val_ds.data[val_ds.labels == label][i]])
 
         attrs_models[ks] = attrs
-        preds[ks] = {'real': 1 - preds_real[inds_sort_real],
+        xin_models[ks] = xins
+        preds[ks] = {'real': preds_real[inds_sort_real],
                      'sim': preds_sim[inds_sort_sim]}
         pad[ks] = padding
         inds_models[ks] = inds
@@ -196,7 +214,7 @@ for sim, model_paths in zip(sims, sim_m_paths):
     alphabet = 'ACGT-' if seq_type == 'DNA' else 'ARNDCQEGHILKMFPSTWYV-'
 
     # plot summary maps
-    fig, ax = plt.subplots(2, 2, figsize=(16, 9))
+    fig, ax = plt.subplots(2, 2, figsize=(16, 9), sharex=True)
 
     # plot channel importance
     for i, (key, attrs) in enumerate(attrs_models.items()):
@@ -205,17 +223,19 @@ for sim, model_paths in zip(sims, sim_m_paths):
             chanl_attr_max[k] = np.asarray([np.max(np.abs(attr), axis=mol_ax)
                                             for attr in val])
         # max
-        plot_summary_attr(chanl_attr_max['real'], fig, ax[i, 0], alphabet)
+        plot_summary_attr(chanl_attr_max['real'], fig, ax[i, 0], alphabet,
+                          preds=preds[key]['real'])
         ax[i, 0].set_title(f'{key} empirical')
-        plot_summary_attr(chanl_attr_max['sim'], fig, ax[i, 1], alphabet)
+        plot_summary_attr(chanl_attr_max['sim'], fig, ax[i, 1], alphabet,
+                          preds=preds[key]['sim'])
         ax[i, 1].set_title(f'{key} simulated')
 
-    plt.tight_layout()
     plt.savefig(f'../figs/{sim}_k1k5_{attr_method}_max.pdf')
     plt.close('all')
 
     # plot site importance
     # p1_real, p1_sim = int(len(real_alns) * 0.01), int(len(sim_alns) * 0.01)
+    fig, ax = plt.subplots(2, 2, figsize=(16, 16))
     for i, (key, attrs) in enumerate(attrs_models.items()):
         site_attr_max, site_attr_avg = {}, {}
         for k, val in attrs.items():
@@ -228,34 +248,20 @@ for sim, model_paths in zip(sims, sim_m_paths):
                 site_attr_max[k][j, :len(max_chnls)] = max_chnls
                 site_attr_avg[k][j, :len(mean_chnls)] = mean_chnls
 
-        fig, ax = plt.subplots(ncols=2, figsize=(16, 9))
         # empirical
-        # Adding Twin Axes
-        ax2 = ax[0].twinx()
-        ax2.set_ylabel('MSA accuracy')
-        ax2.tick_params(axis='y')
-        yticks = [int(i * len(preds[key]['sim']) / 5)
-                  for i in range(5)] + [len(preds[key]['sim']) - 1]
-        ax2.set_yticks(yticks)
-        ax2.set_yticklabels(np.round(preds[key]['sim'][yticks], 4))
-        plot_summary_attr(site_attr_max['real'], fig, ax[0], alphabet,
-                          sum_ax='sites')
-        ax[0].set_title('Empirical')
+        seq_len_sort = np.argsort(pad[key]['real'][:, 1])
+        # sort msas by sequence length plot 50% of max seq. len.
+        d = site_attr_max['real'][seq_len_sort][:, :int(cnn_seq_len * 0.5)]
+        plot_summary_attr(d, fig, ax[i, 0], alphabet, sum_ax='sites')
+        ax[i, 0].set_title(f'{key} empirical')
         # simulated
-        # Adding Twin Axes
-        ax2 = ax[1].twinx()
-        ax2.set_ylabel('MSA accuracy')
-        ax2.tick_params(axis='y')
-        yticks = [int(i * len(preds[key]['sim']) / 5)
-                  for i in range(5)] + [len(preds[key]['sim']) - 1]
-        ax2.set_yticks(yticks)
-        ax2.set_yticklabels(np.round(preds[key]['sim'][yticks], 4))
-        plot_summary_attr(site_attr_max['sim'], fig, ax[1], alphabet,
-                          sum_ax='sites')
-        ax[1].set_title('Simulated')
-        # plt.tight_layout()
-        plt.savefig(f'../figs/{key}_{sim}_{attr_method}_sites_max.pdf')
-        plt.close('all')
+        seq_len_sort = np.argsort(pad[key]['sim'][:, 1])
+        d = site_attr_max['sim'][seq_len_sort][:, :int(cnn_seq_len * 0.5)]
+        plot_summary_attr(d, fig, ax[i, 1], alphabet, sum_ax='sites')
+        ax[i, 1].set_title(f'{key} simulated')
+    # plt.tight_layout()
+    plt.savefig(f'../figs/{sim}_k1k5_{attr_method}_sites_max.pdf')
+    plt.close('all')
 
     # plot individual attribution maps
     n = 10
@@ -264,42 +270,38 @@ for sim, model_paths in zip(sims, sim_m_paths):
         for k, val in attrs.items():
             title = f'{t_ks}_{k}'
             label = 0 if 'real' in k else 1
-            fig, ax = plt.subplots(nrows=n * 2, figsize=(20, 20))
-            for i, (attr, msa) in enumerate(zip(val[:n],
-                                                ds.data[ds.labels == label][
-                                                    inds_models[key][k]])):
-                # if not np.all(attr == 0):
-                if 'best' in k:
-                    classe, pred_ind = k.replace('best_', ''), i
-                else:
-                    classe, pred_ind = k.replace('wrst_', ''), -n + i
-                # title += f', {k}({str(np.round(preds[key][classe][pred_ind], 4))})'
+            msas = data[val_inds_models[key]]  # validation msas
+            msas = msas[labels[val_inds_models[key]] == label]
+            msas = msas[
+                inds_models[key][k]]  # sorted accordng to attribution maps
+            select = np.concatenate((np.arange(n), np.arange(-n, 0)))
+            for i, sel in enumerate(select):
+                fig, ax = plt.subplots(nrows=3, figsize=(16, 9))
 
-                start, end = pad[key][k][i]
+                start, end = pad[key][k][sel]
                 # attribution map
-                sm_im = ax[i * 2].imshow(np.abs(attr[start:end]).T,
-                                         cmap=plt.cm.viridis,
-                                         aspect="auto", interpolation="none")
-                cbar = fig.colorbar(sm_im, ax=ax[i * 2], orientation="vertical")
+                sm_im = ax[0].imshow(np.abs(val[sel][start:end]).T,
+                                     cmap=plt.cm.viridis,
+                                     aspect="auto", interpolation="none")
+                cbar = fig.colorbar(sm_im, ax=ax[0], orientation="vertical")
+                # attr x input
+                sm_im = ax[1].imshow(np.abs(xin_models[key][k][sel][start:end]).T,
+                                     cmap=plt.cm.viridis,
+                                     aspect="auto", interpolation="none")
+                cbar = fig.colorbar(sm_im, ax=ax[1], orientation="vertical")
                 # msa
-                sm_im = ax[i * 2 + 1].imshow(
-                    msa[:, start:end].detach().cpu().numpy(),
-                    cmap=plt.cm.viridis,
-                    aspect="auto", interpolation="none")
-                cbar_msa = fig.colorbar(sm_im, ax=ax[i * 2 + 1],
+                sm_im = ax[2].imshow(msas[sel][:, start:end],
+                                     cmap=plt.cm.viridis,
+                                     aspect="auto", interpolation="none")
+                cbar_msa = fig.colorbar(sm_im, ax=ax[2],
                                         orientation="vertical")
-                for axi in [i * 2, i * 2 + 1]:
+                for axi in [0, 1]:
                     ax[axi].set_yticks(range(len(alphabet)))
                     ax[axi].set_yticklabels(list(alphabet))
-                for tick in ax[i * 2 + 1].yaxis.get_major_ticks():
-                    tick.label.set_fontsize('x-small')
-                ax[i * 2].set_xticklabels([])
-                ax[i * 2].get_xaxis().set_visible(False)
-                # ax[i].set_title(title)
-            ax[-1].set_xlabel('sites')
-            plt.subplots_adjust(wspace=0.0, hspace=0.025)
-            plt.tight_layout()
-            save = title.replace(' ', '_').replace(']', '')
-            save = save.replace(',', '').replace(':', '').replace('[', '')
-            plt.savefig(f'../figs/{save}.pdf')
-            plt.close('all')
+                ax[0].set_xticklabels([])
+                ax[0].get_xaxis().set_visible(False)
+                ax[1].set_xlabel('sites')
+                plt.subplots_adjust(wspace=0.0, hspace=0.025)
+                score = '%.2f' % np.round(preds[key][k][sel], 2)
+                plt.savefig(f'../figs/{i + 1}_{score}_{title}.pdf')
+                plt.close('all')
