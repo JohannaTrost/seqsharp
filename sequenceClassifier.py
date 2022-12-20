@@ -487,7 +487,7 @@ def main():
                 # print k-fold cross-validation evaluation
                 print(sep_line)
                 print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
-                fold_eval = [model.val_history['acc'][-1] for model in
+                fold_eval = [np.min(model.val_history['acc']) for model in
                              best['models']]
                 for i, acc in enumerate(fold_eval):
                     print(f'\tFold {(i + 1)}: {acc} %')
