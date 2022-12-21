@@ -16,8 +16,8 @@ from sklearn.metrics import balanced_accuracy_score
 
 if torch.cuda.is_available():
     compute_device = torch.device("cuda:0")
-#elif torch.backends.mps.is_available():
-#    compute_device = torch.device("cpu")
+# elif torch.backends.mps.is_available():
+#    compute_device = torch.device("mps")
 else:
     compute_device = torch.device("cpu")
 
