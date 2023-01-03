@@ -84,7 +84,7 @@ def evaluate(model, val_loader):
 
 
 def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
-        start_epoch=0, max_epochs=100, min_epochs=30, patience=4,
+        start_epoch=0, max_epochs=100, min_epochs=30, patience=6,
         min_delta=1e-04):
     """
     Training a model to learn a function to distinguish between simulated and

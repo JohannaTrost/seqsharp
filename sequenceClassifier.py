@@ -547,12 +547,12 @@ def main():
                  for msa in val_ds.data[val_ds.labels == label][i]])
 
         # plot site/channel importance
-        plot_summary(attrs, pad_mask, 'channels', preds, molecule_type,
-                     save=f'{attr_path}/channel_attr_preds.pdf')
+        # plot_summary(attrs, pad_mask, 'channels', preds, molecule_type,
+        #              save=f'{attr_path}/channel_attr_preds.pdf')
         plot_summary(attrs, pad_mask, 'channels', None, molecule_type,
                      save=f'{attr_path}/channel_attr.pdf')
-        plot_summary(attrs, pad_mask, 'sites', preds, molecule_type,
-                     save=f'{attr_path}/site_attr_preds.pdf')
+        # plot_summary(attrs, pad_mask, 'sites', preds, molecule_type,
+        #              save=f'{attr_path}/site_attr_preds.pdf')
         plot_summary(attrs, pad_mask, 'sites', None, molecule_type,
                      save=f'{attr_path}/site_attr.pdf')
 

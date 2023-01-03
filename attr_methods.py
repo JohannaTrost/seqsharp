@@ -102,7 +102,12 @@ def get_sorted_pred_scores(model, val_ds, classes=None):
 def ax_summary_attr(map, fig, ax, alphabet, sum_ax='channels', preds=None):
     im = ax.imshow(map.T, cmap=plt.cm.viridis, interpolation='none',
                    aspect="auto")
-    fig.colorbar(im, ax=ax, location='left', aspect=50)
+    #fig.colorbar(im, ax=ax, location='left', aspect=50)
+    # divider = make_axes_locatable(ax)
+    # cax = divider.append_axes("left", size="5%", pad=0.1)
+    fig.colorbar(im, ax=ax)  # , cax=cax)
+    # cax.yaxis.tick_left()
+    # cax.yaxis.set_label_position('left')
     if sum_ax == 'channels':
         ax.set_yticks(range(len(alphabet)))
         ax.set_yticklabels(list(alphabet))
