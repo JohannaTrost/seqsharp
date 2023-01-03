@@ -16,6 +16,13 @@ from matplotlib import pylab as plt
 from matplotlib.patches import Ellipse
 
 
+def get_divisor_min_diff_quotient(divident):
+    divisors = np.arange(2, divident // 2, dtype=int)
+    divisors = divisors[np.repeat(divident, len(divisors)) % divisors == 0]
+    quotients = np.repeat(divident, len(divisors)) / divisors
+    return divisors[np.argmin(np.abs(divisors - quotients))]
+
+
 def get_model_performance(model_path):
     """Get array of (most recent) BACC, class acc. and loss of model for all
     folds
@@ -23,7 +30,7 @@ def get_model_performance(model_path):
     :param model_path: <path/to> model containing 'fold-validation'-file
     :return: array of BACC, class acc. and loss for each fold and csv header
     """
-    val_files = [f for f in os.listdir(model_path) if
+    val_files = [f for f in np.asarray(os.listdir(model_path), dtype=str) if
                  f.startswith('fold-validation')]
     # get most recent val. results
     if len(val_files) > 1:
