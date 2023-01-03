@@ -235,6 +235,7 @@ class ConvNet(nn.Module):
 
             if path is not None:
                 plt.savefig(path)
+            plt.close('all')
 
     def save(self, path):
         torch.save({
