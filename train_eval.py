@@ -125,8 +125,13 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         if epoch % 2 == 0 and epoch > min_epochs - 1:
             # do eval for early stopping every other epoch
             # after reaching min num epochs
-            smooth_val_loss = median_smooth(model.val_history['loss'], 30)
-            curr_val_loss = smooth_val_loss[-1]
+
+            if len(model.val_history['loss']) < 300:
+                smooth_val_loss = median_smooth(model.val_history['loss'], 30)
+                curr_val_loss = smooth_val_loss[-1]
+            else:  # no smoothing otherwise stops too early
+                curr_val_loss = model.val_history['loss'][-1]
+
             if prev_val_loss - curr_val_loss < min_delta:
                 no_imporv_cnt += 1
                 if no_imporv_cnt >= patience:
