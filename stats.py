@@ -9,6 +9,16 @@ from sklearn.decomposition import PCA
 from utils import dim
 
 
+def n_unique_mol_per_site(msa_reprs):
+    msa_reprs = np.asarray(msa_reprs)
+    # mask: 1 if frequency > 0, then sum over AA/nucleotides per site
+    n_unique_mol = np.sum(msa_reprs > 0, axis=1)
+    # Remove padding: if 0 then there is no AA/nucleotide at that side
+    n_unique_mol = [msa[msa != 0] for msa in n_unique_mol]
+
+    return n_unique_mol
+
+
 def effect_size(group1, group2):
     # cohen's D
     # group1 > group2
@@ -141,7 +151,7 @@ def distance_stats(dists):
 
 
 def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
-        csv_path=None):
+                          csv_path=None):
     """Returns a dataframe with information about input
        alignments with option to save the table as a csv file
 
