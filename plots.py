@@ -11,10 +11,42 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
 from utils import merge_fold_hist_dicts, confidence_ellipse, pred_runtime, \
-    get_model_performance
+    get_model_performance, get_divisor_min_diff_quotient
 
 
 # matplotlib.use("Agg")
+
+
+def plot_compare_msa_stats(stats, fastas, group_labels, sample_size=42,
+                           save=None, figsize=None):
+    sample_inds = [np.random.randint(len(fastas[0]), size=42)]
+    s_fastas = np.asarray(fastas[0])[sample_inds[0]]
+    sample_inds += [[np.where(fs == rf.replace('.fasta', '.fa'))[0][0]
+                     for rf in s_fastas]
+                    for fs in fastas[1:]]
+    sample_inds = np.asarray(sample_inds)
+
+    plots_shape = (get_divisor_min_diff_quotient(sample_size),
+                   sample_size // get_divisor_min_diff_quotient(sample_size))
+    with sns.axes_style("whitegrid"):
+        if figsize is not None:
+            fig, ax = plt.subplots(*plots_shape, figsize=figsize)
+        else:
+            fig, ax = plt.subplots(*plots_shape)
+        for i in range(sample_size):
+            row, col = np.unravel_index(i, plots_shape)
+            for j, group in enumerate(group_labels):
+                sns.kdeplot(stats[j][sample_inds[j][i]], fill=True, alpha=0.5,
+                            linewidth=0, ax=ax[row, col], label=group)
+            if i == 0:
+                ax[row, col].legend()
+        plt.tight_layout()
+        if save is None:
+            plt.draw()
+            plt.pause(0.01)
+        else:
+            plt.savefig(save)
+            plt.close('all')
 
 
 def plot_model_emp_sim_accs(model_paths, model_names, ax=None, cols=None):

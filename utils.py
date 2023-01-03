@@ -16,6 +16,13 @@ from matplotlib import pylab as plt
 from matplotlib.patches import Ellipse
 
 
+def get_divisor_min_diff_quotient(divident):
+    divisors = np.arange(2, divident // 2, dtype=int)
+    divisors = divisors[np.repeat(divident, len(divisors)) % divisors == 0]
+    quotients = np.repeat(divident, len(divisors)) / divisors
+    return divisors[np.argmin(np.abs(divisors - quotients))]
+
+
 def get_model_performance(model_path):
     """Get array of (most recent) BACC, class acc. and loss of model for all
     folds
