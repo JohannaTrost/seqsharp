@@ -23,6 +23,8 @@ from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import DataLoader
 
 from ConvNet import ConvNet, load_net, compute_device
+from attr_methods import get_attr, get_sorted_pred_scores, plot_pred_scores, \
+    plot_summary, plot_msa_attr
 from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
     make_msa_reprs, load_msa_reprs
 from plots import plot_folds, plot_hist_quantiles
@@ -54,12 +56,16 @@ def main():
                         help='Alignments will be passed to (a) trained '
                              'model(s). Requires --models, --datasets and '
                              '--cfg')
+    parser.add_argument('--attr', action='store_true',
+                        help='Generates attribution maps using validation data.'
+                             ' Requires --models (only if not --training) and '
+                             '--datasets')
     parser.add_argument('-m', '--models', type=str,
                         help='<path/to> directory with trained model(s). '
                              'These models will then be tested on a given data '
                              'set. --cfg, --datasets and --test are '
                              'required for this option.')
-    parser.add_argument('--real', nargs='*', type=int,
+    parser.add_argument('--emp', nargs='*', type=int,
                         help='Indicates that given data set has empirical '
                              'alignments for --models option. '
                              'Otherwise they are assumed to be simulated')  # TODO
@@ -127,21 +133,21 @@ def main():
             os.makedirs(path)
 
         if len(args.datasets) == 2:
-            real_fasta_path, sim_fasta_path = args.datasets
+            emp_fasta_path, sim_fasta_path = args.datasets
 
-            real_alns = alns_from_fastas(real_fasta_path, False,
+            emp_alns = alns_from_fastas(emp_fasta_path, False,
                                          cfg['data']['nb_alignments'],
                                          molecule_type=molecule_type)[0]
             sim_alns = alns_from_fastas(sim_fasta_path, False,
                                         cfg['data']['nb_alignments'],
                                         molecule_type=molecule_type)[0]
 
-            plot_hist_quantiles((get_n_sites_per_msa(real_alns),
+            plot_hist_quantiles((get_n_sites_per_msa(emp_alns),
                                  get_n_sites_per_msa(sim_alns)),
                                 ('empirical', 'simulated'),
                                 ['Number of sites'] * 2,
                                 path=f'{path}/hist-sites-{timestamp}.png')
-            plot_hist_quantiles((get_n_seqs_per_msa(real_alns),
+            plot_hist_quantiles((get_n_seqs_per_msa(emp_alns),
                                  get_n_seqs_per_msa(sim_alns)),
                                 ('empirical', 'simulated'),
                                 ['Number of sequences'] * 2,
@@ -164,8 +170,8 @@ def main():
                                     path=f'{path}/hist_nb_seqs-{timestamp}'
                                          f'-{i}.png')
 
-    if args.training or args.test:
-        real_fasta_path, sim_fasta_path = args.datasets
+    if args.training or args.test or args.attr:
+        emp_fasta_path, sim_fasta_path = args.datasets
         shuffle = args.shuffle
         pairs = args.pairs
         result_path = args.save if args.save else None
@@ -194,9 +200,9 @@ def main():
         elif args.models:
             result_path = model_path
 
-        if not os.path.exists(real_fasta_path):
+        if not os.path.exists(emp_fasta_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    real_fasta_path)
+                                    emp_fasta_path)
         if not os.path.exists(sim_fasta_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     sim_fasta_path)
@@ -237,16 +243,16 @@ def main():
 
         # ------------------------- data preparation ------------------------- #
 
-        first_input_file = os.listdir(real_fasta_path)[0]
+        first_input_file = os.listdir(emp_fasta_path)[0]
         fmts = ['.fa', '.fasta', '.phy']
         if np.any([first_input_file.endswith(f) for f in fmts]):
             alns, fastas, data_dict = raw_alns_prepro(
-                [real_fasta_path, sim_fasta_path],
+                [emp_fasta_path, sim_fasta_path],
                 cfg['data']['nb_alignments'],
                 cfg['data']['nb_sites'],
                 shuffle=shuffle,
                 molecule_type=molecule_type)
-            fastas_real, fastas_sim = fastas.copy()
+            fastas_emp, fastas_sim = fastas.copy()
 
             # update config with info from loaded data
             for key, val in data_dict.items():
@@ -257,7 +263,7 @@ def main():
                     # remove first 2 sites
                     alns[i] = [[seq[2:] for seq in aln] for aln in alns[i]]
 
-            real_alns, sim_alns = make_msa_reprs(alns, fastas,
+            emp_alns, sim_alns = make_msa_reprs(alns, fastas,
                                                  cfg['data']['nb_sites'],
                                                  cfg['data']['padding'],
                                                  pairs,
@@ -270,24 +276,24 @@ def main():
                                                  )
             del alns, fastas
         elif first_input_file.endswith('.csv'):  # msa representations given
-            real_alns, fastas_real = load_msa_reprs(real_fasta_path, pairs,
+            emp_alns, fastas_emp = load_msa_reprs(emp_fasta_path, pairs,
                                                     cfg['data'][
                                                         'nb_alignments'])
-            sim_alns, fastas_sim = load_msa_reprs(real_fasta_path, pairs,
+            sim_alns, fastas_sim = load_msa_reprs(emp_fasta_path, pairs,
                                                   cfg['data']['nb_alignments'])
 
-        data_size = sys.getsizeof(real_alns) + sys.getsizeof(sim_alns)
-        data_size += sys.getsizeof(fastas_real) + sys.getsizeof(fastas_sim)
+        data_size = sys.getsizeof(emp_alns) + sys.getsizeof(sim_alns)
+        data_size += sys.getsizeof(fastas_emp) + sys.getsizeof(fastas_sim)
         print(f'Preloaded data uses : '
               f'{data_size / 10 ** 9}GB\n')
 
-        n_real_alns, n_sim_alns = len(real_alns), len(sim_alns)
-        data = np.asarray(real_alns + sim_alns, dtype='float32')
-        labels = np.concatenate((np.zeros(n_real_alns), np.ones(n_sim_alns)))
+        n_emp_alns, n_sim_alns = len(emp_alns), len(sim_alns)
+        data = np.asarray(emp_alns + sim_alns, dtype='float32')
+        labels = np.concatenate((np.zeros(n_emp_alns), np.ones(n_sim_alns)))
 
         if args.track_stats:
-            real_alns_dict = {fastas_real[i]: real_alns[i] for i in
-                              range(len(real_alns))}
+            emp_alns_dict = {fastas_emp[i]: emp_alns[i] for i in
+                              range(len(emp_alns))}
             sim_alns_dict = {fastas_sim[i]: sim_alns[i] for i in
                              range(len(sim_alns))}
 
@@ -302,7 +308,8 @@ def main():
                 raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                         model_path)
 
-        if (batch_size == '' and lr == '') or (args.continu and not args.models):
+        if (batch_size == '' and lr == '') or (
+                args.continu and not args.models):
             param_space = {
                 'batch_size': [32, 64, 128],
                 'lr': [0.1, 0.01, 0.001, 0.0001]
@@ -380,8 +387,8 @@ def main():
                     model = ConvNet(model_params).to(compute_device)
 
                 if args.training:
-                        fit(lr, model, train_loader, val_loader, optimizer,
-                            max_epochs=epochs)
+                    fit(lr, model, train_loader, val_loader, optimizer,
+                        max_epochs=epochs)
                 elif args.test:
                     with torch.no_grad():
                         train_result = evaluate(model, train_loader)
@@ -400,23 +407,23 @@ def main():
                 models.append(model.to('cpu'))
 
                 if args.track_stats:
-                    real_train_ids = train_ids[:(len(train_ds) // 2)]
+                    emp_train_ids = train_ids[:(len(train_ds) // 2)]
                     sim_train_ids = train_ids[(len(train_ds) // 2):]
-                    sim_train_ids -= n_real_alns
-                    real_pred_tr, sim_pred_tr = eval_per_align(model, real_alns,
+                    sim_train_ids -= n_emp_alns
+                    emp_pred_tr, sim_pred_tr = eval_per_align(model, emp_alns,
                                                                sim_alns,
-                                                               fastas_real,
+                                                               fastas_emp,
                                                                fastas_sim,
-                                                               real_train_ids)
-                    real_pred_va, sim_pred_va = eval_per_align(model, real_alns,
+                                                               emp_train_ids)
+                    emp_pred_va, sim_pred_va = eval_per_align(model, emp_alns,
                                                                sim_alns,
-                                                               fastas_real,
+                                                               fastas_emp,
                                                                fastas_sim,
                                                                sim_train_ids)
 
-                    df = generate_eval_dict(fold, real_pred_tr, sim_pred_tr,
-                                            real_pred_va, sim_pred_va,
-                                            real_alns_dict, sim_alns_dict)
+                    df = generate_eval_dict(fold, emp_pred_tr, sim_pred_tr,
+                                            emp_pred_va, sim_pred_va,
+                                            emp_alns_dict, sim_alns_dict)
                     dfs.append(df)
 
             train_hist_folds, val_hist_folds = merge_fold_hist_dicts(
@@ -431,7 +438,8 @@ def main():
             if result_path is not None:
                 fold_val_dict2csv(val_folds,
                                   f'{result_path}/'
-                                  f'fold-validation-{str(bs)}-{str(lr)}.csv')
+                                  f'val_folds_{timestamp}_{str(bs)}_'
+                                  f'{str(lr)}.csv')
             if val_acc >= best['val_acc']:
                 best['val_acc'] = val_acc
                 best['models'] = models
@@ -487,15 +495,94 @@ def main():
                 # print k-fold cross-validation evaluation
                 print(sep_line)
                 print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
-                fold_eval = [np.min(model.val_history['acc']) for model in
+                fold_eval = [np.max(model.val_history['acc']) for model in
                              best['models']]
                 for i, acc in enumerate(fold_eval):
                     print(f'\tFold {(i + 1)}: {acc} %')
                 print(f'Average: {np.mean(fold_eval)} %')
                 print(sep_line)
-
         print(f"\nBest hyper-parameters:\n\tBatch size: {best['batch_size']}\n"
               f"\tLearning rate: {best['lr']}")
+
+        if args.attr:
+
+            # -------------------- attribution study -------------------- #
+
+            # choose best fold
+            fold = np.argmax(fold_eval)
+            print(f'Compute/plot attribution scores from fold-{fold+1}-model')
+
+            if result_path != '':
+                attr_path = f'{result_path}/attribution_fold{fold+1}'
+                os.mkdir(attr_path)
+            else:
+                attr_path = ''
+
+            # get validation data for that fold
+            val_ids = [val_ids
+                       for i, (_, val_ids) in enumerate(kfold.split(data,
+                                                                    labels))
+                       if i == fold][0]
+            val_ds = TensorDataset(data[val_ids].copy(), labels[val_ids])
+
+            # get net
+            model = best['models'][fold]
+
+            # get predition scores and order to sort MSAs by scores
+            preds, sort_by_pred = get_sorted_pred_scores(model, val_ds)
+            plot_pred_scores(preds, save=f'{attr_path}/val_pred_scores.pdf')
+
+            # get masks to remove padding
+            pad_mask = {}  # sorted by pred. score
+            for l, (cl, sort_inds) in enumerate(sort_by_pred.items()):
+                # filter emp/sim msas and sort by prediction score
+                pad_mask[cl] = val_ds.data[val_ds.labels == l][sort_inds]
+                # sum over channels: 1 = no padding, 0 = padding
+                pad_mask[cl] = pad_mask[cl].sum(axis=1).detach().cpu().numpy()
+                pad_mask[cl] = pad_mask[cl].astype(bool)
+
+            # get attributions
+            attrs, xins = {}, {}
+            for cl, i in sort_by_pred.items():
+                label = 0 if 'emp' in cl else 1
+                attrs[cl] = np.asarray([get_attr(msa, model, 'saliency')
+                                        for msa in
+                                        val_ds.data[val_ds.labels == label][i]])
+                xins[cl] = np.asarray(
+                    [get_attr(msa, model, 'integratedgradients',
+                              multiply_by_inputs=True)
+                     for msa in val_ds.data[val_ds.labels == label][i]])
+
+            # plot site/channel importance
+            # plot_summary(attrs, pad_mask, 'channels', preds, molecule_type,
+            #              save=f'{attr_path}/channel_attr_preds.pdf')
+            plot_summary(attrs, pad_mask, 'channels', None, molecule_type,
+                         save=f'{attr_path}/channel_attr.pdf')
+            # plot_summary(attrs, pad_mask, 'sites', preds, molecule_type,
+            #              save=f'{attr_path}/site_attr_preds.pdf')
+            plot_summary(attrs, pad_mask, 'sites', None, molecule_type,
+                         save=f'{attr_path}/site_attr.pdf')
+
+            # plot individual saliency maps
+
+            # indices of n best predicted (decreasing) and n worst predicted
+            # (increasing) MSAs
+            n = 10
+            select = np.concatenate((np.arange(n), np.arange(-n, 0)))
+
+            for l, cl in enumerate(attrs.keys()):
+                # validation data, sorted according to attribution maps
+                msas = val_ds.data[val_ds.labels == l][sort_by_pred[cl]]
+
+                for i, sel in enumerate(select):
+                    score = '%.2f' % np.round(preds[cl][sel], 2)
+
+                    sal_map = attrs[cl][sel][pad_mask[cl][sel]]
+                    ig_map = xins[cl][sel][pad_mask[cl][sel]]
+                    msa = msas[sel][:, pad_mask[cl][sel]].detach().cpu().numpy()
+
+                    plot_msa_attr(sal_map, ig_map, msa, molecule_type,
+                                  save=f'{attr_path}/[{i}]_{score}_{cl}.pdf')
 
 
 if __name__ == '__main__':

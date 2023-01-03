@@ -10,3 +10,4 @@ statsmodels>=0.12.2
 tqdm
 seaborn
 tompy@git+https://github.com/tommyclausner/tompy.git
+captum

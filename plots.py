@@ -10,55 +10,125 @@ from matplotlib import pylab as plt
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
-from utils import merge_fold_hist_dicts, confidence_ellipse, pred_runtime
+from utils import merge_fold_hist_dicts, confidence_ellipse, pred_runtime, \
+    get_model_performance, get_divisor_min_diff_quotient
 
 
 # matplotlib.use("Agg")
 
-def plot_model_folds_accs(model_val_paths, model_names, ax=None):
-    headers = [np.asarray(np.genfromtxt(m, names=True,
-                                        delimiter=',').dtype.names)
-               for m in model_val_paths]
-    val_res = np.asarray([np.genfromtxt(m, skip_header=True, delimiter=',')
-                          for m in model_val_paths])
-    n_folds = val_res.shape[1]
-    n_models = val_res.shape[0]
 
-    m_acc = np.asarray([acc[:, h == 'acc'].flatten()
-                        for acc, h in zip(val_res, headers)])
+def plot_compare_msa_stats(stats, fastas, group_labels, sample_size=42,
+                           save=None, figsize=None):
+    sample_inds = [np.random.randint(len(fastas[0]), size=42)]
+    s_fastas = np.asarray(fastas[0])[sample_inds[0]]
+    sample_inds += [[np.where(fs == rf.replace('.fasta', '.fa'))[0][0]
+                     for rf in s_fastas]
+                    for fs in fastas[1:]]
+    sample_inds = np.asarray(sample_inds)
+
+    plots_shape = (get_divisor_min_diff_quotient(sample_size),
+                   sample_size // get_divisor_min_diff_quotient(sample_size))
+    with sns.axes_style("whitegrid"):
+        if figsize is not None:
+            fig, ax = plt.subplots(*plots_shape, figsize=figsize)
+        else:
+            fig, ax = plt.subplots(*plots_shape)
+        for i in range(sample_size):
+            row, col = np.unravel_index(i, plots_shape)
+            for j, group in enumerate(group_labels):
+                sns.kdeplot(stats[j][sample_inds[j][i]], fill=True, alpha=0.5,
+                            linewidth=0, ax=ax[row, col], label=group)
+            if i == 0:
+                ax[row, col].legend()
+        plt.tight_layout()
+        if save is None:
+            plt.draw()
+            plt.pause(0.01)
+        else:
+            plt.savefig(save)
+            plt.close('all')
+
+
+def plot_model_emp_sim_accs(model_paths, model_names, ax=None, cols=None):
+    val_res = [get_model_performance(model_path) for model_path in model_paths]
+    n_folds = len(val_res[0][0])
+    n_models = len(val_res)
+
+    m_acc = np.asarray([acc[:, h == 'acc'].flatten() for acc, h in val_res])
     m_acc_emp = np.asarray([acc[:, h == 'acc_emp'].flatten()
-                            for acc, h in zip(val_res, headers)])
+                            for acc, h in val_res])
     m_acc_sim = np.asarray([acc[:, h == 'acc_sim'].flatten()
-                            for acc, h in zip(val_res, headers)])
+                            for acc, h in val_res])
 
     if ax is None:
         ax = plt.gca()
-    ax.set_ylim([0.6, 1.005])
 
-    # plot mean acc. (BACC, emp. and sim.)
-    x = np.arange(1, n_models + 1)
-    ax.scatter(x, m_acc_emp.mean(axis=1), color='coral', alpha=0.3,
-            label='empirical (folds mean)')
-    ax.scatter(x, m_acc_sim.mean(axis=1), color='c', alpha=0.3,
-               label='simulated (folds mean)')
-    ax.plot(x, m_acc_emp.mean(axis=1), color='coral', alpha=0.3, linestyle=':')
-    ax.plot(x, m_acc_sim.mean(axis=1), color='c', alpha=0.3, linestyle=':')
-    ax.plot(x, m_acc.mean(axis=1), color='grey', label='BACC (folds mean)')
-
-    # plot all folds acc. (BACC, emp. and sim.)
+    # plot folds acc. (emp. and sim.)
     x = np.arange(1, n_models + 1).repeat(n_folds)
-    ax.scatter(x, m_acc.flatten(), color='grey', alpha=0.5,
-               label='BACC per fold')
+    ax.scatter(x - 0.1, m_acc_emp.flatten(), color='coral', alpha=0.5,
+               label='emp', marker='.')
+    ax.scatter(x + 0.1, m_acc_sim.flatten(), color='c', alpha=0.5, label='sim',
+               marker='.')
+    # mean per class
+    x = np.arange(1, n_models + 1)
+    ax.scatter(x - 0.1, m_acc_emp.mean(axis=1), color='grey', alpha=0.5,
+               marker='*')
+    ax.scatter(x + 0.1, m_acc_sim.mean(axis=1), color='grey', alpha=0.5,
+               label='class mean', marker='*')
 
-    ax.set_yticks(np.arange(0.5, 1.05, 0.1))
+    # plot mean of BACC over folds
+    ax.plot(x, m_acc.mean(axis=1), 'o', color='grey',
+            label='BACC (folds mean)')
+
+    ax.set_ylim(np.true_divide(np.floor(ax.get_ylim()[0] * 10**2), 10**2),
+                np.true_divide(np.ceil(ax.get_ylim()[1] * 10**2), 10**2))
+    ax.set_yticks(np.arange(*ax.get_ylim(), 0.1))
     ax.set_xticks(np.arange(1, n_models + 1))
-    ax.set_xticklabels(model_names, rotation=45)
+    ax.set_xticklabels(model_names, rotation=0)
     ax.set(frame_on=False)
     ax.set_xticks(np.arange(0.5, n_models + 0.5, 0.5), minor=True)
-    ax.set_yticks(np.arange(0.5, 1.05, 0.05), minor=True)
+    ax.set_yticks(np.arange(*ax.get_ylim(), 0.05), minor=True)
     ax.grid(which='both', color='grey', linestyle='-', linewidth=0.5,
             alpha=0.3)
     ax.legend()
+
+    return ax
+
+
+def plot_model_folds_accs(model_paths, model_names, ax=None, cols=None):
+    val_res = [get_model_performance(model_path) for model_path in model_paths]
+    n_folds = len(val_res[0][0])
+    n_models = len(val_res)
+
+    m_acc = np.asarray([acc[:, h == 'acc'].flatten() for acc, h in val_res])
+
+    if ax is None:
+        ax = plt.gca()
+
+    # plot all folds acc. (BACC)
+    x = np.arange(1, n_models + 1).repeat(n_folds)
+    if cols is None:
+        ax.scatter(x, m_acc.flatten(), color='grey', alpha=0.4,
+                   label='BACC per fold', marker='.')
+    else:  # use given colors for different models
+        labels = [''] * (n_models - 1) + ['BACC per fold']
+        for i in range(n_models):
+            ax.scatter(x[x == i + 1], m_acc[i], color=cols[i], alpha=0.4,
+                       label=labels[i], marker='.')
+    ax.plot(np.arange(1, n_models + 1), m_acc.mean(axis=1), color='grey',
+            label='BACC (folds mean)', linewidth=1, marker='o')
+
+    ax.set_ylim(np.true_divide(np.floor(ax.get_ylim()[0] * 10**2), 10**2),
+                np.true_divide(np.ceil(ax.get_ylim()[1] * 10**2), 10**2))
+    ax.set_yticks(np.arange(*ax.get_ylim(), 0.1))
+    ax.set_xticks(np.arange(1, n_models + 1))
+    ax.set_xticklabels(model_names)
+    ax.set(frame_on=False)
+    ax.set_xticks(np.arange(0.5, n_models + 0.5, 0.5), minor=True)
+    ax.set_yticks(np.arange(*ax.get_ylim(), 0.05), minor=True)
+    ax.grid(which='both', color='grey', linestyle='-', linewidth=0.5,
+            alpha=0.3)
+    # ax.legend()
 
     return ax
 

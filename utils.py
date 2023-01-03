@@ -27,17 +27,19 @@ def get_model_performance(model_path):
     """Get array of (most recent) BACC, class acc. and loss of model for all
     folds
 
-    :param model_path: <path/to> model containing 'fold-validation'-file
+    :param model_path: <path/to> model containing 'val_folds'-file
     :return: array of BACC, class acc. and loss for each fold and csv header
     """
-    val_files = [f for f in np.asarray(os.listdir(model_path), dtype=str) if
-                 f.startswith('fold-validation')]
+
+    val_files = [f for f in os.listdir(model_path) if
+                 f.startswith('val_folds')]
+
     # get most recent val. results
     if len(val_files) > 1:
         file_age = []
         for f in val_files:
-            if f.startswith('fold-validation-'):  # timestamp given
-                time = datetime.strptime(f.strip('fold-validation-.csv'),
+            if f.startswith('val_folds_'):  # timestamp given
+                time = datetime.strptime(f.split('_')[2],
                                          "%d-%b-%Y-%H:%M:%S.%f")
             else:  # if timestamp is not given then this is the oldest result
                 time = datetime.strptime('01-Nov-1000-00:00:00.000000',
