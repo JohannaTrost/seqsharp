@@ -84,7 +84,7 @@ def evaluate(model, val_loader):
 
 
 def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
-        start_epoch=0, max_epochs=100, min_epochs=30, patience=6,
+        start_epoch=0, max_epochs=100, min_epochs=30, patience=8,
         min_delta=1e-04):
     """
     Training a model to learn a function to distinguish between simulated and
@@ -126,11 +126,8 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
             # do eval for early stopping every other epoch
             # after reaching min num epochs
 
-            if len(model.val_history['loss']) < 300:
-                smooth_val_loss = median_smooth(model.val_history['loss'], 30)
-                curr_val_loss = smooth_val_loss[-1]
-            else:  # no smoothing otherwise stops too early
-                curr_val_loss = model.val_history['loss'][-1]
+            smooth_val_loss = median_smooth(model.val_history['loss'], 25)
+            curr_val_loss = smooth_val_loss[-1]
 
             if prev_val_loss - curr_val_loss < min_delta:
                 no_imporv_cnt += 1
