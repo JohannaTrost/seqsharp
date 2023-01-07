@@ -6,7 +6,6 @@ dataset with alignments or the performance of a network.
 
 Please execute 'python sequenceClassifier.py --help' to view all the options
 """
-
 import argparse
 import errno
 import os
@@ -136,8 +135,8 @@ def main():
             emp_fasta_path, sim_fasta_path = args.datasets
 
             emp_alns = alns_from_fastas(emp_fasta_path, False,
-                                         cfg['data']['nb_alignments'],
-                                         molecule_type=molecule_type)[0]
+                                        cfg['data']['nb_alignments'],
+                                        molecule_type=molecule_type)[0]
             sim_alns = alns_from_fastas(sim_fasta_path, False,
                                         cfg['data']['nb_alignments'],
                                         molecule_type=molecule_type)[0]
@@ -212,7 +211,6 @@ def main():
                                     cfg_path)
 
         # -------------------- cfgure parameters -------------------- #
-
         if args.test or args.models:
             cfg['data']['nb_alignments'] = None
 
@@ -235,7 +233,7 @@ def main():
         # k-fold validator (kfold-seed ensures same fold-splits in opt. loop)
         kfold = StratifiedKFold(nb_folds, shuffle=True, random_state=42)
 
-        seed = 42 + np.random.randint(100) if args.continu else 42
+        seed = 42  # + np.random.randint(100) if args.continu else 42
         torch.manual_seed(seed)
         random.seed(seed)
         np.random.seed(seed)
@@ -264,21 +262,21 @@ def main():
                     alns[i] = [[seq[2:] for seq in aln] for aln in alns[i]]
 
             emp_alns, sim_alns = make_msa_reprs(alns, fastas,
-                                                 cfg['data']['nb_sites'],
-                                                 cfg['data']['padding'],
-                                                 pairs,
-                                                 csv_path=(
-                                                     f'{result_path}/'
-                                                     f'alns_stats.csv'
-                                                     if args.track_stats
-                                                     else None),
-                                                 molecule_type=molecule_type
-                                                 )
+                                                cfg['data']['nb_sites'],
+                                                cfg['data']['padding'],
+                                                pairs,
+                                                csv_path=(
+                                                    f'{result_path}/'
+                                                    f'alns_stats.csv'
+                                                    if args.track_stats
+                                                    else None),
+                                                molecule_type=molecule_type
+                                                )
             del alns, fastas
         elif first_input_file.endswith('.csv'):  # msa representations given
             emp_alns, fastas_emp = load_msa_reprs(emp_fasta_path, pairs,
-                                                    cfg['data'][
-                                                        'nb_alignments'])
+                                                  cfg['data'][
+                                                      'nb_alignments'])
             sim_alns, fastas_sim = load_msa_reprs(emp_fasta_path, pairs,
                                                   cfg['data']['nb_alignments'])
 
@@ -293,7 +291,7 @@ def main():
 
         if args.track_stats:
             emp_alns_dict = {fastas_emp[i]: emp_alns[i] for i in
-                              range(len(emp_alns))}
+                             range(len(emp_alns))}
             sim_alns_dict = {fastas_sim[i]: sim_alns[i] for i in
                              range(len(sim_alns))}
 
@@ -411,15 +409,15 @@ def main():
                     sim_train_ids = train_ids[(len(train_ds) // 2):]
                     sim_train_ids -= n_emp_alns
                     emp_pred_tr, sim_pred_tr = eval_per_align(model, emp_alns,
-                                                               sim_alns,
-                                                               fastas_emp,
-                                                               fastas_sim,
-                                                               emp_train_ids)
+                                                              sim_alns,
+                                                              fastas_emp,
+                                                              fastas_sim,
+                                                              emp_train_ids)
                     emp_pred_va, sim_pred_va = eval_per_align(model, emp_alns,
-                                                               sim_alns,
-                                                               fastas_emp,
-                                                               fastas_sim,
-                                                               sim_train_ids)
+                                                              sim_alns,
+                                                              fastas_emp,
+                                                              fastas_sim,
+                                                              sim_train_ids)
 
                     df = generate_eval_dict(fold, emp_pred_tr, sim_pred_tr,
                                             emp_pred_va, sim_pred_va,
@@ -429,7 +427,7 @@ def main():
             train_hist_folds, val_hist_folds = merge_fold_hist_dicts(
                 [model.train_history for model in models],
                 [model.val_history for model in models])
-            # get acc., emp. acc., sim. acc, and loss of epoch with min. loss
+            # get acc., emp. acc., sim. acc, and loss of epoch with max. acc.
             val_folds = evaluate_folds(val_hist_folds, nb_folds)
             # evaluation for hyper-parameter selection
             val_acc = np.mean(val_folds['acc'])
@@ -510,11 +508,12 @@ def main():
 
             # choose best fold
             fold = np.argmax(fold_eval)
-            print(f'Compute/plot attribution scores from fold-{fold+1}-model')
+            print(f'Compute/plot attribution scores from fold-{fold + 1}-model')
 
             if result_path != '':
-                attr_path = f'{result_path}/attribution_fold{fold+1}'
-                os.mkdir(attr_path)
+                attr_path = f'{result_path}/attribution_fold{fold + 1}'
+                if not os.path.exists(attr_path):
+                    os.mkdir(attr_path)
             else:
                 attr_path = ''
 

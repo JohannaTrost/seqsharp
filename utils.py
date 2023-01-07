@@ -39,7 +39,7 @@ def get_model_performance(model_path):
         file_age = []
         for f in val_files:
             if f.startswith('val_folds_'):  # timestamp given
-                time = datetime.strptime(f.split('_')[2],
+                time = datetime.strptime(f.split('_')[2].split('.csv')[0],
                                          "%d-%b-%Y-%H:%M:%S.%f")
             else:  # if timestamp is not given then this is the oldest result
                 time = datetime.strptime('01-Nov-1000-00:00:00.000000',
@@ -387,5 +387,5 @@ def load_custom_distr(file_path):
         return pickle.load(file)
 
 
-n_sites_pdf = load_custom_distr('data/n_sites_hogenom_6971.CustomPDF')
-gamma_shape_pdf = load_custom_distr('data/gamma_shape.CustomPDF')
+#n_sites_pdf = load_custom_distr('data/n_sites_hogenom_6971.CustomPDF')
+#gamma_shape_pdf = load_custom_distr('data/gamma_shape.CustomPDF')

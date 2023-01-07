@@ -11,7 +11,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
 from utils import merge_fold_hist_dicts, confidence_ellipse, pred_runtime, \
-    get_model_performance, get_divisor_min_diff_quotient
+    get_model_performance, get_divisor_min_diff_quotient, fold_val_from_csv
 
 
 # matplotlib.use("Agg")
@@ -72,9 +72,9 @@ def plot_model_emp_sim_accs(model_paths, model_names, ax=None, cols=None):
     # mean per class
     x = np.arange(1, n_models + 1)
     ax.scatter(x - 0.1, m_acc_emp.mean(axis=1), color='grey', alpha=0.5,
-               marker='*')
+               marker='D')
     ax.scatter(x + 0.1, m_acc_sim.mean(axis=1), color='grey', alpha=0.5,
-               label='class mean', marker='*')
+               label='class mean', marker='D')
 
     # plot mean of BACC over folds
     ax.plot(x, m_acc.mean(axis=1), 'o', color='grey',
