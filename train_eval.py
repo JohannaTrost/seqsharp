@@ -84,8 +84,8 @@ def evaluate(model, val_loader):
 
 
 def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
-        start_epoch=0, max_epochs=100, min_epochs=50, patience=6,
-        min_delta=1e-04):
+        start_epoch=0, max_epochs=1000, min_epochs=100, patience=2,
+        step_size=50, min_delta=1e-04):
     """
     Training a model to learn a function to distinguish between simulated and
     empirical alignments (with validation step at the end of each epoch)
@@ -124,12 +124,12 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         # validation phase
         model = validation(model, train_loader, val_loader)
 
-        if epoch % 3 == 0 and epoch > min_epochs - 1:
-            # do eval for early stopping every other epoch
+        if (epoch + 1) % step_size == 0 and epoch > min_epochs - 1:
+            # do eval for early stopping every 50th epoch
             # after reaching min num epochs
 
-            smooth_val_loss = median_smooth(model.val_history['loss'], 25)
-            curr_val_loss = smooth_val_loss[-1]
+            #smooth_val_loss = median_smooth(model.val_history['loss'], 25)
+            curr_val_loss = np.min(model.val_history['loss'][-step_size:])
 
             if prev_val_loss - curr_val_loss < min_delta:
                 no_imporv_cnt += 1
@@ -139,8 +139,8 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
             else:
                 no_imporv_cnt = 0
             prev_val_loss = curr_val_loss
-        elif epoch == min_epochs - 3:
-            prev_val_loss = median_smooth(model.val_history['loss'], 30)[-1]
+        elif epoch == min_epochs - (step_size + 1):
+            prev_val_loss = np.min(model.val_history['loss'][-step_size:])
     model.opt_state = optimizer.state_dict()
 
 
