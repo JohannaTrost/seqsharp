@@ -214,7 +214,8 @@ def main():
         if args.test or args.models:
             cfg['data']['nb_alignments'] = None
         else:
-            cfg['data']['nb_alignments'] = int(cfg['data']['nb_alignments'])
+            if cfg['data']['nb_alignments'] != '':
+                cfg['data']['nb_alignments'] = int(cfg['data']['nb_alignments'])
         model_params = cfg['conv_net_parameters']
 
         # hyperparameters
