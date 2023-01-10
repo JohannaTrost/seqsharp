@@ -31,7 +31,7 @@ from stats import get_n_sites_per_msa, get_n_seqs_per_msa
 from utils import write_cfg_file, read_cfg_file, merge_fold_hist_dicts, \
     fold_val_dict2csv
 from train_eval import fit, eval_per_align, generate_eval_dict, evaluate, \
-    evaluate_folds
+    evaluate_folds, find_lr_bounds
 
 torch.cuda.empty_cache()
 
@@ -386,8 +386,11 @@ def main():
                     model = ConvNet(model_params).to(compute_device)
 
                 if args.training:
-                    fit(lr, model, train_loader, val_loader, optimizer,
-                        max_epochs=epochs)
+                    min_lr, max_lr = find_lr_bounds(model, train_loader,
+                                                    optimizer, result_path,
+                                                    prefix=f'{fold + 1}_')
+                    fit((min_lr, max_lr), model, train_loader, val_loader,
+                        optimizer, max_epochs=epochs)
                 elif args.test:
                     with torch.no_grad():
                         train_result = evaluate(model, train_loader)
@@ -506,83 +509,90 @@ def main():
         if args.attr:
 
             # -------------------- attribution study -------------------- #
-
             # choose best fold
-            fold = np.argmax(fold_eval)
-            print(f'Compute/plot attribution scores from fold-{fold + 1}-model')
+            best_fold = np.argmax(fold_eval)
+            for fold in range(nb_folds):
+                print(f'Compute/plot attribution scores from fold-'
+                      f'{fold + 1}-model')
+                if result_path != '':
+                    attr_path = f'{result_path}/attribution_fold{fold + 1}'
+                    if fold == best_fold:
+                        attr_path += '_best'
+                    if not os.path.exists(attr_path):
+                        os.mkdir(attr_path)
+                else:
+                    attr_path = ''
 
-            if result_path != '':
-                attr_path = f'{result_path}/attribution_fold{fold + 1}'
-                if not os.path.exists(attr_path):
-                    os.mkdir(attr_path)
-            else:
-                attr_path = ''
+                # get validation data for that fold
+                val_ids = [val_ids
+                           for i, (_, val_ids) in enumerate(kfold.split(data,
+                                                                        labels))
+                           if i == fold][0]
 
-            # get validation data for that fold
-            val_ids = [val_ids
-                       for i, (_, val_ids) in enumerate(kfold.split(data,
-                                                                    labels))
-                       if i == fold][0]
-            val_ds = TensorDataset(data[val_ids].copy(), labels[val_ids])
+                val_ds = TensorDataset(data[val_ids].copy(), labels[val_ids])
 
-            # get net
-            model = best['models'][fold]
+                # get net
+                model = best['models'][fold]
 
-            # get predition scores and order to sort MSAs by scores
-            preds, sort_by_pred = get_sorted_pred_scores(model, val_ds)
-            plot_pred_scores(preds, save=f'{attr_path}/val_pred_scores.pdf')
+                # get predition scores and order to sort MSAs by scores
+                preds, sort_by_pred = get_sorted_pred_scores(model, val_ds)
+                plot_pred_scores(preds, save=f'{attr_path}/val_pred_scores.pdf')
 
-            # get masks to remove padding
-            pad_mask = {}  # sorted by pred. score
-            for l, (cl, sort_inds) in enumerate(sort_by_pred.items()):
-                # filter emp/sim msas and sort by prediction score
-                pad_mask[cl] = val_ds.data[val_ds.labels == l][sort_inds]
-                # sum over channels: 1 = no padding, 0 = padding
-                pad_mask[cl] = pad_mask[cl].sum(axis=1).detach().cpu().numpy()
-                pad_mask[cl] = pad_mask[cl].astype(bool)
+                # get masks to remove padding
+                pad_mask = {}  # sorted by pred. score
+                for l, (cl, sort_inds) in enumerate(sort_by_pred.items()):
+                    # filter emp/sim msas and sort by prediction score
+                    pad_mask[cl] = val_ds.data[val_ds.labels == l][sort_inds]
+                    # sum over channels: 1 = no padding, 0 = padding
+                    pad_mask[cl] = pad_mask[cl].sum(axis=1).detach().cpu().numpy()
+                    pad_mask[cl] = pad_mask[cl].astype(bool)
 
-            # get attributions
-            attrs, xins = {}, {}
-            for cl, i in sort_by_pred.items():
-                label = 0 if 'emp' in cl else 1
-                attrs[cl] = np.asarray([get_attr(msa, model, 'saliency')
-                                        for msa in
-                                        val_ds.data[val_ds.labels == label][i]])
-                xins[cl] = np.asarray(
-                    [get_attr(msa, model, 'integratedgradients',
-                              multiply_by_inputs=True)
-                     for msa in val_ds.data[val_ds.labels == label][i]])
+                # get attributions
+                attrs, xins = {}, {}
+                for cl, i in sort_by_pred.items():
+                    label = 0 if 'emp' in cl else 1
+                    attrs[cl] = np.asarray([get_attr(msa, model, 'saliency')
+                                            for msa in
+                                            val_ds.data[val_ds.labels == label][i]])
+                    xins[cl] = np.asarray(
+                        [get_attr(msa, model, 'integratedgradients',
+                                  multiply_by_inputs=True)
+                         for msa in val_ds.data[val_ds.labels == label][i]])
 
-            # plot site/channel importance
-            # plot_summary(attrs, pad_mask, 'channels', preds, molecule_type,
-            #              save=f'{attr_path}/channel_attr_preds.pdf')
-            plot_summary(attrs, pad_mask, 'channels', None, molecule_type,
-                         save=f'{attr_path}/channel_attr.pdf')
-            # plot_summary(attrs, pad_mask, 'sites', preds, molecule_type,
-            #              save=f'{attr_path}/site_attr_preds.pdf')
-            plot_summary(attrs, pad_mask, 'sites', None, molecule_type,
-                         save=f'{attr_path}/site_attr.pdf')
+                # plot site/channel importance
+                # plot_summary(attrs, pad_mask, 'channels', preds, molecule_type,
+                #              save=f'{attr_path}/channel_attr_preds.pdf')
+                plot_summary(attrs, pad_mask, 'channels', None, molecule_type,
+                             save=f'{attr_path}/channel_attr.pdf')
+                # plot_summary(attrs, pad_mask, 'sites', preds, molecule_type,
+                #              save=f'{attr_path}/site_attr_preds.pdf')
+                plot_summary(attrs, pad_mask, 'sites', None, molecule_type,
+                             save=f'{attr_path}/site_attr.pdf')
+                plot_summary(attrs, pad_mask, 'sites', None, molecule_type,
+                             save=f'{attr_path}/site_attr_200.pdf', max_sl=200)
+                plot_summary(attrs, pad_mask, 'sites', None, molecule_type,
+                             save=f'{attr_path}/site_attr_50.pdf', max_sl=50)
 
-            # plot individual saliency maps
+                # plot individual saliency maps
 
-            # indices of n best predicted (decreasing) and n worst predicted
-            # (increasing) MSAs
-            n = 10
-            select = np.concatenate((np.arange(n), np.arange(-n, 0)))
+                # indices of n best predicted (decreasing) and n worst predicted
+                # (increasing) MSAs
+                n = 10
+                select = np.concatenate((np.arange(n), np.arange(-n, 0)))
 
-            for l, cl in enumerate(attrs.keys()):
-                # validation data, sorted according to attribution maps
-                msas = val_ds.data[val_ds.labels == l][sort_by_pred[cl]]
+                for l, cl in enumerate(attrs.keys()):
+                    # validation data, sorted according to attribution maps
+                    msas = val_ds.data[val_ds.labels == l][sort_by_pred[cl]]
 
-                for i, sel in enumerate(select):
-                    score = '%.2f' % np.round(preds[cl][sel], 2)
+                    for i, sel in enumerate(select):
+                        score = '%.2f' % np.round(preds[cl][sel], 2)
 
-                    sal_map = attrs[cl][sel][pad_mask[cl][sel]]
-                    ig_map = xins[cl][sel][pad_mask[cl][sel]]
-                    msa = msas[sel][:, pad_mask[cl][sel]].detach().cpu().numpy()
+                        sal_map = attrs[cl][sel][pad_mask[cl][sel]]
+                        ig_map = xins[cl][sel][pad_mask[cl][sel]]
+                        msa = msas[sel][:, pad_mask[cl][sel]].detach().cpu().numpy()
 
-                    plot_msa_attr(sal_map, ig_map, msa, molecule_type,
-                                  save=f'{attr_path}/[{i}]_{score}_{cl}.pdf')
+                        plot_msa_attr(sal_map, ig_map, msa, molecule_type,
+                                      save=f'{attr_path}/[{i}]_{score}_{cl}.pdf')
 
 
 if __name__ == '__main__':

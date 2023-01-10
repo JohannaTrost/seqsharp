@@ -1,12 +1,14 @@
 """Functions to train and evaluate a neural network"""
 
 import gc
+import time
 
 import numpy as np
 import pandas as pd
 import torch
 from torch import nn as nn
 from torch.utils.data import DataLoader
+from matplotlib import pylab as plt
 
 from ConvNet import compute_device, accuracy
 from preprocessing import DatasetAln
@@ -16,6 +18,69 @@ from tompy import median_smooth
 torch.cuda.empty_cache()
 
 gc.collect()
+
+
+def find_lr_bounds(model, train_loader, opt_func, save, start_lr=1e-09,
+                   end_lr=0.1, lr_find_epochs=50, prefix=''):
+    start = time.time()
+    lr_lambda = lambda x: np.exp(x * np.log(end_lr / start_lr) / (
+            lr_find_epochs * len(train_loader)))
+    optimizer = opt_func(model.parameters(), start_lr)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+    lr_find_loss = []
+    lr_find_lr = []
+
+    iter = 0
+    smoothing = 0.05
+
+    print('Starting determination of suitable lr bounds')
+
+    for epoch in range(lr_find_epochs):
+        print(f'Epoch [{epoch + 1}]')
+        model.train()
+        for i, batch in enumerate(train_loader):
+            loss, _, _ = model.feed(batch)
+            optimizer.zero_grad()
+            loss.backward()  # calcul of gradients
+            optimizer.step()
+            # Update LR
+            scheduler.step()
+            lr_step = optimizer.state_dict()["param_groups"][0]["lr"]
+            lr_find_lr.append(lr_step)
+            # smooth the loss
+            loss = loss.detach().item()
+            if iter == 0:
+                lr_find_loss.append(loss)
+            else:
+                loss = smoothing * loss + (1 - smoothing) * lr_find_loss[-1]
+                lr_find_loss.append(loss)
+
+            iter += 1
+
+    print(f'LR finder finished after {(time.time() - start) / 60} min')
+
+    high_bound_lr = lr_find_lr[np.argmin(lr_find_loss)] / 10
+    low_bound_lr = high_bound_lr / 6
+
+    print(f'lr = [{low_bound_lr}, {high_bound_lr}]')
+
+    if save is not None and save != '':
+        fig, ax = plt.subplots()
+        ax.plot(lr_find_lr, lr_find_loss)
+        ylims = ax.get_ylim()
+        ax.vlines(high_bound_lr, *ylims, color='r')
+        plt.xscale('log')
+        plt.savefig(f'{save}/{prefix}find_lr_loss_{start_lr}_{end_lr}_'
+                    f'{lr_find_epochs}.png')
+        plt.close('all')
+
+        plt.plot(lr_find_lr)
+        plt.savefig(f'{save}/{prefix}find_lr_{start_lr}_{end_lr}_'
+                    f'{lr_find_epochs}.png')
+        plt.close('all')
+
+    return high_bound_lr, low_bound_lr
 
 
 def validation(model, train_loader, val_loader):
@@ -100,7 +165,9 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
     :param opt_func: optimizer (torch.optim)
     """
 
-    optimizer = opt_func(model.parameters(), lr)
+    optimizer = opt_func(model.parameters(), np.mean(lr))
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, lr[0],
+                                                  lr[1], cycle_momentum=False)
     if model.opt_state is not None:
         optimizer.load_state_dict(model.opt_state)
 
@@ -120,6 +187,7 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
             optimizer.zero_grad()
             loss.backward()  # calcul of gradients
             optimizer.step()
+        scheduler.step()
 
         # validation phase
         model = validation(model, train_loader, val_loader)
@@ -128,7 +196,7 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
             # do eval for early stopping every 50th epoch
             # after reaching min num epochs
 
-            #smooth_val_loss = median_smooth(model.val_history['loss'], 25)
+            # smooth_val_loss = median_smooth(model.val_history['loss'], 25)
             curr_val_loss = np.min(model.val_history['loss'][-step_size:])
 
             if prev_val_loss - curr_val_loss < min_delta:
@@ -145,7 +213,7 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
 
 
 def eval_per_align(conv_net, real_alns, sim_alns,
-        fastas_real, fastas_sim, indices, pairs=False):
+                   fastas_real, fastas_sim, indices, pairs=False):
     """
     Predicting whether given alignments are simulated or empirical using a
     given (trained) network
@@ -209,7 +277,7 @@ def eval_per_align(conv_net, real_alns, sim_alns,
 
 
 def generate_eval_dict(fold, train_real, train_sim, val_real, val_sim,
-        real_alns, sim_alns, save=None):
+                       real_alns, sim_alns, save=None):
     """
     Generate data frame containing training specific information about the
     alignment e.g. the distance between an alignment and the training data set
