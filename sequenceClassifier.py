@@ -59,6 +59,10 @@ def main():
                         help='Generates attribution maps using validation data.'
                              ' Requires --models (only if not --training) and '
                              '--datasets')
+    parser.add_argument('--clr', action='store_true',
+                        help='Indicate to use cyclic learning rates '
+                             '(in this case lr given in config is ignored). '
+                             'Requires --training.')
     parser.add_argument('-m', '--models', type=str,
                         help='<path/to> directory with trained model(s). '
                              'These models will then be tested on a given data '
@@ -212,7 +216,7 @@ def main():
 
         # -------------------- cfgure parameters -------------------- #
         if args.test or args.models:
-            cfg['data']['nb_alignments'] = None
+            cfg['data']['nb_alignments'] = None  # TODO
         else:
             if cfg['data']['nb_alignments'] != '':
                 cfg['data']['nb_alignments'] = int(cfg['data']['nb_alignments'])
@@ -387,11 +391,18 @@ def main():
                     model = ConvNet(model_params).to(compute_device)
 
                 if args.training:
-                    min_lr, max_lr = find_lr_bounds(model, train_loader,
-                                                    optimizer, result_path,
-                                                    prefix=f'{fold + 1}_')
-                    fit((min_lr, max_lr), model, train_loader, val_loader,
-                        optimizer, max_epochs=epochs)
+                    if args.clr:  # use clr scheduler
+                        min_lr, max_lr = find_lr_bounds(model, train_loader,
+                                                        optimizer,
+                                                        result_path if fold == 0
+                                                        else '',
+                                                        prefix=f'{fold + 1}_'
+                                                        if fold == 0 else '')
+                        fit((min_lr, max_lr), model, train_loader, val_loader,
+                            optimizer, max_epochs=epochs)
+                    else:
+                        fit(lr, model, train_loader, val_loader, optimizer,
+                            max_epochs=epochs)
                 elif args.test:
                     with torch.no_grad():
                         train_result = evaluate(model, train_loader)

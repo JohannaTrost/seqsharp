@@ -1,6 +1,7 @@
 """Functions to train and evaluate a neural network"""
 
 import gc
+import os
 import time
 
 import numpy as np
@@ -66,6 +67,9 @@ def find_lr_bounds(model, train_loader, opt_func, save, start_lr=1e-09,
     print(f'lr = [{low_bound_lr}, {high_bound_lr}]')
 
     if save is not None and save != '':
+        save = f'{save}/lrfinder'
+        if not os.path.exists(save):
+            os.mkdir(save)
         fig, ax = plt.subplots()
         ax.plot(lr_find_lr, lr_find_loss)
         ylims = ax.get_ylim()
@@ -164,12 +168,22 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
     :param val_loader: validation dataset (DataLoader)
     :param opt_func: optimizer (torch.optim)
     """
+    # init optimizer and scheduler (if used)
+    if isinstance(lr, list) or isinstance(lr, tuple):
+        optimizer = opt_func(model.parameters(), lr[0])
+        # a range of LRs is given indicating usage of CLR scheduler
+        scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, lr[0],
+                                                      lr[1],
+                                                      cycle_momentum=False)
+    else:
+        optimizer = opt_func(model.parameters(), lr)
+        scheduler = None
 
-    optimizer = opt_func(model.parameters(), np.mean(lr))
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, lr[0],
-                                                  lr[1], cycle_momentum=False)
+    # load state dict of optimizer/scheduler to resume training
     if model.opt_state is not None:
         optimizer.load_state_dict(model.opt_state)
+    if model.scheduler_state is not None:
+        scheduler.load_state_dict(model.scheduler_state)
 
     print('Epoch [0]')
     # validation phase with initialized weights (untrained network)
@@ -187,7 +201,8 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
             optimizer.zero_grad()
             loss.backward()  # calcul of gradients
             optimizer.step()
-        scheduler.step()
+        if scheduler is not None:
+            scheduler.step()
 
         # validation phase
         model = validation(model, train_loader, val_loader)
@@ -210,6 +225,8 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         elif epoch == min_epochs - (step_size + 1):
             prev_val_loss = np.min(model.val_history['loss'][-step_size:])
     model.opt_state = optimizer.state_dict()
+    if model.scheduler_state is not None:  # because CLR is optional
+        model.scheduler_state = scheduler.state_dict()
 
 
 def eval_per_align(conv_net, real_alns, sim_alns,

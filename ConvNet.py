@@ -49,6 +49,7 @@ def load_net(path, params, state='eval'):
     model.train_history = checkpoint['train_history']
     model.val_history = checkpoint['val_history']
     model.opt_state = checkpoint['opt_state_dict']
+    model.scheduler_state = checkpoint['scheduler_state_dict']
 
     if state == 'eval':
         model.eval()
@@ -167,6 +168,7 @@ class ConvNet(nn.Module):
         self.val_history = {'loss': [], 'acc': [], 'acc_emp': [],
                             'acc_sim': []}
         self.opt_state = None  # state dict of optimizer
+        self.scheduler_state = None  # state dict of scheduler
 
     def forward(self, x):
         if self.conv_layers is not None:
@@ -247,7 +249,8 @@ class ConvNet(nn.Module):
             'train_history': self.train_history,
             'val_history': self.val_history,
             'model_state_dict': self.state_dict(),
-            'opt_state_dict': self.opt_state
+            'opt_state_dict': self.opt_state,
+            'scheduler_state_dict': self.scheduler_state
         },
             path)
 
