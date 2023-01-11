@@ -77,7 +77,7 @@ def fold_val_from_csv(path):
     return val_folds, header
 
 
-def write_cfg_file(cfg, model_path, cfg_path, timestamp=None):
+def write_cfg_file(cfg, cfg_path, model_path='', timestamp=None):
     """Save parameters in a json file
 
     If a recent cfg contains the same parameters it will be put into
@@ -101,58 +101,14 @@ def write_cfg_file(cfg, model_path, cfg_path, timestamp=None):
 
     if cfg_dir != '':
         out_path = f'{cfg_dir}/cfg-{timestamp}.json'
-
-        # get second and third latest cfg files
-        files = [f'{cfg_dir}/{file}' for file in os.listdir(cfg_dir)
-                 if f'{cfg_dir}/{file}' != cfg_path and
-                 file.split('.')[-1] == 'json']
-        files = sorted(files, key=lambda t: -os.stat(t).st_mtime)[1:3]
-
-        print(files)
-
-        same_cfg = {}
-        for file in files:
-            older_cfg = read_cfg_file(file)
-            if (older_cfg['data'] == cfg['data'] and
-                    older_cfg['hyperparameters'] == cfg[
-                        'hyperparameters'] and
-                    older_cfg['conv_net_parameters'] == cfg[
-                        'conv_net_parameters']):
-                same_cfg = older_cfg
-                same_cfg_file = file
-                break
-
-        # saving model path(s) and comments
-        if same_cfg != {}:
-            if type(same_cfg['results_path']) is list:
-                res_paths = same_cfg['results_path'] + [model_path]
-            else:
-                res_paths = [same_cfg['results_path'], model_path]
-            cfg['results_path'] = list(filter(None, res_paths))
-
-            if type(same_cfg['comments']) is list:
-                if type(cfg['comments']) is not list:
-                    comments = same_cfg['comments'] + [cfg['comments']]
-                else:
-                    comments = same_cfg['comments'] + cfg['comments']
-            else:
-                comments = [same_cfg['comments'], cfg['comments']]
-            cfg['comments'] = list(filter(None, comments))
-        else:
-            cfg['results_path'] = model_path
+        cfg['results_path'] = model_path
 
         # save cfg to file
         with open(out_path, "w") as outfile:
             json.dump(cfg, outfile)
 
-        # delete old cfg
-        if same_cfg != {}:
-            os.remove(same_cfg_file)
-
-    else:
-        cfg['results_path'] = model_path
-
     if model_path != '':
+        cfg['results_path'] = model_path
         with open(f'{model_path}/cfg.json', "w") as outfile:
             json.dump(cfg, outfile)
 

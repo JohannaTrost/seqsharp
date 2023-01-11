@@ -97,9 +97,9 @@ def main():
                              'an alignment will be used')
     parser.add_argument('--molecule_type', choices=['DNA', 'protein'],
                         help='Specify if you use DNA or protein MSAs')
-    parser.add_argument('--continu', action='store_true',
-                        help='Continue from given lr-bs-combi within '
-                             'default bs-lr-grid.')
+    parser.add_argument('-r', '--resume', action='store_true',
+                        help='Resume training, starting from last epoch in '
+                             'each fold.')
 
     args = parser.parse_args()
 
@@ -220,14 +220,14 @@ def main():
 
         # -------------------- cfgure parameters -------------------- #
         if args.test or args.models:
-            cfg['data']['nb_alignments'] = None  # TODO
+            cfg['data']['nb_alignments'] = 64  # TODO
         else:
             if cfg['data']['nb_alignments'] != '':
                 cfg['data']['nb_alignments'] = int(cfg['data']['nb_alignments'])
         model_params = cfg['conv_net_parameters']
 
         # hyperparameters
-        batch_size, epochs, lr, opt, nb_folds = cfg[
+        batch_size, epochs, lr, lr_range, opt, nb_folds = cfg[
             'hyperparameters'].values()
 
         if opt == 'Adagrad':
@@ -243,7 +243,7 @@ def main():
         # k-fold validator (kfold-seed ensures same fold-splits in opt. loop)
         kfold = StratifiedKFold(nb_folds, shuffle=True, random_state=42)
 
-        seed = 42  # + np.random.randint(100) if args.continu else 42
+        seed = 42  # + np.random.randint(100) if args.resume else 42
         torch.manual_seed(seed)
         random.seed(seed)
         np.random.seed(seed)
@@ -316,29 +316,6 @@ def main():
                 raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                         model_path)
 
-        if (batch_size == '' and lr == '') or (
-                args.continu and not args.models):
-            param_space = {
-                'batch_size': [32, 64, 128],
-                'lr': [0.1, 0.01, 0.001, 0.0001]
-            }
-        else:
-            param_space = {
-                'batch_size': batch_size
-                if isinstance(batch_size, list)
-                else [batch_size],
-                'lr': lr if isinstance(lr, list) else [lr],
-            }
-
-        lrs, bss = np.meshgrid(param_space['lr'], param_space['batch_size'])
-        lrs, bss = lrs.flatten(), bss.flatten()
-        if args.continu and not args.models:
-            continu_ind = [i for i, (lr_c, bs_c) in enumerate(zip(lrs, bss))
-                           if lr_c == lr and bs_c == batch_size][0] + 1
-            lrs, bss = lrs[continu_ind:], bss[continu_ind:]
-            print(lrs)
-            print(bss)
-
         # -------------------- k-fold cross validation -------------------- #
 
         print(f'\nCompute device: {compute_device}\n')
@@ -350,11 +327,12 @@ def main():
             best = {'val_acc': -np.inf}
 
         # explore hyper-parameter-space
-        for bs, lr in zip(bss, lrs):
+        for bs in batch_size if isinstance(batch_size, list) else [batch_size]:
 
             print(sep_line)
-            print(f"Current Parameters:\n\tBatch size: "
-                  f"{bs}\n\tLearning rate: {lr}")
+            print(f"Current Parameters:\n"
+                  f"\tBatch size: {bs}\n"
+                  f"\tLearning rate: {lr_range if lr_range != '' else lr}")
             print(sep_line + '\n')
 
             models = []
@@ -384,7 +362,7 @@ def main():
                     1]  # 1 channel per amino acid
 
                 if args.models:
-                    state = 'train' if args.continu else 'eval'
+                    state = 'train' if args.resume else 'eval'
                     # load model if testing or if continuing training
                     model = load_net(model_paths[fold]
                                      if len(model_paths) == nb_folds
@@ -395,18 +373,38 @@ def main():
                     model = ConvNet(model_params).to(compute_device)
 
                 if args.training:
-                    if args.clr:  # use clr scheduler
+                    if lr_range != '':
                         min_lr, max_lr = find_lr_bounds(model, train_loader,
                                                         optimizer,
                                                         result_path if fold == 0
                                                         else '',
+                                                        *lr_range,
                                                         prefix=f'{fold + 1}_'
                                                         if fold == 0 else '')
-                        fit((min_lr, max_lr), model, train_loader, val_loader,
-                            optimizer, max_epochs=epochs)
+                        if args.clr:  # use clr scheduler
+                            fit((min_lr, max_lr), model, train_loader,
+                                val_loader, optimizer, max_epochs=epochs)
+                            cfg['hyperparameters']['lr'] = (min_lr, max_lr)
+                        else:
+                            found_lr = (min_lr + max_lr) / 2
+                            print(f'Use mean lr finder lr: {found_lr}')
+                            fit(found_lr, model, train_loader, val_loader,
+                                optimizer, max_epochs=epochs)
+                            cfg['hyperparameters']['lr'] = found_lr
                     else:
-                        fit(lr, model, train_loader, val_loader, optimizer,
-                            max_epochs=epochs)
+                        if args.clr:
+                            save_lr_finder = result_path if fold == 0 else ''
+                            prefix = f'{fold + 1}_' if fold == 0 else ''
+                            min_lr, max_lr = find_lr_bounds(model, train_loader,
+                                                            optimizer,
+                                                            save_lr_finder,
+                                                            prefix=prefix)
+                            fit((min_lr, max_lr), model, train_loader,
+                                val_loader, optimizer, max_epochs=epochs)
+                            cfg['hyperparameters']['lr'] = (min_lr, max_lr)
+                        else:
+                            fit(lr, model, train_loader, val_loader,
+                                optimizer, max_epochs=epochs)
                 elif args.test:
                     with torch.no_grad():
                         train_result = evaluate(model, train_loader)
@@ -456,16 +454,14 @@ def main():
             if result_path is not None:
                 fold_val_dict2csv(val_folds,
                                   f'{result_path}/'
-                                  f'val_folds_{timestamp}_{str(bs)}_'
-                                  f'{str(lr)}.csv')
+                                  f'val_folds_{timestamp}_{str(bs)}.csv')
             if val_acc >= best['val_acc']:
                 best['val_acc'] = val_acc
                 best['models'] = models
                 best['dfs'] = dfs
                 best['batch_size'] = bs
-                best['lr'] = lr
                 print(sep_line)
-                print(f'New best lr: {lr} and bs: {bs}')
+                print(f'New best bs: {bs}')
 
                 # ------------------------- results ------------------------- #
 
@@ -479,11 +475,10 @@ def main():
 
                 # save cfg
                 cfg['hyperparameters']['batch_size'] = best['batch_size']
-                cfg['hyperparameters']['lr'] = best['lr']
                 cfg['val_acc'] = best['val_acc']
                 write_cfg_file(cfg,
-                               result_path if result_path is not None else '',
                                cfg_path if cfg_path is not None else '',
+                               result_path if result_path is not None else '',
                                timestamp)
 
                 # print/save overall fold results
@@ -519,8 +514,7 @@ def main():
                     print(f'\tFold {(i + 1)}: {acc} %')
                 print(f'Average: {np.mean(fold_eval)} %')
                 print(sep_line)
-        print(f"\nBest hyper-parameters:\n\tBatch size: {best['batch_size']}\n"
-              f"\tLearning rate: {best['lr']}")
+        print(f"\nBest Batch size: {best['batch_size']}")
 
         if args.attr:
 
