@@ -203,6 +203,10 @@ def main():
         elif args.models:
             result_path = model_path
 
+        # save original cfg (because values may change during training
+        # e.g. only best lr will be saved)
+        write_cfg_file(cfg, cfg_path=cfg_path, timestamp=timestamp)
+
         if not os.path.exists(emp_fasta_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     emp_fasta_path)
