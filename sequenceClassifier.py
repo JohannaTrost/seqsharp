@@ -326,8 +326,8 @@ def main():
         else:
             best = {'val_acc': -np.inf}
 
-        # explore hyper-parameter-space
-        for bs in batch_size if isinstance(batch_size, list) else [batch_size]:
+        bs_lst = batch_size if isinstance(batch_size, list) else [batch_size]
+        for bs in bs_lst:
 
             print(sep_line)
             print(f"Current Parameters:\n"
@@ -405,6 +405,16 @@ def main():
                         else:
                             fit(lr, model, train_loader, val_loader,
                                 optimizer, max_epochs=epochs)
+
+                    if len(bs_lst) == 1:
+                        # save each fold directly if there is only one bs
+                        # otherwise only the best performing model is saved
+                        if result_path is not None:
+                            model.save(f'{result_path}/model-fold-'
+                                       f'{fold + 1}.pth')
+                            model.plot(f'{result_path}/fig-fold-{fold + 1}.png')
+                        else:
+                            model.plot()
                 elif args.test:
                     with torch.no_grad():
                         train_result = evaluate(model, train_loader)

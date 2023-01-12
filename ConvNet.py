@@ -48,8 +48,11 @@ def load_net(path, params, state='eval'):
     model.load_state_dict(checkpoint['model_state_dict'])
     model.train_history = checkpoint['train_history']
     model.val_history = checkpoint['val_history']
-    model.opt_state = checkpoint['opt_state_dict']
-    model.scheduler_state = checkpoint['scheduler_state_dict']
+    # check because old models didn't have optimizer and scheduler state
+    if 'opt_state_dict' in checkpoint.keys():
+        model.opt_state = checkpoint['opt_state_dict']
+    if 'scheduler_state_dict' in checkpoint.keys():
+        model.scheduler_state = checkpoint['scheduler_state_dict']
 
     if state == 'eval':
         model.eval()
