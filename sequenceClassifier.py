@@ -220,7 +220,7 @@ def main():
 
         # -------------------- cfgure parameters -------------------- #
         if args.test or args.models:
-            cfg['data']['nb_alignments'] = 64  # TODO
+            cfg['data']['nb_alignments'] = None  # TODO
         else:
             if cfg['data']['nb_alignments'] != '':
                 cfg['data']['nb_alignments'] = int(cfg['data']['nb_alignments'])
@@ -381,6 +381,8 @@ def main():
                                                         *lr_range,
                                                         prefix=f'{fold + 1}_'
                                                         if fold == 0 else '')
+                        if opt == 'Adagrad':
+                            max_lr = 0.11
                         if args.clr:  # use clr scheduler
                             fit((min_lr, max_lr), model, train_loader,
                                 val_loader, optimizer, max_epochs=epochs)
@@ -399,6 +401,8 @@ def main():
                                                             optimizer,
                                                             save_lr_finder,
                                                             prefix=prefix)
+                            if opt == 'Adagrad':
+                                max_lr = 0.11
                             fit((min_lr, max_lr), model, train_loader,
                                 val_loader, optimizer, max_epochs=epochs)
                             cfg['hyperparameters']['lr'] = (min_lr, max_lr)
