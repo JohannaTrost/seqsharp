@@ -17,6 +17,18 @@ from utils import merge_fold_hist_dicts, confidence_ellipse, pred_runtime, \
 # matplotlib.use("Agg")
 
 
+def plot_corr_pred_sl(sl, scores, save=''):
+    fig, ax = plt.subplots(ncols=len(sl.keys()), figsize=(16, 9))
+    for i, key in enumerate(scores.keys()):
+        ax[i].scatter(sl[key], scores[key])
+        ax[i].set_ylabel('Prediction score (0 - emp, 1 - sim)')
+        ax[i].set_xlabel('Number of sites')
+        ax[i].set_title('key')
+    plt.tight_layout()
+    if save != '':
+        plt.savefig(save)
+
+
 def plot_compare_msa_stats(stats, fastas, group_labels, sample_size=42,
                            save=None, figsize=None):
     sample_inds = [np.random.randint(len(fastas[0]), size=42)]
