@@ -18,12 +18,18 @@ from utils import merge_fold_hist_dicts, confidence_ellipse, pred_runtime, \
 
 
 def plot_corr_pred_sl(sl, scores, save=''):
-    fig, ax = plt.subplots(ncols=len(sl.keys()), figsize=(16, 9))
+    fig, ax = plt.subplots(ncols=len(sl.keys()), nrows=3, figsize=(16, 9))
+    # scatter
     for i, key in enumerate(scores.keys()):
-        ax[i].scatter(sl[key], scores[key])
-        ax[i].set_ylabel('Prediction score (0 - emp, 1 - sim)')
-        ax[i].set_xlabel('Number of sites')
-        ax[i].set_title('key')
+        ax[0, i].scatter(sl[key], scores[key])
+        ax[0, i].set_ylabel('Prediction score (0 - emp, 1 - sim)')
+        ax[0, i].set_xlabel('Number of sites')
+        ax[0, i].set_title(key)
+        sl_sort = np.argsort(sl[key])
+        ax[1, i].plot(scores[key][sl_sort], label='scores (by sl)')
+        ax[2, i].plot(sl[key], label='sl (by scores)')
+        ax[1, i].legend()
+        ax[2, i].legend()
     plt.tight_layout()
     if save != '':
         plt.savefig(save)

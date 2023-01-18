@@ -18,6 +18,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import torch
+from minepy import MINE
 from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import DataLoader
 
@@ -106,7 +107,7 @@ def main():
     # -------------------- verify arguments usage -------------------- #
 
     # exclusive usage of -m
-    if args.models and any(arg for arg in (args.track_stats, args.shuffle)):
+    if args.models and args.track_stats:
         parser.error('--models cannot be used in combination with '
                      '--shuffle or --track_stats')
 
@@ -392,7 +393,7 @@ def main():
                             cfg['hyperparameters']['lr'] = (min_lr, max_lr)
                         else:
                             found_lr = max_lr
-                            print(f'Use mean lr finder lr: {found_lr}')
+                            print(f'Use lr finder lr: {found_lr}')
                             fit(found_lr, model, train_loader, val_loader,
                                 optimizer, max_epochs=epochs)
                             cfg['hyperparameters']['lr'] = found_lr
@@ -463,7 +464,11 @@ def main():
                 [model.train_history for model in models],
                 [model.val_history for model in models])
             # get acc., emp. acc., sim. acc, and loss of epoch with max. acc.
-            val_folds = evaluate_folds(val_hist_folds, nb_folds)
+            if args.training:
+                val_folds = evaluate_folds(val_hist_folds, nb_folds)
+            elif args.test:
+                val_folds = evaluate_folds(val_hist_folds, nb_folds,
+                                           which='last')
             # evaluation for hyper-parameter selection
             val_acc = np.mean(val_folds['acc'])
 
@@ -482,45 +487,47 @@ def main():
 
                 # ------------------------- results ------------------------- #
 
-                # plot learning curve
-                for fold, model in enumerate(models):
+                if args.training:
+                    # plot learning curve
+                    for fold, model in enumerate(models):
+                        if result_path is not None:
+                            model.save(f'{result_path}/model-fold-{fold + 1}.pth')
+                            model.plot(f'{result_path}/fig-fold-{fold + 1}.png')
+                        else:
+                            model.plot()
+
+                    # save cfg
+                    cfg['hyperparameters']['batch_size'] = best['batch_size']
+                    cfg['val_acc'] = best['val_acc']
+                    write_cfg_file(cfg,
+                                   cfg_path if cfg_path is not None else '',
+                                   result_path if result_path is not None else '',
+                                   timestamp)
+
+                    # print/save overall fold results
                     if result_path is not None:
-                        model.save(f'{result_path}/model-fold-{fold + 1}.pth')
-                        model.plot(f'{result_path}/fig-fold-{fold + 1}.png')
+                        # save plot of learning curve
+                        if args.training:
+                            plot_folds(train_hist_folds, val_hist_folds,
+                                       path=f'{result_path}/fig-fold-eval.png')
+                        print(f'\nSaved models and evaluation plots to '
+                              f'{result_path}\n')
                     else:
-                        model.plot()
+                        print(
+                            f'\nNot saving models and evaluation plots. Please use '
+                            f'--save and specify a directory if you want to save '
+                            f'your results!\n')
 
-                # save cfg
-                cfg['hyperparameters']['batch_size'] = best['batch_size']
-                cfg['val_acc'] = best['val_acc']
-                write_cfg_file(cfg,
-                               cfg_path if cfg_path is not None else '',
-                               result_path if result_path is not None else '',
-                               timestamp)
+                    # save statistics of training process
+                    if len(best['dfs']) > 0 and result_path is not None:
+                        df_c = pd.concat(best['dfs'])
+                        csv_string = df_c.to_csv(index=False)
+                        with open(result_path +
+                                  '/aln_train_eval.csv', 'w') as file:
+                            file.write(csv_string)
 
-                # print/save overall fold results
-                if result_path is not None:
-                    # save plot of learning curve
-                    if args.training:
-                        plot_folds(train_hist_folds, val_hist_folds,
-                                   path=f'{result_path}/fig-fold-eval.png')
-                    print(f'\nSaved models and evaluation plots to '
-                          f'{result_path}\n')
-                else:
-                    print(
-                        f'\nNot saving models and evaluation plots. Please use '
-                        f'--save and specify a directory if you want to save '
-                        f'your results!\n')
-
-                # save statistics of training process
-                if len(best['dfs']) > 0 and result_path is not None:
-                    df_c = pd.concat(best['dfs'])
-                    csv_string = df_c.to_csv(index=False)
-                    with open(result_path + '/aln_train_eval.csv', 'w') as file:
-                        file.write(csv_string)
-
-                    print(f'Saved statistics to {result_path}'
-                          f'/aln_train_eval.csv ...\n')
+                        print(f'Saved statistics to {result_path}'
+                              f'/aln_train_eval.csv ...\n')
 
                 # print k-fold cross-validation evaluation
                 print(sep_line)
@@ -570,12 +577,16 @@ def main():
                             # filter emp/sim msas and sort by prediction score
                             val_sl[cl] = seq_lens[val_ids][val_ds.labels == l][
                                 sort_inds]
+                        print('Sequence length vs prediction scores')
+                        for key in val_sl.keys():
+                            mine = MINE()
+                            mine.compute_score(preds[key], val_sl[key])
+                            corr = np.corrcoef([preds[key], val_sl[key]])
+
+                            print(f'{key}\n\tMIC={mine.mic()}')
+                            print(f'\tPearson={corr[0][1]}\n')
                         plot_corr_pred_sl(val_sl, preds,
                                           f'{attr_path}/score_sl.pdf')
-                        corr = np.corrcoef(np.asarray(
-                            [np.concatenate(list(val_sl.values())),
-                             np.concatenate(list(preds.values()))]))
-                        print(f'\nCorr. coeff (sl, scores):{corr}\n')
 
                         # get masks to remove padding
                         pad_mask = {}  # sorted by pred. score

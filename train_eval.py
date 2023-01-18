@@ -107,7 +107,7 @@ def validation(model, train_loader, val_loader):
     return model
 
 
-def evaluate_folds(val_hist_folds, nb_folds):
+def evaluate_folds(val_hist_folds, nb_folds, which='best'):
     """Return acc., emp./sim. acc. and loss of best epoch for each fold
 
     :param val_hist_folds: acc., emp./sim. acc. and loss for each epoch and fold
@@ -118,9 +118,12 @@ def evaluate_folds(val_hist_folds, nb_folds):
 
     val_folds = {'loss': [], 'acc': [], 'acc_emp': [], 'acc_sim': []}
     for fold in range(nb_folds):
-        best_epoch = np.argmax(val_hist_folds['acc'][fold])
+        if which == 'best':
+            epoch = np.argmax(val_hist_folds['acc'][fold])
+        elif which == 'last':
+            epoch = val_hist_folds['acc'][fold][-1]
         for key in val_folds.keys():
-            val_folds[key].append(val_hist_folds[key][fold][best_epoch])
+            val_folds[key].append(val_hist_folds[key][fold][epoch])
     return val_folds
 
 
