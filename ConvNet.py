@@ -44,7 +44,7 @@ def load_net(path, params, state='eval'):
     """
 
     model = ConvNet(params)
-    checkpoint = torch.load(path)
+    checkpoint = torch.load(path, map_location=compute_device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.train_history = checkpoint['train_history']
     model.val_history = checkpoint['val_history']
@@ -132,10 +132,7 @@ class ConvNet(nn.Module):
             elif p['do_maxpool'] == 2 and i == nb_conv_layer - 1:
                 # global pooling
                 ks = int(p['input_size'] / 2 ** max(nb_conv_layer - 1, 0))
-                if p['kernel_size'] == 1:
-                    self.conv_layers.append(nn.MaxPool1d(kernel_size=ks))
-                elif p['kernel_size'] > 1:
-                    self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
+                self.conv_layers.append(nn.MaxPool1d(kernel_size=ks))
 
         self.conv_layers.append(nn.Dropout(0.2))
 
