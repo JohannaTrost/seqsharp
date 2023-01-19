@@ -637,7 +637,6 @@ def shuffle_sites(msa_ds):
         for j in range(len(msa_ds[i])):  # MSA
             aln = np.asarray([list(seq) for seq in msa_ds[i][j]])
             aln[:, :] = aln[:, np.random.permutation(range(aln.shape[1]))]
-
             msa_ds[i][j] = [''.join([aa for aa in seq]) for seq in aln]
     return msa_ds
 

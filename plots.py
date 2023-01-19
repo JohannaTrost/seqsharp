@@ -8,10 +8,9 @@ import pandas as pd
 
 from matplotlib import pylab as plt
 from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
 
-from utils import merge_fold_hist_dicts, confidence_ellipse, pred_runtime, \
-    get_model_performance, get_divisor_min_diff_quotient, fold_val_from_csv
+from utils import confidence_ellipse, pred_runtime, \
+    get_model_performance, get_divisor_min_diff_quotient
 
 
 # matplotlib.use("Agg")
@@ -37,7 +36,7 @@ def plot_corr_pred_sl(sl, scores, save=''):
 
 def plot_compare_msa_stats(stats, fastas, group_labels, sample_size=42,
                            save=None, figsize=None):
-    sample_inds = [np.random.randint(len(fastas[0]), size=42)]
+    sample_inds = [np.random.randint(len(fastas[0]), size=sample_size)]
     s_fastas = np.asarray(fastas[0])[sample_inds[0]]
     sample_inds += [[np.where(fs == rf.replace('.fasta', '.fa'))[0][0]
                      for rf in s_fastas]

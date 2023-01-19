@@ -21,9 +21,11 @@ torch.cuda.empty_cache()
 gc.collect()
 
 
-def find_lr_bounds(model, train_loader, opt_func, save, start_lr=1e-09,
-                   end_lr=0.1, lr_find_epochs=50, prefix=''):
+def find_lr_bounds(model, train_loader, opt_func, save, lr_range=None,
+                   lr_find_epochs=3, prefix=''):
     start = time.time()
+    start_lr, end_lr = (1e-07, 0.1) if lr_range == '' or lr_range else lr_range
+
     lr_lambda = lambda x: np.exp(x * np.log(end_lr / start_lr) / (
             lr_find_epochs * len(train_loader)))
     optimizer = opt_func(model.parameters(), start_lr)

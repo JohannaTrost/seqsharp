@@ -341,6 +341,7 @@ def main():
 
             models = []
             dfs = []
+            lrs = []
 
             for fold, (train_ids, val_ids) in enumerate(kfold.split(data,
                                                                     labels)):
@@ -364,7 +365,6 @@ def main():
                 model_params['input_size'] = train_ds.data.shape[2]  # seq len
                 model_params['nb_chnls'] = train_ds.data.shape[
                     1]  # 1 channel per amino acid
-
                 if args.models:
                     state = 'train' if args.resume else 'eval'
                     # load model if testing or if continuing training
@@ -377,42 +377,28 @@ def main():
                     model = ConvNet(model_params).to(compute_device)
 
                 if args.training:
-                    if lr_range != '':
+                    # determine lr (either lr from cfg or lr finder)
+                    if isinstance(lr, list) and len(lr) == nb_folds:
+                        # cfg lr is list of lrs per fold
+                        fold_lr = lr[fold]
+                    elif args.clr or lr_range != '':  # use lr finder
                         min_lr, max_lr = find_lr_bounds(model, train_loader,
                                                         optimizer,
                                                         result_path if fold == 0
-                                                        else '',
-                                                        *lr_range,
+                                                        else '', lr_range,
                                                         prefix=f'{fold + 1}_'
                                                         if fold == 0 else '')
-                        if opt == 'Adagrad':
-                            max_lr = 0.11
-                        if args.clr:  # use clr scheduler
-                            fit((min_lr, max_lr), model, train_loader,
-                                val_loader, optimizer, max_epochs=epochs)
-                            cfg['hyperparameters']['lr'] = (min_lr, max_lr)
-                        else:
-                            found_lr = max_lr
-                            print(f'Use lr finder lr: {found_lr}')
-                            fit(found_lr, model, train_loader, val_loader,
-                                optimizer, max_epochs=epochs)
-                            cfg['hyperparameters']['lr'] = found_lr
-                    else:
+                        if opt == 'Adagrad' and args.clr:
+                            max_lr = 0.1
                         if args.clr:
-                            save_lr_finder = result_path if fold == 0 else ''
-                            prefix = f'{fold + 1}_' if fold == 0 else ''
-                            min_lr, max_lr = find_lr_bounds(model, train_loader,
-                                                            optimizer,
-                                                            save_lr_finder,
-                                                            prefix=prefix)
-                            if opt == 'Adagrad':
-                                max_lr = 0.11
-                            fit((min_lr, max_lr), model, train_loader,
-                                val_loader, optimizer, max_epochs=epochs)
-                            cfg['hyperparameters']['lr'] = (min_lr, max_lr)
-                        else:
-                            fit(lr, model, train_loader, val_loader,
-                                optimizer, max_epochs=epochs)
+                            lrs.append((min_lr, max_lr))
+                        else:  # lr finder determined lr for non-clr
+                            lrs.append(max_lr)
+                        fold_lr = lrs[-1]
+                    else:
+                        fold_lr = lr  # single lr given in cfg
+                    fit(fold_lr, model, train_loader,
+                        val_loader, optimizer, max_epochs=epochs)
 
                     if len(bs_lst) == 1:
                         # save each fold directly if there is only one bs
@@ -463,10 +449,10 @@ def main():
             train_hist_folds, val_hist_folds = merge_fold_hist_dicts(
                 [model.train_history for model in models],
                 [model.val_history for model in models])
-            # get acc., emp. acc., sim. acc, and loss of epoch with max. acc.
+            # get bcc., emp. acc., sim. acc, and loss
             if args.training:
                 val_folds = evaluate_folds(val_hist_folds, nb_folds)
-            elif args.test:
+            elif args.test:  # get results from last epoch = test results
                 val_folds = evaluate_folds(val_hist_folds, nb_folds,
                                            which='last')
             # evaluation for hyper-parameter selection
@@ -477,7 +463,7 @@ def main():
                 fold_val_dict2csv(val_folds,
                                   f'{result_path}/'
                                   f'val_folds_{timestamp}_{str(bs)}.csv')
-            if val_acc >= best['val_acc']:
+            if val_acc >= best['val_acc'] and not args.test:
                 best['val_acc'] = val_acc
                 best['models'] = models
                 best['dfs'] = dfs
@@ -498,6 +484,7 @@ def main():
 
                     # save cfg
                     cfg['hyperparameters']['batch_size'] = best['batch_size']
+                    cfg['hyperparameters']['lr'] = lrs if len(lrs) > 0 else lr
                     cfg['val_acc'] = best['val_acc']
                     write_cfg_file(cfg,
                                    cfg_path if cfg_path is not None else '',
