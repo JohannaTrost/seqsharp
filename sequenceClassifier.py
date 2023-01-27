@@ -10,13 +10,11 @@ import argparse
 import errno
 import os
 import random
-import sys
 import time
 import gc
 from datetime import datetime
 
 import numpy as np
-import pandas as pd
 import torch
 from minepy import MINE
 from sklearn.model_selection import StratifiedKFold
@@ -29,7 +27,7 @@ from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
     make_msa_reprs, load_msa_reprs
 from plots import plot_folds, plot_hist_quantiles, plot_corr_pred_sl, \
     plot_groups_folds
-from stats import get_n_sites_per_msa, get_n_seqs_per_msa, print_stats
+from stats import get_n_sites_per_msa, get_n_seqs_per_msa
 from utils import write_cfg_file, read_cfg_file, merge_fold_hist_dicts, \
     fold_val_dict2csv
 from train_eval import fit, eval_per_align, generate_eval_dict, evaluate, \
@@ -396,20 +394,17 @@ def main():
                     else:
                         fold_lr = lr  # single lr given in cfg
 
-                    time_per_step = fit(fold_lr, model, train_loader,
-                                        val_loader, optimizer,
-                                        max_epochs=epcs)
+                    time_per_step = fit(fold_lr,
+                                        model,
+                                        train_loader,
+                                        val_loader,
+                                        optimizer,
+                                        max_epochs=epcs,
+                                        save=result_path
+                                        if len(bs_lst) == 1 else '',
+                                        fold=fold)
                     train_throughput[i, fold] = time_per_step
 
-                    if len(bs_lst) == 1:
-                        # save each fold directly if there is only one bs
-                        # otherwise only the best performing model is saved
-                        if result_path is not None:
-                            model.save(f'{result_path}/model-fold-'
-                                       f'{fold + 1}.pth')
-                            model.plot(f'{result_path}/fig-fold-{fold + 1}.png')
-                        else:
-                            model.plot()
                 elif args.test:
                     with torch.no_grad():
                         train_result = evaluate(model, train_loader)

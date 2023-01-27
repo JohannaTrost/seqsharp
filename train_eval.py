@@ -159,7 +159,7 @@ def evaluate(model, val_loader):
 
 def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         start_epoch=0, max_epochs=1000, min_epochs=100, patience=2,
-        step_size=50, min_delta=1e-04):
+        step_size=50, min_delta=1e-04, save='', fold=None):
     """
     Training a model to learn a function to distinguish between simulated and
     empirical alignments (with validation step at the end of each epoch)
@@ -217,7 +217,17 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         # validation phase
         model = validation(model, train_loader, val_loader)
 
-        if (epoch + 1) % step_size == 0 and epoch > min_epochs - 1:
+        if epoch % 10 == 0 and save != '':
+            # save checkpoint every 10 epochs
+            if (np.min(model.val_history['loss'][:-10]) >
+                    model.val_history['loss'][-1]):
+                # save each fold directly if there is only one bs
+                # otherwise only the best performing model is saved
+                model.save(f'{save}/model-fold-{fold + 1}.pth')
+                model.plot(f'{save}/fig-fold-{fold + 1}.png')
+                print('\nSave checkpoint\n')
+
+        if epoch % step_size == 0 and epoch > min_epochs - 1:
             # do eval for early stopping every 50th epoch
             # after reaching min num epochs
 
@@ -240,8 +250,6 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         model.scheduler_state = scheduler.state_dict()
 
     return np.mean(time_per_step)
-
-
 
 
 def eval_per_align(conv_net, real_alns, sim_alns,
