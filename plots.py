@@ -16,6 +16,25 @@ from utils import confidence_ellipse, pred_runtime, \
 # matplotlib.use("Agg")
 
 
+def plot_groups_folds(bs_lst, time_per_step, save=''):
+    n_bs = time_per_step.shape[0]
+    n_folds = time_per_step.shape[1]
+    fig, ax = plt.subplots(figsize=(16, 9))
+    for i in range(n_bs):
+        ax.scatter(np.repeat(i, n_folds), time_per_step[i], alpha=0.4,
+                   marker='.')
+    ax.plot(np.arange(n_bs), np.mean(time_per_step, axis=1),
+            label='Mean across folds', color='grey', linewidth=1, marker='o')
+    ax.set_xticks(np.arange(n_bs))
+    ax.set_xticklabels([str(bs) for bs in bs_lst])
+    ax.set_xlabel('Batch size')
+    ax.set_ylabel('Time per step')
+    plt.tight_layout()
+    if save != '' and save is not None:
+        plt.savefig(save)
+    plt.close('all')
+
+
 def plot_corr_pred_sl(sl, scores, save=''):
     fig, ax = plt.subplots(ncols=len(sl.keys()), nrows=3, figsize=(16, 9))
     # scatter

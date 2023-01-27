@@ -27,8 +27,9 @@ from attr_methods import get_attr, get_sorted_pred_scores, plot_pred_scores, \
     plot_summary, plot_msa_attr
 from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
     make_msa_reprs, load_msa_reprs
-from plots import plot_folds, plot_hist_quantiles, plot_corr_pred_sl
-from stats import get_n_sites_per_msa, get_n_seqs_per_msa
+from plots import plot_folds, plot_hist_quantiles, plot_corr_pred_sl, \
+    plot_groups_folds
+from stats import get_n_sites_per_msa, get_n_seqs_per_msa, print_stats
 from utils import write_cfg_file, read_cfg_file, merge_fold_hist_dicts, \
     fold_val_dict2csv
 from train_eval import fit, eval_per_align, generate_eval_dict, evaluate, \
@@ -294,11 +295,6 @@ def main():
             sim_alns, fastas_sim = load_msa_reprs(emp_fasta_path, pairs,
                                                   cfg['data']['nb_alignments'])
 
-        data_size = sys.getsizeof(emp_alns) + sys.getsizeof(sim_alns)
-        data_size += sys.getsizeof(fastas_emp) + sys.getsizeof(fastas_sim)
-        print(f'Preloaded data uses : '
-              f'{data_size / 10 ** 9}GB\n')
-
         n_emp_alns, n_sim_alns = len(emp_alns), len(sim_alns)
         data = np.asarray(emp_alns + sim_alns, dtype='float32')
         labels = np.concatenate((np.zeros(n_emp_alns), np.ones(n_sim_alns)))
@@ -325,17 +321,19 @@ def main():
         print(f'\nCompute device: {compute_device}\n')
 
         if 'val_acc' in cfg.keys():
-            best = {'val_acc': cfg['val_acc']}
-            print(best)
+            best_val_acc = cfg['val_acc']
         else:
-            best = {'val_acc': -np.inf}
+            best_val_acc = -np.inf
 
         bs_lst = batch_size if isinstance(batch_size, list) else [batch_size]
-        for bs in bs_lst:
+        epochs_lst = epochs if isinstance(epochs, list) else [epochs]
+        train_throughput = np.zeros((len(bs_lst), nb_folds))
+
+        for i, (bs, epcs) in enumerate(zip(bs_lst, epochs_lst)):
+            # usually one iteration except for bs determination
 
             print(sep_line)
-            print(f"Current Parameters:\n"
-                  f"\tBatch size: {bs}\n"
+            print(f"\tBatch size: {bs}\n"
                   f"\tLearning rate: {lr_range if lr_range != '' else lr}")
             print(sep_line + '\n')
 
@@ -397,8 +395,11 @@ def main():
                         fold_lr = lrs[-1]
                     else:
                         fold_lr = lr  # single lr given in cfg
-                    fit(fold_lr, model, train_loader,
-                        val_loader, optimizer, max_epochs=epochs)
+
+                    time_per_step = fit(fold_lr, model, train_loader,
+                                        val_loader, optimizer,
+                                        max_epochs=epcs)
+                    train_throughput[i, fold] = time_per_step
 
                     if len(bs_lst) == 1:
                         # save each fold directly if there is only one bs
@@ -446,6 +447,10 @@ def main():
                                             emp_alns_dict, sim_alns_dict)
                     dfs.append(df)
 
+            # print avg across folds time per step
+            print(f'Avg. time-per-step across folds: '
+                  f'{np.round(train_throughput[i], 2)}s')
+
             train_hist_folds, val_hist_folds = merge_fold_hist_dicts(
                 [model.train_history for model in models],
                 [model.val_history for model in models])
@@ -455,205 +460,179 @@ def main():
             elif args.test:  # get results from last epoch = test results
                 val_folds = evaluate_folds(val_hist_folds, nb_folds,
                                            which='last')
-            # evaluation for hyper-parameter selection
+
             val_acc = np.mean(val_folds['acc'])
 
-            # save validation acc./loss for each lr-bs-config
+            # save validation acc./loss
             if result_path is not None:
                 fold_val_dict2csv(val_folds,
                                   f'{result_path}/'
                                   f'val_folds_{timestamp}_{str(bs)}.csv')
-            if val_acc >= best['val_acc'] and not args.test:
-                best['val_acc'] = val_acc
-                best['models'] = models
-                best['dfs'] = dfs
-                best['batch_size'] = bs
-                print(sep_line)
-                print(f'New best bs: {bs}')
 
-                # ------------------------- results ------------------------- #
+                # save cfg
+                cfg['hyperparameters']['lr'] = lrs if len(lrs) > 0 else lr
+                if val_acc < best_val_acc:
+                    cfg['val_acc'] = best_val_acc
+                else:
+                    cfg['val_acc'] = val_acc
+                write_cfg_file(cfg,
+                               cfg_path if cfg_path is not None else '',
+                               result_path if result_path is not None else '',
+                               timestamp)
 
+                # save plot of learning curve
                 if args.training:
-                    # plot learning curve
-                    for fold, model in enumerate(models):
-                        if result_path is not None:
-                            model.save(f'{result_path}/model-fold-{fold + 1}.pth')
-                            model.plot(f'{result_path}/fig-fold-{fold + 1}.png')
-                        else:
-                            model.plot()
+                    plot_folds(train_hist_folds, val_hist_folds,
+                               path=f'{result_path}/fig-fold-eval-'
+                                    f'{str(bs) if len(bs_lst) > 1 else ""}.png')
+                print(f'\nSaved results to {result_path}\n')
+            else:
+                print(
+                    f'\nNot saving models and evaluation plots. Please use '
+                    f'--save and specify a directory if you want to save '
+                    f'your results!\n')
 
-                    # save cfg
-                    cfg['hyperparameters']['batch_size'] = best['batch_size']
-                    cfg['hyperparameters']['lr'] = lrs if len(lrs) > 0 else lr
-                    cfg['val_acc'] = best['val_acc']
-                    write_cfg_file(cfg,
-                                   cfg_path if cfg_path is not None else '',
-                                   result_path if result_path is not None else '',
-                                   timestamp)
+            # print k-fold cross-validation evaluation
+            print(sep_line)
+            print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
+            fold_eval = [np.max(model.val_history['acc']) for model in
+                         models]
+            for i, acc in enumerate(fold_eval):
+                print(f'\tFold {(i + 1)}: {acc} %')
+            print(f'Average: {np.mean(fold_eval)} %')
+            print(sep_line)
 
-                    # print/save overall fold results
-                    if result_path is not None:
-                        # save plot of learning curve
-                        if args.training:
-                            plot_folds(train_hist_folds, val_hist_folds,
-                                       path=f'{result_path}/fig-fold-eval.png')
-                        print(f'\nSaved models and evaluation plots to '
-                              f'{result_path}\n')
+            # -------------------- attribution study -------------------- #
+            if args.attr:
+                # choose best fold
+                best_fold = np.argmax(fold_eval)
+                for fold, (_, val_ids) in enumerate(kfold.split(data,
+                                                                labels)):
+                    print(f'Compute/plot attribution scores from fold-'
+                          f'{fold + 1}-model')
+                    if result_path != '':
+                        attr_path = f'{result_path}/attribution_fold' \
+                                    f'{fold + 1}'
+                        if fold == best_fold:
+                            attr_path += '_best'
+                        if not os.path.exists(attr_path):
+                            os.mkdir(attr_path)
                     else:
-                        print(
-                            f'\nNot saving models and evaluation plots. Please use '
-                            f'--save and specify a directory if you want to save '
-                            f'your results!\n')
+                        attr_path = ''
 
-                    # save statistics of training process
-                    if len(best['dfs']) > 0 and result_path is not None:
-                        df_c = pd.concat(best['dfs'])
-                        csv_string = df_c.to_csv(index=False)
-                        with open(result_path +
-                                  '/aln_train_eval.csv', 'w') as file:
-                            file.write(csv_string)
+                    # get validation data for that fold
+                    val_ds = TensorDataset(data[val_ids].copy(),
+                                           labels[val_ids])
 
-                        print(f'Saved statistics to {result_path}'
-                              f'/aln_train_eval.csv ...\n')
+                    # get net
+                    model = models[fold]
 
-                # print k-fold cross-validation evaluation
-                print(sep_line)
-                print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
-                fold_eval = [np.max(model.val_history['acc']) for model in
-                             best['models']]
-                for i, acc in enumerate(fold_eval):
-                    print(f'\tFold {(i + 1)}: {acc} %')
-                print(f'Average: {np.mean(fold_eval)} %')
-                print(sep_line)
+                    # get predition scores and order to sort MSAs by scores
+                    preds, sort_by_pred = get_sorted_pred_scores(model,
+                                                                 val_ds)
+                    plot_pred_scores(preds,
+                                     save=f'{attr_path}/val_pred_scores.pdf')
 
-                # -------------------- attribution study -------------------- #
-                if args.attr:
-                    # choose best fold
-                    best_fold = np.argmax(fold_eval)
-                    for fold, (_, val_ids) in enumerate(kfold.split(data,
-                                                                    labels)):
-                        print(f'Compute/plot attribution scores from fold-'
-                              f'{fold + 1}-model')
-                        if result_path != '':
-                            attr_path = f'{result_path}/attribution_fold' \
-                                        f'{fold + 1}'
-                            if fold == best_fold:
-                                attr_path += '_best'
-                            if not os.path.exists(attr_path):
-                                os.mkdir(attr_path)
-                        else:
-                            attr_path = ''
+                    # correlation of seq len and predictions
+                    val_sl = {}  # sorted by pred. score
+                    for l, (cl, sort_inds) in enumerate(
+                            sort_by_pred.items()):
+                        # filter emp/sim msas and sort by prediction score
+                        val_sl[cl] = seq_lens[val_ids][val_ds.labels == l][
+                            sort_inds]
+                    print('Sequence length vs prediction scores')
+                    for key in val_sl.keys():
+                        mine = MINE()
+                        mine.compute_score(preds[key], val_sl[key])
+                        corr = np.corrcoef([preds[key], val_sl[key]])
 
-                        # get validation data for that fold
-                        val_ds = TensorDataset(data[val_ids].copy(),
-                                               labels[val_ids])
+                        print(f'{key}\n\tMIC={mine.mic()}')
+                        print(f'\tPearson={corr[0][1]}\n')
+                    plot_corr_pred_sl(val_sl, preds,
+                                      f'{attr_path}/score_sl.pdf')
 
-                        # get net
-                        model = best['models'][fold]
+                    # get masks to remove padding
+                    pad_mask = {}  # sorted by pred. score
+                    for l, (cl, sort_inds) in enumerate(
+                            sort_by_pred.items()):
+                        # filter emp/sim msas and sort by prediction score
+                        pad_mask[cl] = val_ds.data[val_ds.labels == l][
+                            sort_inds]
+                        # sum over channels: 1 = no padding, 0 = padding
+                        pad_mask[cl] = pad_mask[cl].sum(
+                            axis=1).detach().cpu().numpy()
+                        pad_mask[cl] = pad_mask[cl].astype(bool)
 
-                        # get predition scores and order to sort MSAs by scores
-                        preds, sort_by_pred = get_sorted_pred_scores(model,
-                                                                     val_ds)
-                        plot_pred_scores(preds,
-                                         save=f'{attr_path}/val_pred_scores.pdf')
+                    # get attributions
+                    attrs, xins = {}, {}
+                    for cl, i in sort_by_pred.items():
+                        label = 0 if 'emp' in cl else 1
+                        attrs[cl] = np.asarray(
+                            [get_attr(msa, model, 'saliency')
+                             for msa in
+                             val_ds.data[val_ds.labels == label][i]])
+                        xins[cl] = np.asarray(
+                            [get_attr(msa, model, 'integratedgradients',
+                                      multiply_by_inputs=True)
+                             for msa in
+                             val_ds.data[val_ds.labels == label][i]])
 
-                        # correlation of seq len and predictions
-                        val_sl = {}  # sorted by pred. score
-                        for l, (cl, sort_inds) in enumerate(
-                                sort_by_pred.items()):
-                            # filter emp/sim msas and sort by prediction score
-                            val_sl[cl] = seq_lens[val_ids][val_ds.labels == l][
-                                sort_inds]
-                        print('Sequence length vs prediction scores')
-                        for key in val_sl.keys():
-                            mine = MINE()
-                            mine.compute_score(preds[key], val_sl[key])
-                            corr = np.corrcoef([preds[key], val_sl[key]])
+                    # plot site/channel importance
+                    # plot_summary(attrs, pad_mask, 'channels', preds,
+                    # molecule_type,
+                    #              save=f'{attr_path}/channel_attr_preds.pdf')
+                    plot_summary(attrs, pad_mask, 'channels', None,
+                                 molecule_type,
+                                 save=f'{attr_path}/channel_attr.pdf')
+                    # plot_summary(attrs, pad_mask, 'sites', preds,
+                    # molecule_type,
+                    #              save=f'{attr_path}/site_attr_preds.pdf')
+                    plot_summary(attrs, pad_mask, 'sites', None,
+                                 molecule_type,
+                                 save=f'{attr_path}/site_attr.pdf')
+                    plot_summary(attrs, pad_mask, 'sites', None,
+                                 molecule_type,
+                                 save=f'{attr_path}/site_attr_200.pdf',
+                                 max_sl=200)
+                    plot_summary(attrs, pad_mask, 'sites', None,
+                                 molecule_type,
+                                 save=f'{attr_path}/site_attr_50.pdf',
+                                 max_sl=50)
 
-                            print(f'{key}\n\tMIC={mine.mic()}')
-                            print(f'\tPearson={corr[0][1]}\n')
-                        plot_corr_pred_sl(val_sl, preds,
-                                          f'{attr_path}/score_sl.pdf')
+                    # plot individual saliency maps
 
-                        # get masks to remove padding
-                        pad_mask = {}  # sorted by pred. score
-                        for l, (cl, sort_inds) in enumerate(
-                                sort_by_pred.items()):
-                            # filter emp/sim msas and sort by prediction score
-                            pad_mask[cl] = val_ds.data[val_ds.labels == l][
-                                sort_inds]
-                            # sum over channels: 1 = no padding, 0 = padding
-                            pad_mask[cl] = pad_mask[cl].sum(
-                                axis=1).detach().cpu().numpy()
-                            pad_mask[cl] = pad_mask[cl].astype(bool)
+                    # indices of n best predicted (decreasing) and
+                    # n worst predicted
+                    # (increasing) MSAs
+                    n = 5
+                    select = np.concatenate(
+                        (np.arange(n), np.arange(-n, 0)))
 
-                        # get attributions
-                        attrs, xins = {}, {}
-                        for cl, i in sort_by_pred.items():
-                            label = 0 if 'emp' in cl else 1
-                            attrs[cl] = np.asarray(
-                                [get_attr(msa, model, 'saliency')
-                                 for msa in
-                                 val_ds.data[val_ds.labels == label][i]])
-                            xins[cl] = np.asarray(
-                                [get_attr(msa, model, 'integratedgradients',
-                                          multiply_by_inputs=True)
-                                 for msa in
-                                 val_ds.data[val_ds.labels == label][i]])
+                    for l, cl in enumerate(attrs.keys()):
+                        # validation data, sorted according to attr. maps
+                        msas = val_ds.data[val_ds.labels == l][
+                            sort_by_pred[cl]]
+                        fnames = fastas[val_ids][val_ds.labels == l][
+                            sort_by_pred[cl]]
 
-                        # plot site/channel importance
-                        # plot_summary(attrs, pad_mask, 'channels', preds,
-                        # molecule_type,
-                        #              save=f'{attr_path}/channel_attr_preds.pdf')
-                        plot_summary(attrs, pad_mask, 'channels', None,
-                                     molecule_type,
-                                     save=f'{attr_path}/channel_attr.pdf')
-                        # plot_summary(attrs, pad_mask, 'sites', preds,
-                        # molecule_type,
-                        #              save=f'{attr_path}/site_attr_preds.pdf')
-                        plot_summary(attrs, pad_mask, 'sites', None,
-                                     molecule_type,
-                                     save=f'{attr_path}/site_attr.pdf')
-                        plot_summary(attrs, pad_mask, 'sites', None,
-                                     molecule_type,
-                                     save=f'{attr_path}/site_attr_200.pdf',
-                                     max_sl=200)
-                        plot_summary(attrs, pad_mask, 'sites', None,
-                                     molecule_type,
-                                     save=f'{attr_path}/site_attr_50.pdf',
-                                     max_sl=50)
+                        for i, sel in enumerate(select):
+                            score = '%.2f' % np.round(preds[cl][sel], 2)
 
-                        # plot individual saliency maps
-
-                        # indices of n best predicted (decreasing) and
-                        # n worst predicted
-                        # (increasing) MSAs
-                        n = 5
-                        select = np.concatenate(
-                            (np.arange(n), np.arange(-n, 0)))
-
-                        for l, cl in enumerate(attrs.keys()):
-                            # validation data, sorted according to attr. maps
-                            msas = val_ds.data[val_ds.labels == l][
-                                sort_by_pred[cl]]
-                            fnames = fastas[val_ids][val_ds.labels == l][
-                                sort_by_pred[cl]]
-
-                            for i, sel in enumerate(select):
-                                score = '%.2f' % np.round(preds[cl][sel], 2)
-
-                                sal_map = attrs[cl][sel][pad_mask[cl][sel]]
-                                ig_map = xins[cl][sel][pad_mask[cl][sel]]
-                                msa = msas[sel][:,
-                                      pad_mask[cl][sel]].detach().cpu().numpy()
-                                msa_id = fnames[sel].split(".")[0]
-                                plot_msa_attr(sal_map, ig_map, msa,
-                                              molecule_type,
-                                              save=f'{attr_path}/'
-                                                   f'[{i}]_{msa_id}_{score}_'
-                                                   f'{cl}.pdf')
-
-        print(f"\nBest Batch size: {best['batch_size']}")
+                            sal_map = attrs[cl][sel][pad_mask[cl][sel]]
+                            ig_map = xins[cl][sel][pad_mask[cl][sel]]
+                            msa = msas[sel][:,
+                                  pad_mask[cl][sel]].detach().cpu().numpy()
+                            msa_id = fnames[sel].split(".")[0]
+                            plot_msa_attr(sal_map, ig_map, msa,
+                                          molecule_type,
+                                          save=f'{attr_path}/'
+                                               f'[{i}]_{msa_id}_{score}_'
+                                               f'{cl}.pdf')
+        if len(bs_lst) > 1 and result_path is not None:
+            np.savetxt(f'{result_path}/step_time.csv',
+                       train_throughput, delimiter=',')
+            plot_groups_folds(bs_lst, train_throughput,
+                              f'{result_path}/step_time.pdf')
 
 
 if __name__ == '__main__':

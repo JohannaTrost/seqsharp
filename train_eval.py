@@ -195,6 +195,7 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
     model = validation(model, train_loader, val_loader)
 
     no_imporv_cnt = 0
+    time_per_step = []
     for epoch in range(start_epoch + 1, max_epochs + 1):
 
         print(f'Epoch [{epoch}]')
@@ -202,10 +203,14 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         # training Phase
         model.train()
         for i, batch in enumerate(train_loader):
+            start_step = time.time()
             loss, _, _ = model.feed(batch)
+            time_per_step.append(time.time() - start_step)
+
             optimizer.zero_grad()
             loss.backward()  # calcul of gradients
             optimizer.step()
+
         if scheduler is not None:
             scheduler.step()
 
@@ -229,9 +234,14 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
             prev_val_loss = curr_val_loss
         elif epoch == min_epochs - (step_size + 1):
             prev_val_loss = np.min(model.val_history['loss'][-step_size:])
+
     model.opt_state = optimizer.state_dict()
     if model.scheduler_state is not None:  # because CLR is optional
         model.scheduler_state = scheduler.state_dict()
+
+    return np.mean(time_per_step)
+
+
 
 
 def eval_per_align(conv_net, real_alns, sim_alns,
