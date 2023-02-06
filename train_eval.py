@@ -24,7 +24,7 @@ gc.collect()
 def find_lr_bounds(model, train_loader, opt_func, save, lr_range=None,
                    lr_find_epochs=3, prefix=''):
     start = time.time()
-    start_lr, end_lr = (1e-07, 0.1) if lr_range == '' or lr_range else lr_range
+    start_lr, end_lr = (1e-07, 0.1) if lr_range == '' else lr_range
 
     lr_lambda = lambda x: np.exp(x * np.log(end_lr / start_lr) / (
             lr_find_epochs * len(train_loader)))
@@ -157,6 +157,18 @@ def evaluate(model, val_loader):
     return epoch_acc_loss
 
 
+def save_checkpoint(model, optimizer, scheduler, fold, save):
+    # save state dict
+    model.opt_state = optimizer.state_dict()
+    if model.scheduler_state is not None:  # because CLR is optional
+        model.scheduler_state = scheduler.state_dict()
+    # save each fold directly if there is only one bs
+    # otherwise only the best performing model is saved
+    model.save(f'{save}/model-fold-{fold + 1}.pth')
+    model.plot(f'{save}/fig-fold-{fold + 1}.png')
+    print('\nSave checkpoint\n')
+
+
 def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         start_epoch=0, max_epochs=1000, min_epochs=100, patience=2,
         step_size=50, min_delta=1e-04, save='', fold=None):
@@ -221,16 +233,11 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
             # save checkpoint every 10 epochs
             if (np.min(model.val_history['loss'][:-10]) >
                     model.val_history['loss'][-1]):
-                # save each fold directly if there is only one bs
-                # otherwise only the best performing model is saved
-                model.save(f'{save}/model-fold-{fold + 1}.pth')
-                model.plot(f'{save}/fig-fold-{fold + 1}.png')
-                print('\nSave checkpoint\n')
+                save_checkpoint(model, optimizer, scheduler, fold, save)
 
         if epoch % step_size == 0 and epoch > min_epochs - 1:
             # do eval for early stopping every 50th epoch
             # after reaching min num epochs
-
             # smooth_val_loss = median_smooth(model.val_history['loss'], 25)
             curr_val_loss = np.min(model.val_history['loss'][-step_size:])
 
@@ -241,13 +248,11 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
                     break
             else:
                 no_imporv_cnt = 0
+                save_checkpoint(model, optimizer, scheduler, fold, save)
+
             prev_val_loss = curr_val_loss
         elif epoch == min_epochs - (step_size + 1):
             prev_val_loss = np.min(model.val_history['loss'][-step_size:])
-
-    model.opt_state = optimizer.state_dict()
-    if model.scheduler_state is not None:  # because CLR is optional
-        model.scheduler_state = scheduler.state_dict()
 
     return np.mean(time_per_step)
 

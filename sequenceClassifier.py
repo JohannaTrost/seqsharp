@@ -305,9 +305,10 @@ def main():
 
         if args.models:
             if os.path.isdir(model_path):
-                files = os.listdir(model_path)
-                model_paths = [f'{model_path}/{file}' for file in files
-                               if file.endswith('.pth')]
+                model_paths = [f'{model_path}/model-fold-{i + 1}.pth'
+                               for i in range(nb_folds)
+                               if os.path.exists(f'{model_path}/'
+                                                 f'model-fold-{i + 1}.pth')]
             elif os.path.isfile(model_path):
                 model_paths = [model_path]
             else:
@@ -385,7 +386,7 @@ def main():
                                                         prefix=f'{fold + 1}_'
                                                         if fold == 0 else '')
                         if opt == 'Adagrad' and args.clr:
-                            max_lr = 0.1
+                            max_lr = max(0.1, max_lr)
                         if args.clr:
                             lrs.append((min_lr, max_lr))
                         else:  # lr finder determined lr for non-clr
@@ -553,10 +554,12 @@ def main():
                         # filter emp/sim msas and sort by prediction score
                         pad_mask[cl] = val_ds.data[val_ds.labels == l][
                             sort_inds]
+
                         # sum over channels: 1 = no padding, 0 = padding
                         pad_mask[cl] = pad_mask[cl].sum(
                             axis=1).detach().cpu().numpy()
                         pad_mask[cl] = pad_mask[cl].astype(bool)
+
 
                     # get attributions
                     attrs, xins = {}, {}
