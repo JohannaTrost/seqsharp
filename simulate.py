@@ -6,8 +6,8 @@ from utils import n_sites_pdf, gamma_shape_pdf
 
 
 sub_m = 'LG'
-n_prof = '0256'
-gamma = 'G4'
+n_prof = ''
+gamma = 'GC'
 name_add_on = '_gapless'
 
 if n_prof != '':

@@ -37,13 +37,14 @@ def get_model_performance(model_path):
         file_age = []
         for f in val_files:
             if f.startswith('val_folds_'):  # timestamp given
-                time = datetime.strptime(f.split('_')[2],
+                print(f.split('_')[2])
+                time = datetime.strptime(f.split('_')[2].split('.csv')[0],
                                          "%d-%b-%Y-%H:%M:%S.%f")
             else:  # if timestamp is not given then this is the oldest result
                 time = datetime.strptime('01-Nov-1000-00:00:00.000000',
                                          "%d-%b-%Y-%H:%M:%S.%f")
             file_age.append(time)
-        ind_most_recent = np.argmin(file_age)
+        ind_most_recent = np.argmax(file_age)
         val_file = val_files[ind_most_recent]
     else:
         val_file = val_files[0]
