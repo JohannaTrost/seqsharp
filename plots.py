@@ -8,18 +8,54 @@ import pandas as pd
 
 from matplotlib import pylab as plt
 from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
 
-from utils import merge_fold_hist_dicts, confidence_ellipse, pred_runtime, \
+from utils import confidence_ellipse, pred_runtime, \
     get_model_performance, get_divisor_min_diff_quotient
 
 
 # matplotlib.use("Agg")
 
 
+def plot_groups_folds(bs_lst, time_per_step, save=''):
+    n_bs = time_per_step.shape[0]
+    n_folds = time_per_step.shape[1]
+    fig, ax = plt.subplots(figsize=(16, 9))
+    for i in range(n_bs):
+        ax.scatter(np.repeat(i, n_folds), time_per_step[i], alpha=0.4,
+                   marker='.')
+    ax.plot(np.arange(n_bs), np.mean(time_per_step, axis=1),
+            label='Mean across folds', color='grey', linewidth=1, marker='o')
+    ax.set_xticks(np.arange(n_bs))
+    ax.set_xticklabels([str(bs) for bs in bs_lst])
+    ax.set_xlabel('Batch size')
+    ax.set_ylabel('Time per step')
+    plt.tight_layout()
+    if save != '' and save is not None:
+        plt.savefig(save)
+    plt.close('all')
+
+
+def plot_corr_pred_sl(sl, scores, save=''):
+    fig, ax = plt.subplots(ncols=len(sl.keys()), nrows=3, figsize=(16, 9))
+    # scatter
+    for i, key in enumerate(scores.keys()):
+        ax[0, i].scatter(sl[key], scores[key])
+        ax[0, i].set_ylabel('Prediction score (0 - emp, 1 - sim)')
+        ax[0, i].set_xlabel('Number of sites')
+        ax[0, i].set_title(key)
+        sl_sort = np.argsort(sl[key])
+        ax[1, i].plot(scores[key][sl_sort], label='scores (by sl)')
+        ax[2, i].plot(sl[key], label='sl (by scores)')
+        ax[1, i].legend()
+        ax[2, i].legend()
+    plt.tight_layout()
+    if save != '':
+        plt.savefig(save)
+
+
 def plot_compare_msa_stats(stats, fastas, group_labels, sample_size=42,
                            save=None, figsize=None):
-    sample_inds = [np.random.randint(len(fastas[0]), size=42)]
+    sample_inds = [np.random.randint(len(fastas[0]), size=sample_size)]
     s_fastas = np.asarray(fastas[0])[sample_inds[0]]
     sample_inds += [[np.where(fs == rf.replace('.fasta', '.fa'))[0][0]
                      for rf in s_fastas]
@@ -72,9 +108,9 @@ def plot_model_emp_sim_accs(model_paths, model_names, ax=None, cols=None):
     # mean per class
     x = np.arange(1, n_models + 1)
     ax.scatter(x - 0.1, m_acc_emp.mean(axis=1), color='grey', alpha=0.5,
-               marker='*')
+               marker='D')
     ax.scatter(x + 0.1, m_acc_sim.mean(axis=1), color='grey', alpha=0.5,
-               label='class mean', marker='*')
+               label='class mean', marker='D')
 
     # plot mean of BACC over folds
     ax.plot(x, m_acc.mean(axis=1), 'o', color='grey',

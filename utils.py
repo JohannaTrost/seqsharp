@@ -30,14 +30,15 @@ def get_model_performance(model_path):
     :param model_path: <path/to> model containing 'val_folds'-file
     :return: array of BACC, class acc. and loss for each fold and csv header
     """
+
     val_files = [f for f in os.listdir(model_path) if
                  f.startswith('val_folds')]
+
     # get most recent val. results
     if len(val_files) > 1:
         file_age = []
         for f in val_files:
             if f.startswith('val_folds_'):  # timestamp given
-                print(f.split('_')[2])
                 time = datetime.strptime(f.split('_')[2].split('.csv')[0],
                                          "%d-%b-%Y-%H:%M:%S.%f")
             else:  # if timestamp is not given then this is the oldest result
@@ -76,7 +77,7 @@ def fold_val_from_csv(path):
     return val_folds, header
 
 
-def write_cfg_file(cfg, model_path, cfg_path, timestamp=None):
+def write_cfg_file(cfg, cfg_path, model_path='', timestamp=None):
     """Save parameters in a json file
 
     If a recent cfg contains the same parameters it will be put into
@@ -100,58 +101,14 @@ def write_cfg_file(cfg, model_path, cfg_path, timestamp=None):
 
     if cfg_dir != '':
         out_path = f'{cfg_dir}/cfg-{timestamp}.json'
-
-        # get second and third latest cfg files
-        files = [f'{cfg_dir}/{file}' for file in os.listdir(cfg_dir)
-                 if f'{cfg_dir}/{file}' != cfg_path and
-                 file.split('.')[-1] == 'json']
-        files = sorted(files, key=lambda t: -os.stat(t).st_mtime)[1:3]
-
-        print(files)
-
-        same_cfg = {}
-        for file in files:
-            older_cfg = read_cfg_file(file)
-            if (older_cfg['data'] == cfg['data'] and
-                    older_cfg['hyperparameters'] == cfg[
-                        'hyperparameters'] and
-                    older_cfg['conv_net_parameters'] == cfg[
-                        'conv_net_parameters']):
-                same_cfg = older_cfg
-                same_cfg_file = file
-                break
-
-        # saving model path(s) and comments
-        if same_cfg != {}:
-            if type(same_cfg['results_path']) is list:
-                res_paths = same_cfg['results_path'] + [model_path]
-            else:
-                res_paths = [same_cfg['results_path'], model_path]
-            cfg['results_path'] = list(filter(None, res_paths))
-
-            if type(same_cfg['comments']) is list:
-                if type(cfg['comments']) is not list:
-                    comments = same_cfg['comments'] + [cfg['comments']]
-                else:
-                    comments = same_cfg['comments'] + cfg['comments']
-            else:
-                comments = [same_cfg['comments'], cfg['comments']]
-            cfg['comments'] = list(filter(None, comments))
-        else:
-            cfg['results_path'] = model_path
+        cfg['results_path'] = model_path
 
         # save cfg to file
         with open(out_path, "w") as outfile:
             json.dump(cfg, outfile)
 
-        # delete old cfg
-        if same_cfg != {}:
-            os.remove(same_cfg_file)
-
-    else:
-        cfg['results_path'] = model_path
-
     if model_path != '':
+        cfg['results_path'] = model_path
         with open(f'{model_path}/cfg.json', "w") as outfile:
             json.dump(cfg, outfile)
 
@@ -386,5 +343,5 @@ def load_custom_distr(file_path):
         return pickle.load(file)
 
 
-n_sites_pdf = load_custom_distr('data/n_sites_hogenom_6971.CustomPDF')
-gamma_shape_pdf = load_custom_distr('data/gamma_shape.CustomPDF')
+#n_sites_pdf = load_custom_distr('data/n_sites_hogenom_6971.CustomPDF')
+#gamma_shape_pdf = load_custom_distr('data/gamma_shape.CustomPDF')

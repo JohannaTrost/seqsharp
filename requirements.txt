@@ -11,3 +11,4 @@ tqdm
 seaborn
 tompy@git+https://github.com/tommyclausner/tompy.git
 captum
+minepy

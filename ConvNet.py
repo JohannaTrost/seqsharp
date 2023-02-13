@@ -44,10 +44,15 @@ def load_net(path, params, state='eval'):
     """
 
     model = ConvNet(params)
-    checkpoint = torch.load(path)
+    checkpoint = torch.load(path, map_location=compute_device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.train_history = checkpoint['train_history']
     model.val_history = checkpoint['val_history']
+    # check because old models didn't have optimizer and scheduler state
+    if 'opt_state_dict' in checkpoint.keys():
+        model.opt_state = checkpoint['opt_state_dict']
+    if 'scheduler_state_dict' in checkpoint.keys():
+        model.scheduler_state = checkpoint['scheduler_state_dict']
 
     if state == 'eval':
         model.eval()
@@ -127,7 +132,7 @@ class ConvNet(nn.Module):
             elif p['do_maxpool'] == 2 and i == nb_conv_layer - 1:
                 # global pooling
                 ks = int(p['input_size'] / 2 ** max(nb_conv_layer - 1, 0))
-                self.conv_layers.append(nn.MaxPool1d(kernel_size=ks))
+                self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
 
         self.conv_layers.append(nn.Dropout(0.2))
 
@@ -162,6 +167,8 @@ class ConvNet(nn.Module):
                               'acc_sim': []}
         self.val_history = {'loss': [], 'acc': [], 'acc_emp': [],
                             'acc_sim': []}
+        self.opt_state = None  # state dict of optimizer
+        self.scheduler_state = None  # state dict of scheduler
 
     def forward(self, x):
         if self.conv_layers is not None:
@@ -241,7 +248,9 @@ class ConvNet(nn.Module):
         torch.save({
             'train_history': self.train_history,
             'val_history': self.val_history,
-            'model_state_dict': self.state_dict()
+            'model_state_dict': self.state_dict(),
+            'opt_state_dict': self.opt_state,
+            'scheduler_state_dict': self.scheduler_state
         },
             path)
 

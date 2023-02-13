@@ -1,12 +1,15 @@
 """Functions to train and evaluate a neural network"""
 
 import gc
+import os
+import time
 
 import numpy as np
 import pandas as pd
 import torch
 from torch import nn as nn
 from torch.utils.data import DataLoader
+from matplotlib import pylab as plt
 
 from ConvNet import compute_device, accuracy
 from preprocessing import DatasetAln
@@ -16,6 +19,74 @@ from tompy import median_smooth
 torch.cuda.empty_cache()
 
 gc.collect()
+
+
+def find_lr_bounds(model, train_loader, opt_func, save, lr_range=None,
+                   lr_find_epochs=3, prefix=''):
+    start = time.time()
+    start_lr, end_lr = (1e-07, 0.1) if lr_range == '' else lr_range
+
+    lr_lambda = lambda x: np.exp(x * np.log(end_lr / start_lr) / (
+            lr_find_epochs * len(train_loader)))
+    optimizer = opt_func(model.parameters(), start_lr)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+    lr_find_loss = []
+    lr_find_lr = []
+
+    iter = 0
+    smoothing = 0.05
+
+    print('Starting determination of suitable lr bounds')
+
+    for epoch in range(lr_find_epochs):
+        print(f'Epoch [{epoch + 1}]')
+        model.train()
+        for i, batch in enumerate(train_loader):
+            loss, _, _ = model.feed(batch)
+            optimizer.zero_grad()
+            loss.backward()  # calcul of gradients
+            optimizer.step()
+            # Update LR
+            scheduler.step()
+            lr_step = optimizer.state_dict()["param_groups"][0]["lr"]
+            lr_find_lr.append(lr_step)
+            # smooth the loss
+            loss = loss.detach().item()
+            if iter == 0:
+                lr_find_loss.append(loss)
+            else:
+                loss = smoothing * loss + (1 - smoothing) * lr_find_loss[-1]
+                lr_find_loss.append(loss)
+
+            iter += 1
+
+    print(f'LR finder finished after {(time.time() - start) / 60} min')
+
+    high_bound_lr = lr_find_lr[np.argmin(lr_find_loss)] / 10
+    low_bound_lr = high_bound_lr / 6
+
+    print(f'lr = [{low_bound_lr}, {high_bound_lr}]')
+
+    if save is not None and save != '':
+        save = f'{save}/lrfinder'
+        if not os.path.exists(save):
+            os.mkdir(save)
+        fig, ax = plt.subplots()
+        ax.plot(lr_find_lr, lr_find_loss)
+        ylims = ax.get_ylim()
+        ax.vlines(high_bound_lr, *ylims, color='r')
+        plt.xscale('log')
+        plt.savefig(f'{save}/{prefix}find_lr_loss_{start_lr}_{end_lr}_'
+                    f'{lr_find_epochs}.png')
+        plt.close('all')
+
+        plt.plot(lr_find_lr)
+        plt.savefig(f'{save}/{prefix}find_lr_{start_lr}_{end_lr}_'
+                    f'{lr_find_epochs}.png')
+        plt.close('all')
+
+    return high_bound_lr, low_bound_lr
 
 
 def validation(model, train_loader, val_loader):
@@ -38,7 +109,7 @@ def validation(model, train_loader, val_loader):
     return model
 
 
-def evaluate_folds(val_hist_folds, nb_folds):
+def evaluate_folds(val_hist_folds, nb_folds, which='best'):
     """Return acc., emp./sim. acc. and loss of best epoch for each fold
 
     :param val_hist_folds: acc., emp./sim. acc. and loss for each epoch and fold
@@ -49,9 +120,12 @@ def evaluate_folds(val_hist_folds, nb_folds):
 
     val_folds = {'loss': [], 'acc': [], 'acc_emp': [], 'acc_sim': []}
     for fold in range(nb_folds):
-        best_epoch = np.argmin(val_hist_folds['loss'][fold])
+        if which == 'best':
+            epoch = np.argmax(val_hist_folds['acc'][fold])
+        elif which == 'last':
+            epoch = val_hist_folds['acc'][fold][-1]
         for key in val_folds.keys():
-            val_folds[key].append(val_hist_folds[key][fold][best_epoch])
+            val_folds[key].append(val_hist_folds[key][fold][epoch])
     return val_folds
 
 
@@ -83,9 +157,21 @@ def evaluate(model, val_loader):
     return epoch_acc_loss
 
 
+def save_checkpoint(model, optimizer, scheduler, fold, save):
+    # save state dict
+    model.opt_state = optimizer.state_dict()
+    if model.scheduler_state is not None:  # because CLR is optional
+        model.scheduler_state = scheduler.state_dict()
+    # save each fold directly if there is only one bs
+    # otherwise only the best performing model is saved
+    model.save(f'{save}/model-fold-{fold + 1}.pth')
+    model.plot(f'{save}/fig-fold-{fold + 1}.png')
+    print('\nSave checkpoint\n')
+
+
 def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
-        start_epoch=0, max_epochs=100, min_epochs=30, patience=6,
-        min_delta=1e-04):
+        start_epoch=0, max_epochs=1000, min_epochs=100, patience=2,
+        step_size=50, min_delta=1e-04, save='', fold=None):
     """
     Training a model to learn a function to distinguish between simulated and
     empirical alignments (with validation step at the end of each epoch)
@@ -99,14 +185,29 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
     :param val_loader: validation dataset (DataLoader)
     :param opt_func: optimizer (torch.optim)
     """
+    # init optimizer and scheduler (if used)
+    if isinstance(lr, list) or isinstance(lr, tuple):
+        optimizer = opt_func(model.parameters(), lr[0])
+        # a range of LRs is given indicating usage of CLR scheduler
+        scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, lr[0],
+                                                      lr[1],
+                                                      cycle_momentum=False)
+    else:
+        optimizer = opt_func(model.parameters(), lr)
+        scheduler = None
 
-    optimizer = opt_func(model.parameters(), lr)
+    # load state dict of optimizer/scheduler to resume training
+    if model.opt_state is not None:
+        optimizer.load_state_dict(model.opt_state)
+    if model.scheduler_state is not None:
+        scheduler.load_state_dict(model.scheduler_state)
 
     print('Epoch [0]')
     # validation phase with initialized weights (untrained network)
     model = validation(model, train_loader, val_loader)
 
     no_imporv_cnt = 0
+    time_per_step = []
     for epoch in range(start_epoch + 1, max_epochs + 1):
 
         print(f'Epoch [{epoch}]')
@@ -114,23 +215,31 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         # training Phase
         model.train()
         for i, batch in enumerate(train_loader):
+            start_step = time.time()
             loss, _, _ = model.feed(batch)
+            time_per_step.append(time.time() - start_step)
+
             optimizer.zero_grad()
             loss.backward()  # calcul of gradients
             optimizer.step()
 
+        if scheduler is not None:
+            scheduler.step()
+
         # validation phase
         model = validation(model, train_loader, val_loader)
 
-        if epoch % 2 == 0 and epoch > min_epochs - 1:
-            # do eval for early stopping every other epoch
-            # after reaching min num epochs
+        if epoch % 10 == 0 and save != '':
+            # save checkpoint every 10 epochs
+            if (np.min(model.val_history['loss'][:-10]) >
+                    model.val_history['loss'][-1]):
+                save_checkpoint(model, optimizer, scheduler, fold, save)
 
-            if len(model.val_history['loss']) < 300:
-                smooth_val_loss = median_smooth(model.val_history['loss'], 30)
-                curr_val_loss = smooth_val_loss[-1]
-            else:  # no smoothing otherwise stops too early
-                curr_val_loss = model.val_history['loss'][-1]
+        if epoch % step_size == 0 and epoch > min_epochs - 1:
+            # do eval for early stopping every 50th epoch
+            # after reaching min num epochs
+            # smooth_val_loss = median_smooth(model.val_history['loss'], 25)
+            curr_val_loss = np.min(model.val_history['loss'][-step_size:])
 
             if prev_val_loss - curr_val_loss < min_delta:
                 no_imporv_cnt += 1
@@ -139,13 +248,17 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
                     break
             else:
                 no_imporv_cnt = 0
+                save_checkpoint(model, optimizer, scheduler, fold, save)
+
             prev_val_loss = curr_val_loss
-        elif epoch == min_epochs - 3:
-            prev_val_loss = median_smooth(model.val_history['loss'], 30)[-1]
+        elif epoch == min_epochs - (step_size + 1):
+            prev_val_loss = np.min(model.val_history['loss'][-step_size:])
+
+    return np.mean(time_per_step)
 
 
 def eval_per_align(conv_net, real_alns, sim_alns,
-        fastas_real, fastas_sim, indices, pairs=False):
+                   fastas_real, fastas_sim, indices, pairs=False):
     """
     Predicting whether given alignments are simulated or empirical using a
     given (trained) network
@@ -209,7 +322,7 @@ def eval_per_align(conv_net, real_alns, sim_alns,
 
 
 def generate_eval_dict(fold, train_real, train_sim, val_real, val_sim,
-        real_alns, sim_alns, save=None):
+                       real_alns, sim_alns, save=None):
     """
     Generate data frame containing training specific information about the
     alignment e.g. the distance between an alignment and the training data set

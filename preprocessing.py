@@ -282,7 +282,7 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
         alns = [alns[i] for i in ind_q_sl]
 
     if n_alns is not None:  # optional
-        if (np.sum(n_alns) - len(fastas)) > 0:  # we get less MSAs than wanted
+        if (n_alns - len(fastas)) > 0:  # we get less MSAs than wanted
             print('Only {} / {} fasta files taken into account.'.format(
                 len(fastas), n_alns))
         else:  # restrict number of MSAs to n_alns
@@ -637,7 +637,6 @@ def shuffle_sites(msa_ds):
         for j in range(len(msa_ds[i])):  # MSA
             aln = np.asarray([list(seq) for seq in msa_ds[i][j]])
             aln[:, :] = aln[:, np.random.permutation(range(aln.shape[1]))]
-
             msa_ds[i][j] = [''.join([aa for aa in seq]) for seq in aln]
     return msa_ds
 
