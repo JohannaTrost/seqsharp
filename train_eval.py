@@ -123,7 +123,7 @@ def evaluate_folds(val_hist_folds, nb_folds, which='best'):
         if which == 'best':
             epoch = np.argmax(val_hist_folds['acc'][fold])
         elif which == 'last':
-            epoch = val_hist_folds['acc'][fold][-1]
+            epoch = -1
         for key in val_folds.keys():
             val_folds[key].append(val_hist_folds[key][fold][epoch])
     return val_folds
