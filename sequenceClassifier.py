@@ -184,7 +184,7 @@ def main():
             if os.path.isdir(model_path):
                 cfg_path = model_path + '/cfg.json'
             elif os.path.isfile(model_path):
-                cfg_path = os.path.dirname(model_path) + '/cfg.json'
+                cfg_path = os.path.dirname(model_path) + '/cfg.json' 
         else:
             cfg_path = args.cfg
 
@@ -319,10 +319,10 @@ def main():
 
         print(f'\nCompute device: {compute_device}\n')
 
-        if 'val_acc' in cfg.keys():
-            best_val_acc = cfg['val_acc']
+        if 'val_loss' in cfg.keys():
+            best_val_loss = cfg['val_loss']
         else:
-            best_val_acc = -np.inf
+            best_val_loss = np.inf
 
         bs_lst = batch_size if isinstance(batch_size, list) else [batch_size]
         epochs_lst = epochs if isinstance(epochs, list) else [epochs]
@@ -355,8 +355,8 @@ def main():
 
                 bs = int(bs)
                 train_loader = DataLoader(train_ds, bs, shuffle=True,
-                                          num_workers=4)
-                val_loader = DataLoader(val_ds, bs, num_workers=4)
+                                          num_workers=16)
+                val_loader = DataLoader(val_ds, bs, num_workers=16)
 
                 # generate model
                 model_params['input_size'] = train_ds.data.shape[2]  # seq len
@@ -458,6 +458,7 @@ def main():
                                            which='last')
 
             val_acc = np.mean(val_folds['acc'])
+            val_loss = np.mean(val_folds['loss'])
 
             # save validation acc./loss
             if result_path is not None:
@@ -467,9 +468,10 @@ def main():
 
                 # save cfg
                 cfg['hyperparameters']['lr'] = lrs if len(lrs) > 0 else lr
-                if val_acc < best_val_acc:
-                    cfg['val_acc'] = best_val_acc
+                if val_loss > best_val_loss:
+                    cfg['val_loss'] = best_val_loss
                 else:
+                    cfg['val_loss'] = val_loss
                     cfg['val_acc'] = val_acc
                 write_cfg_file(cfg,
                                cfg_path if cfg_path is not None else '',
@@ -491,17 +493,20 @@ def main():
             # print k-fold cross-validation evaluation
             print(sep_line)
             print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
-            fold_eval = [np.max(model.val_history['acc']) for model in
-                         models]
-            for i, acc in enumerate(fold_eval):
-                print(f'\tFold {(i + 1)}: {acc} %')
-            print(f'Average: {np.mean(fold_eval)} %')
+            best_epochs = [np.argmax(model.val_history['acc'])
+                           for model in models]
+            for key in model.val_history.keys():
+                fold_eval = [model.val_history[key][e] for e, model in
+                             zip(best_epochs, models)]
+                print(f'Average {key}: {np.mean(fold_eval)} %')
             print(sep_line)
 
             # -------------------- attribution study -------------------- #
             if args.attr:
                 # choose best fold
-                best_fold = np.argmax(fold_eval)
+                fold_eval = [np.min(model.val_history['loss']) for model in
+                             models]
+                best_fold = np.argmin(fold_eval)
                 for fold, (_, val_ids) in enumerate(kfold.split(data,
                                                                 labels)):
                     print(f'Compute/plot attribution scores from fold-'

@@ -116,26 +116,27 @@ class ConvNet(nn.Module):
             out_size = p['input_size'] * nb_features[-1]
 
         # convolutional layers
+        if not isinstance(p['kernel_size'], list):
+            p['kernel_size'] = [p['kernel_size']]
         self.conv_layers = []
         for i in range(nb_conv_layer):
             conv1d = nn.Conv1d(nb_features[i],
                                nb_features[i + 1],
-                               kernel_size=p['kernel_size'], stride=1,
-                               padding=p['kernel_size'] // 2)
+                               kernel_size=p['kernel_size'][i], stride=1,
+                               padding=p['kernel_size'][i] // 2)
 
             self.conv_layers += [conv1d, nn.ReLU()]
 
-            if (p['do_maxpool'] == 1 or
-                    (p['do_maxpool'] == 2 and i < nb_conv_layer - 1)):
-                # local pooling
-                self.conv_layers.append(nn.MaxPool1d(kernel_size=2, stride=2))
-            elif p['do_maxpool'] == 2 and i == nb_conv_layer - 1:
-                # global pooling
-                ks = int(p['input_size'] / 2 ** max(nb_conv_layer - 1, 0))
+            #if (p['do_maxpool'] == 1 or
+            #        (p['do_maxpool'] == 2 and i < nb_conv_layer - 1)):
+            #    # local pooling
+            #    self.conv_layers.append(nn.MaxPool1d(kernel_size=2, stride=2))
+            if p['do_maxpool'] == 2 and i == nb_conv_layer - 1:
+                # global pooling after last conv layer
+                ks = int(p['input_size'])
                 self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
 
         self.conv_layers.append(nn.Dropout(0.2))
-
         self.conv_layers = (nn.Sequential(*self.conv_layers)
                             if nb_conv_layer > 0 else None)
 

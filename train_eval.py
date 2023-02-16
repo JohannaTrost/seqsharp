@@ -22,7 +22,7 @@ gc.collect()
 
 
 def find_lr_bounds(model, train_loader, opt_func, save, lr_range=None,
-                   lr_find_epochs=3, prefix=''):
+                   lr_find_epochs=5, prefix=''):
     start = time.time()
     start_lr, end_lr = (1e-07, 0.1) if lr_range == '' else lr_range
 
@@ -123,7 +123,7 @@ def evaluate_folds(val_hist_folds, nb_folds, which='best'):
         if which == 'best':
             epoch = np.argmax(val_hist_folds['acc'][fold])
         elif which == 'last':
-            epoch = val_hist_folds['acc'][fold][-1]
+            epoch = -1
         for key in val_folds.keys():
             val_folds[key].append(val_hist_folds[key][fold][epoch])
     return val_folds
@@ -217,11 +217,11 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         for i, batch in enumerate(train_loader):
             start_step = time.time()
             loss, _, _ = model.feed(batch)
-            time_per_step.append(time.time() - start_step)
 
             optimizer.zero_grad()
             loss.backward()  # calcul of gradients
             optimizer.step()
+            time_per_step.append(time.time() - start_step)
 
         if scheduler is not None:
             scheduler.step()
