@@ -116,16 +116,21 @@ def plot_model_emp_sim_accs(model_paths, model_names, ax=None, cols=None):
     ax.plot(x, m_acc.mean(axis=1), 'o', color='grey',
             label='BACC (folds mean)')
 
-    ax.set_ylim(np.true_divide(np.floor(ax.get_ylim()[0] * 10**2), 10**2),
-                np.true_divide(np.ceil(ax.get_ylim()[1] * 10**2), 10**2))
-    ax.set_yticks(np.arange(*ax.get_ylim(), 0.1))
+    #ylims = (np.true_divide(np.floor(ax.get_ylim()[0] * 10**2), 10**2), 1)
+    ylims = ax.get_ylim()
+    ax.set_ylim((0.9 - 0.005 * (ylims[1] - ylims[0]),
+                 1 + 0.04 * (ylims[1] - ylims[0])))
+    ax.set_yticks(np.arange(ylims[0], ylims[1]+0.05, 0.05))
     ax.set_xticks(np.arange(1, n_models + 1))
     ax.set_xticklabels(model_names, rotation=0)
     ax.set(frame_on=False)
     ax.set_xticks(np.arange(0.5, n_models + 0.5, 0.5), minor=True)
-    ax.set_yticks(np.arange(*ax.get_ylim(), 0.05), minor=True)
-    ax.grid(which='both', color='grey', linestyle='-', linewidth=0.5,
-            alpha=0.3)
+    ax.set_yticks(np.arange(ylims[0], ylims[1] + 0.025, 0.025))
+    ax.set_yticks(np.arange(ylims[0] + 0.0125, ylims[1], 0.0125), minor=True)
+    ax.grid(which='major', color='grey', linestyle='-', linewidth=0.5,
+            alpha=0.4)
+    ax.grid(which='minor', color='grey', linestyle='-', linewidth=0.5,
+            alpha=0.2)
     ax.legend()
 
     return ax
@@ -154,16 +159,21 @@ def plot_model_folds_accs(model_paths, model_names, ax=None, cols=None):
     ax.plot(np.arange(1, n_models + 1), m_acc.mean(axis=1), color='grey',
             label='BACC (folds mean)', linewidth=1, marker='o')
 
-    ax.set_ylim(np.true_divide(np.floor(ax.get_ylim()[0] * 10**2), 10**2),
-                np.true_divide(np.ceil(ax.get_ylim()[1] * 10**2), 10**2))
-    ax.set_yticks(np.arange(*ax.get_ylim(), 0.1))
+    #ylims = (np.true_divide(np.floor(ax.get_ylim()[0] * 10**2), 10**2), 1)
+    ylims = ax.get_ylim()
+    ax.set_ylim((0.9 - 0.005 * (ylims[1] - ylims[0]),
+                 1 + 0.04 * (ylims[1] - ylims[0])))
+    ax.set_yticks(np.arange(ylims[0], ylims[1] + 0.05, 0.05))
     ax.set_xticks(np.arange(1, n_models + 1))
-    ax.set_xticklabels(model_names)
+    ax.set_xticklabels(model_names, rotation=0)
     ax.set(frame_on=False)
     ax.set_xticks(np.arange(0.5, n_models + 0.5, 0.5), minor=True)
-    ax.set_yticks(np.arange(*ax.get_ylim(), 0.05), minor=True)
-    ax.grid(which='both', color='grey', linestyle='-', linewidth=0.5,
-            alpha=0.3)
+    ax.set_yticks(np.arange(ylims[0], ylims[1] + 0.025, 0.025))
+    ax.set_yticks(np.arange(ylims[0] + 0.0125, ylims[1], 0.0125), minor=True)
+    ax.grid(which='major', color='grey', linestyle='-', linewidth=0.5,
+            alpha=0.4)
+    ax.grid(which='minor', color='grey', linestyle='-', linewidth=0.5,
+            alpha=0.2)
     # ax.legend()
 
     return ax
@@ -662,36 +672,37 @@ def get_ylim(data, factor=1.1):
 
 """
 # load data
-data_dir = '../../data/sample_freqs'
-freq_dirs = ['10cl_1000testalns_5907_best1_sites.csv',
-             'wag_sg_best4_sites.csv', 'unif_sg_best4_sites.csv',
-             'real_fasta_test_sample_1000_sites.csv']
-
-site_freqs = [np.genfromtxt(f'{data_dir}/{d}',
-                          delimiter=',', skip_header=True)[:, :20] for d in freq_dirs]
+from preprocessing import raw_alns_prepro, aa_freq_samples
+fasta_paths = ['../data/hogenom_fasta', '../data/alisim_poisson_gapless_trees',
+               '../data/alisim_lg_gc_gapless']
+#alns, fastas, _  = raw_alns_prepro(fasta_paths)
+freqs = aa_freq_samples('../data', [d.split('../data/')[1] for d in fasta_paths],
+                        sample_prop=1.0, n_alns=None, levels=['sites', 'msa'])
 
 # get theoretical msa dots - weights@profiles
-w_files = [f for f in os.listdir("../results/profiles_weights/sim_edcl64_1cl_1aln")
-           if 'best' in f and 'pro' in f]
-weights = [np.genfromtxt(f'../results/profiles_weights/sim_edcl64_1cl_1aln/{f}', delimiter=',')
-           for f in w_files]
-weights = np.asarray(weights)
-profiles = np.genfromtxt('../results/profiles_weights/profiles/64-edcluster-profiles.tsv',
-                         delimiter='\t')
-th_msa = np.matmul(profiles, weights.T).T
+#w_files = [f for f in os.listdir("../results/profiles_weights/sim_edcl64_1cl_1aln")
+#           if 'best' in f and 'pro' in f]
+#weights = [np.genfromtxt(f'../results/profiles_weights/sim_edcl64_1cl_1aln/{f}', delimiter=',')
+#           for f in w_files]
+#weights = np.asarray(weights)
+#profiles = np.genfromtxt('../results/profiles_weights/profiles/64-edcluster-profiles.tsv',
+#                         delimiter='\t')
+#th_msa = np.matmul(profiles, weights.T).T
 
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from matplotlib import pylab as plt
 
 pca = make_pipeline(StandardScaler(), PCA(n_components=2))
-pca_real_site_freqs = pca.fit_transform(site_freqs[-1])
-pca_sim_freqs = [pca.transform(freqs) for freqs in site_freqs[:-1]]
+pca_real_site_freqs = pca.fit_transform(freqs['hogenom_fasta_sites'][:20].T)
+pca_sim_freqs = [pca.transform(freqs[d.split('../data/')[1] + '_sites'][:20].T)
+                 for d in fasta_paths[1:]]
 #pca_msa_th_freqs = pca.transform(th_msa)
 
-tsne = TSNE()
-tsne_msa_freqs = tsne.fit_transform(msa_freqs)
-tsne_msa_sim_freqs = tsne.fit_transform(msa_sim_freqs)
-tsne_msa_th_freqs = tsne.fit_transform(th_msa)
+#tsne = TSNE()
+#tsne_msa_freqs = tsne.fit_transform(msa_freqs)
+#tsne_msa_sim_freqs = tsne.fit_transform(msa_sim_freqs)
+#tsne_msa_th_freqs = tsne.fit_transform(th_msa)
 
 s = 25
 
@@ -724,7 +735,7 @@ def plot_pca(data, ps=3, alpha=0.6, clim=60, save=None, titles=None):
     ylim = (np.min([d[:, 1].min() for d in data]),
             np.max([d[:, 1].max() for d in data]))
 
-    fig, axs = plt.subplots(ncols=4, nrows=1, figsize=(12., 4.5))
+    fig, axs = plt.subplots(ncols=len(data), nrows=2, figsize=(12., 4.5))
     for i in range(len(data)):
         #axs[i, 1].scatter(data[i][:, 0], data[i][:, 1], s=ps, color='coral',
         #                  alpha=alpha)
@@ -749,16 +760,11 @@ def plot_pca(data, ps=3, alpha=0.6, clim=60, save=None, titles=None):
     plt.close('all')
 
 plot_names = ['Empirical sites',
-              'Hierarchical model (10 clusters)', 'WAG', 'Uniform']
+              'Poisson', 'LG+GC']
 plot_pca([pca_real_site_freqs] + pca_sim_freqs,
-         save='../results/edcl64_real_test_10cl_wag_unif.svg',
+         save='../figs/emp_sim_pca_site_freqs.pdf',
          titles=plot_names,
          clim=7000)
-
-plot_pca([tsne_msa_freqs[:, :2].copy(), tsne_msa_sim_freqs[:, :2].copy(),
-          tsne_msa_th_freqs[:, :2].copy()], clim=40,
-         save='../results/edcl64_1cl_1aln_tsne_ontrain.png',
-         titles=['Empirical MSAs', 'Simulations', 'Weighted Avgerage profiles'])
 
 # violin plots
 # explained variance per variable: Var X PC

@@ -737,7 +737,7 @@ def aa_freq_samples(in_dir, data_dirs, sample_prop, n_alns, levels,
                                delimiter=",",
                                header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,cl',
                                comments='')
-                freqs[data_dir.split('/')[-1]] = table
+                freqs[data_dir.split('/')[-1] + '_msa'] = table.T
 
             # frequency vectors on gene level
             if 'genes' in levels:
@@ -757,7 +757,7 @@ def aa_freq_samples(in_dir, data_dirs, sample_prop, n_alns, levels,
                                delimiter=",",
                                header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,aln,cl',
                                comments='')
-                freqs[data_dir.split('/')[-1]] = table
+                freqs[data_dir.split('/')[-1] + '_genes'] = table
 
             # frequency vectors on site level
             if 'sites' in levels:
@@ -778,7 +778,7 @@ def aa_freq_samples(in_dir, data_dirs, sample_prop, n_alns, levels,
                                header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,'
                                       'aln,cl',
                                comments='')
-                freqs[data_dir.split('/')[-1]] = table
+                freqs[data_dir.split('/')[-1] + '_sites'] = table
         else:
             warnings.warn(f'{in_dir}/{data_dir} does not exist')
 

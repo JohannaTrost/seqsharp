@@ -338,7 +338,7 @@ def count_aas(data, level='msa', save=''):
         return aa_counts_alns
 
 
-def freq_pca_from_raw_alns(data, n_components=2):
+def freq_pca_from_raw_alns(data, n_components=2, level='sites'):
     """Legacy function to perform PCA on average MSA AA frequencies
     had been used for past experiments and test with EM and to evaluate
     simulatons
@@ -349,12 +349,12 @@ def freq_pca_from_raw_alns(data, n_components=2):
     """
 
     # get avg. MSA AA frequencies
-    msa_freqs = count_aas(data, level='msa')
-    msa_freqs /= np.repeat(msa_freqs.sum(axis=1)[:, np.newaxis], 20, axis=1)
-    msa_freqs = np.round(msa_freqs, 8)
+    freqs = count_aas(data, level=level)
+    freqs /= np.repeat(freqs.sum(axis=1)[:, np.newaxis], 20, axis=1)
+    freqs = np.round(freqs, 8)
     # perform PCA and center resulting PCs
     pca = PCA(n_components=n_components)
-    pca_msa_freqs = pca.fit_transform(msa_freqs)
-    pca_msa_freqs_c = pca_msa_freqs - pca_msa_freqs.mean(axis=0)
+    pca_freqs = pca.fit_transform(freqs)
+    pca_freqs_c = pca_freqs - pca_freqs.mean(axis=0)
 
-    return pca_msa_freqs_c, pca
+    return pca_freqs_c, pca
