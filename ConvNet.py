@@ -136,9 +136,13 @@ class ConvNet(nn.Module):
                 ks = int(p['input_size'])
                 self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
 
+        if nb_conv_layer == 0 and p['do_maxpool'] == 2:
+            # global avg pooling -> global MSA AA frequencies
+            ks = int(p['input_size'])
+            self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
+
         self.conv_layers.append(nn.Dropout(0.2))
-        self.conv_layers = (nn.Sequential(*self.conv_layers)
-                            if nb_conv_layer > 0 else None)
+        self.conv_layers = nn.Sequential(*self.conv_layers)
 
         # fully connected layer(s)
         self.lin_layers = []
