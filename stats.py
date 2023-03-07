@@ -1,4 +1,3 @@
-import os
 import warnings
 
 import numpy as np
@@ -6,7 +5,46 @@ import pandas as pd
 from scipy import stats as st
 from scipy.stats._continuous_distns import _distn_names
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
 from utils import dim
+
+
+def sample_indel_params(kde_obj, pca, scaler, sample_size=1, min_rl=50):
+    new_data = []
+    while len(new_data) < sample_size:
+        tmp = kde_obj.resample(1)
+        tmp = pca.inverse_transform(tmp.T)
+        tmp = scaler.inverse_transform(tmp)[0]
+
+        # apply SpartaABC prior limits on indel length
+        cond = 1.001 <= tmp[0] <= 2
+        cond &= 1.001 <= tmp[1] <= 2
+        cond &= min_rl < tmp[2]
+        cond &= 0 <= tmp[3] <= 0.05
+        cond &= 0 <= tmp[4] <= 0.05
+
+        if cond:
+            new_data.append(tmp)
+    return np.asarray(new_data)
+
+
+def kde(data, n_components=None):
+    ndim = data.shape[1] if n_components is None else n_components
+
+    # project the n-dimensional data to a lower dimension
+    scaler = StandardScaler()
+    scaler.fit(data)
+    data_scaled = scaler.transform(data)
+    pca = PCA(n_components=n_components, whiten=False)
+    pcs = pca.fit_transform(data_scaled)
+
+    var = np.sum(pca.explained_variance_ratio_[:n_components])
+    print(f'Explained variance: {var}')
+
+    kde_obj = st.gaussian_kde(pcs.T)
+
+    return kde_obj, pca, scaler
 
 
 def n_unique_mol_per_site(msa_reprs):
