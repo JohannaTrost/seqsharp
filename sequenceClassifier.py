@@ -355,8 +355,8 @@ def main():
 
                 bs = int(bs)
                 train_loader = DataLoader(train_ds, bs, shuffle=True,
-                                          num_workers=16)
-                val_loader = DataLoader(val_ds, bs, num_workers=16)
+                                          num_workers=4)
+                val_loader = DataLoader(val_ds, bs, num_workers=4)
 
                 # generate model
                 model_params['input_size'] = train_ds.data.shape[2]  # seq len
@@ -460,6 +460,13 @@ def main():
             val_acc = np.mean(val_folds['acc'])
             val_loss = np.mean(val_folds['loss'])
 
+            # print k-fold cross-validation evaluation
+            print(sep_line)
+            print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
+            for key, val in val_folds.items():
+                print(f'Average {key}: {np.mean(val)}')
+            print(sep_line)
+
             # save validation acc./loss
             if result_path is not None:
                 fold_val_dict2csv(val_folds,
@@ -489,17 +496,6 @@ def main():
                     f'\nNot saving models and evaluation plots. Please use '
                     f'--save and specify a directory if you want to save '
                     f'your results!\n')
-
-            # print k-fold cross-validation evaluation
-            print(sep_line)
-            print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
-            best_epochs = [np.argmax(model.val_history['acc'])
-                           for model in models]
-            for key in model.val_history.keys():
-                fold_eval = [model.val_history[key][e] for e, model in
-                             zip(best_epochs, models)]
-                print(f'Average {key}: {np.mean(fold_eval)} %')
-            print(sep_line)
 
             # -------------------- attribution study -------------------- #
             if args.attr:
