@@ -343,5 +343,24 @@ def load_custom_distr(file_path):
         return pickle.load(file)
 
 
+def save_kde(kde_obj, pca, scaler, dir_path):
+    with open(f'{dir_path}/kde.KDE', 'wb') as file:
+        pickle.dump(kde_obj, file)
+    with open(f'{dir_path}/pca.KDE', 'wb') as file:
+        pickle.dump(pca, file)
+    with open(f'{dir_path}/scaler.KDE', 'wb') as file:
+        pickle.dump(scaler, file)
+
+
+def load_kde(dir_path):
+    with open(f'{dir_path}/kde.KDE', 'rb') as file:
+        kde_obj = pickle.load(file)
+    with open(f'{dir_path}/pca.KDE', 'rb') as file:
+        pca = pickle.load(file)
+    with open(f'{dir_path}/scaler.KDE', 'rb') as file:
+        scaler = pickle.load(file)
+    return kde_obj, pca, scaler
+
+
 #n_sites_pdf = load_custom_distr('data/n_sites_hogenom_6971.CustomPDF')
 #gamma_shape_pdf = load_custom_distr('data/gamma_shape.CustomPDF')
