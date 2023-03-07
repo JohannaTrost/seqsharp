@@ -12,7 +12,7 @@ import psutil
 import torch
 import multiprocessing as mp
 
-from Bio import SeqIO
+from Bio import Phylo, SeqIO, Seq
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -44,6 +44,69 @@ DNA_AMBIG = {'*': ['A', 'G', 'C', 'T'],
              'S': ['G', 'C'], 'W': ['A', 'T']}
 
 THREADS = psutil.cpu_count(logical=False)
+
+
+def rearrange_tree(root):
+    """Arranges tree such that it accepted by Seq-Gen simulator
+
+    :param root: root of Phylo tree
+    """
+
+    for i, clade in enumerate(root.clades):
+        if i == 0 and not clade.is_terminal():
+            break
+        elif i > 0 and not clade.is_terminal():
+            tmp = root.clades[0]
+            root.clades[0] = clade
+            root.clades[i] = tmp
+            break
+
+
+def tree_remove_confidence(clade):
+    """Sets confidence of all nodes to None"""
+
+    clade.confidence = None
+    for child in clade.clades:
+        tree_remove_confidence(child)
+
+
+def adapt_newick_format(in_path, out_path):
+    """Reformat newick tree for Seq-Gen simulations"""
+    tree = Phylo.read(in_path, 'newick')
+
+    tree_remove_confidence(tree.root)
+    rearrange_tree(tree.root)
+
+    Phylo.write(tree, out_path, 'newick')
+
+    print('Saved formatted tree to ' + out_path)
+
+
+def remove_gaps(fasta_in, fasta_out):
+    """Remove columns with gaps from given fasta file
+
+    :param fasta_in: </path/to> fasta file
+    :param fasta_out:  </path/to> new fasta file
+    """
+
+    aln_records = [rec for rec in SeqIO.parse(fasta_in, "fasta")]
+    aln = np.asarray([np.asarray(list(rec.seq)) for rec in aln_records])
+
+    remove_columns = np.any(aln == '-', axis=0)
+    aln_no_gaps = aln[:, np.invert(remove_columns)]
+
+    if aln_no_gaps.shape[1] > 0:
+
+        aln_no_gaps = [''.join([aa for aa in seq]) for seq in aln_no_gaps]
+
+        # update alignment with sequences without gaps
+        for i, rec in enumerate(aln_records):
+            rec.seq = Seq.Seq(aln_no_gaps[i])
+
+        SeqIO.write(aln_records, fasta_out, "fasta")
+
+    else:
+        print(f'No columns left after removing gaps. {fasta_out} not saved.')
 
 
 def is_mol_type(aln, molecule_type='protein'):
