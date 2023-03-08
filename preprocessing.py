@@ -6,6 +6,7 @@ transformed into tensor datasets using
 the child classes of *torch.utils.data.Dataset*
 """
 import errno
+import os
 import time
 
 import psutil
@@ -290,10 +291,15 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
                                 aln = replace_ambig_chars(','.join(aln),
                                                           molecule_type)
                                 aln = aln.split(',')
-                        frac_ambig_mol_sites.append(frac_ambig)
 
-                        alns.append(aln)
-                        fastas.append(file)
+                        if len(aln[0]) > 0:  # check again if empty
+                            frac_ambig_mol_sites.append(frac_ambig)
+                            alns.append(aln)
+                            fastas.append(file)
+                        else:
+                            count_empty += 1
+                            print(f'\n{file} empty after cleaning: '
+                                  f'{frac_ambig} amig. letters')
                     else:
                         count_wrong_mol_type += 1
                 else:
