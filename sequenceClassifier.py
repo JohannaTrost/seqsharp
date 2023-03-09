@@ -503,130 +503,134 @@ def main():
                 fold_eval = [np.min(model.val_history['loss']) for model in
                              models]
                 best_fold = np.argmin(fold_eval)
+                worst_fold = np.argmax(fold_eval)
                 for fold, (_, val_ids) in enumerate(kfold.split(data,
                                                                 labels)):
-                    print(f'Compute/plot attribution scores from fold-'
-                          f'{fold + 1}-model')
-                    if result_path != '':
-                        attr_path = f'{result_path}/attribution_fold' \
-                                    f'{fold + 1}'
-                        if fold == best_fold:
-                            attr_path += '_best'
-                        if not os.path.exists(attr_path):
-                            os.mkdir(attr_path)
-                    else:
-                        attr_path = ''
+                    if fold == best_fold or fold == worst_fold:
+                        print(f'Compute/plot attribution scores from fold-'
+                              f'{fold + 1}-model')
+                        if result_path != '':
+                            attr_path = f'{result_path}/attribution_fold' \
+                                        f'{fold + 1}'
+                            if fold == best_fold:
+                                attr_path += '_min_loss'
+                            elif fold == worst_fold:
+                                attr_path += '_max_loss'
+                            if not os.path.exists(attr_path):
+                                os.mkdir(attr_path)
+                        else:
+                            attr_path = ''
 
-                    # get validation data for that fold
-                    val_ds = TensorDataset(data[val_ids].copy(),
-                                           labels[val_ids])
+                        # get validation data for that fold
+                        val_ds = TensorDataset(data[val_ids].copy(),
+                                               labels[val_ids])
 
-                    # get net
-                    model = models[fold]
+                        # get net
+                        model = models[fold]
 
-                    # get predition scores and order to sort MSAs by scores
-                    preds, sort_by_pred = get_sorted_pred_scores(model,
-                                                                 val_ds)
-                    plot_pred_scores(preds,
-                                     save=f'{attr_path}/val_pred_scores.pdf')
+                        # get predition scores and order to sort MSAs by scores
+                        preds, sort_by_pred = get_sorted_pred_scores(model,
+                                                                     val_ds)
+                        plot_pred_scores(preds,
+                                         save=f'{attr_path}/val_pred_scores.pdf')
 
-                    # correlation of seq len and predictions
-                    val_sl = {}  # sorted by pred. score
-                    for l, (cl, sort_inds) in enumerate(
-                            sort_by_pred.items()):
-                        # filter emp/sim msas and sort by prediction score
-                        val_sl[cl] = seq_lens[val_ids][val_ds.labels == l][
-                            sort_inds]
-                    print('Sequence length vs prediction scores')
-                    for key in val_sl.keys():
-                        mine = MINE()
-                        mine.compute_score(preds[key], val_sl[key])
-                        corr = np.corrcoef([preds[key], val_sl[key]])
+                        # correlation of seq len and predictions
+                        val_sl = {}  # sorted by pred. score
+                        for l, (cl, sort_inds) in enumerate(
+                                sort_by_pred.items()):
+                            # filter emp/sim msas and sort by prediction score
+                            val_sl[cl] = seq_lens[val_ids][val_ds.labels == l][
+                                sort_inds]
+                        print('Sequence length vs prediction scores')
+                        for key in val_sl.keys():
+                            mine = MINE()
+                            mine.compute_score(preds[key], val_sl[key])
+                            corr = np.corrcoef([preds[key], val_sl[key]])
 
-                        print(f'{key}\n\tMIC={mine.mic()}')
-                        print(f'\tPearson={corr[0][1]}\n')
-                    plot_corr_pred_sl(val_sl, preds,
-                                      f'{attr_path}/score_sl.pdf')
+                            print(f'{key}\n\tMIC={mine.mic()}')
+                            print(f'\tPearson={corr[0][1]}\n')
+                        plot_corr_pred_sl(val_sl, preds,
+                                          f'{attr_path}/score_sl.pdf')
 
-                    # get masks to remove padding
-                    pad_mask = {}  # sorted by pred. score
-                    for l, (cl, sort_inds) in enumerate(
-                            sort_by_pred.items()):
-                        # filter emp/sim msas and sort by prediction score
-                        pad_mask[cl] = val_ds.data[val_ds.labels == l][
-                            sort_inds]
+                        # get masks to remove padding
+                        pad_mask = {}  # sorted by pred. score
+                        for l, (cl, sort_inds) in enumerate(
+                                sort_by_pred.items()):
+                            # filter emp/sim msas and sort by prediction score
+                            pad_mask[cl] = val_ds.data[val_ds.labels == l][
+                                sort_inds]
 
-                        # sum over channels: 1 = no padding, 0 = padding
-                        pad_mask[cl] = pad_mask[cl].sum(
-                            axis=1).detach().cpu().numpy()
-                        pad_mask[cl] = pad_mask[cl].astype(bool)
+                            # sum over channels: 1 = no padding, 0 = padding
+                            pad_mask[cl] = pad_mask[cl].sum(
+                                axis=1).detach().cpu().numpy()
+                            pad_mask[cl] = pad_mask[cl].astype(bool)
 
 
-                    # get attributions
-                    attrs, xins = {}, {}
-                    for cl, i in sort_by_pred.items():
-                        label = 0 if 'emp' in cl else 1
-                        attrs[cl] = np.asarray(
-                            [get_attr(msa, model, 'saliency')
-                             for msa in
-                             val_ds.data[val_ds.labels == label][i]])
-                        xins[cl] = np.asarray(
-                            [get_attr(msa, model, 'integratedgradients',
-                                      multiply_by_inputs=True)
-                             for msa in
-                             val_ds.data[val_ds.labels == label][i]])
+                        # get attributions
+                        attrs, xins = {}, {}
+                        for cl, i in sort_by_pred.items():
+                            label = 0 if 'emp' in cl else 1
+                            attrs[cl] = np.asarray(
+                                [get_attr(msa, model, 'saliency')
+                                 for msa in
+                                 val_ds.data[val_ds.labels == label][i]])
+                            xins[cl] = np.asarray(
+                                [get_attr(msa, model, 'integratedgradients',
+                                          multiply_by_inputs=True)
+                                 for msa in
+                                 val_ds.data[val_ds.labels == label][i]])
 
-                    # plot site/channel importance
-                    # plot_summary(attrs, pad_mask, 'channels', preds,
-                    # molecule_type,
-                    #              save=f'{attr_path}/channel_attr_preds.pdf')
-                    plot_summary(attrs, pad_mask, 'channels', None,
-                                 molecule_type,
-                                 save=f'{attr_path}/channel_attr.pdf')
-                    # plot_summary(attrs, pad_mask, 'sites', preds,
-                    # molecule_type,
-                    #              save=f'{attr_path}/site_attr_preds.pdf')
-                    plot_summary(attrs, pad_mask, 'sites', None,
-                                 molecule_type,
-                                 save=f'{attr_path}/site_attr.pdf')
-                    plot_summary(attrs, pad_mask, 'sites', None,
-                                 molecule_type,
-                                 save=f'{attr_path}/site_attr_200.pdf',
-                                 max_sl=200)
-                    plot_summary(attrs, pad_mask, 'sites', None,
-                                 molecule_type,
-                                 save=f'{attr_path}/site_attr_50.pdf',
-                                 max_sl=50)
+                        # plot site/channel importance
+                        # plot_summary(attrs, pad_mask, 'channels', preds,
+                        # molecule_type,
+                        #              save=f'{attr_path}/channel_attr_preds.pdf')
+                        plot_summary(attrs, pad_mask, 'channels', None,
+                                     molecule_type,
+                                     save=f'{attr_path}/channel_attr.pdf')
+                        # plot_summary(attrs, pad_mask, 'sites', preds,
+                        # molecule_type,
+                        #              save=f'{attr_path}/site_attr_preds.pdf')
+                        plot_summary(attrs, pad_mask, 'sites', None,
+                                     molecule_type,
+                                     save=f'{attr_path}/site_attr.pdf')
+                        plot_summary(attrs, pad_mask, 'sites', None,
+                                     molecule_type,
+                                     save=f'{attr_path}/site_attr_200.pdf',
+                                     max_sl=200)
+                        plot_summary(attrs, pad_mask, 'sites', None,
+                                     molecule_type,
+                                     save=f'{attr_path}/site_attr_50.pdf',
+                                     max_sl=50)
 
-                    # plot individual saliency maps
+                        # plot individual saliency maps
 
-                    # indices of n best predicted (decreasing) and
-                    # n worst predicted
-                    # (increasing) MSAs
-                    n = 5
-                    select = np.concatenate(
-                        (np.arange(n), np.arange(-n, 0)))
+                        # indices of n best predicted (decreasing) and
+                        # n worst predicted
+                        # (increasing) MSAs
+                        n = 5
+                        select = np.concatenate(
+                            (np.arange(n), np.arange(-n, 0)))
 
-                    for l, cl in enumerate(attrs.keys()):
-                        # validation data, sorted according to attr. maps
-                        msas = val_ds.data[val_ds.labels == l][
-                            sort_by_pred[cl]]
-                        fnames = fastas[val_ids][val_ds.labels == l][
-                            sort_by_pred[cl]]
+                        for l, cl in enumerate(attrs.keys()):
+                            # validation data, sorted according to attr. maps
+                            msas = val_ds.data[val_ds.labels == l][
+                                sort_by_pred[cl]]
+                            fnames = fastas[val_ids][val_ds.labels == l][
+                                sort_by_pred[cl]]
 
-                        for i, sel in enumerate(select):
-                            score = '%.2f' % np.round(preds[cl][sel], 2)
+                            for i, sel in enumerate(select):
+                                score = '%.2f' % np.round(preds[cl][sel], 2)
 
-                            sal_map = attrs[cl][sel][pad_mask[cl][sel]]
-                            ig_map = xins[cl][sel][pad_mask[cl][sel]]
-                            msa = msas[sel][:,
-                                  pad_mask[cl][sel]].detach().cpu().numpy()
-                            msa_id = fnames[sel].split(".")[0]
-                            plot_msa_attr(sal_map, ig_map, msa,
-                                          molecule_type,
-                                          save=f'{attr_path}/'
-                                               f'[{i}]_{msa_id}_{score}_'
-                                               f'{cl}.pdf')
+                                sal_map = attrs[cl][sel][pad_mask[cl][sel]]
+                                ig_map = xins[cl][sel][pad_mask[cl][sel]]
+                                msa = msas[sel][:,
+                                      pad_mask[cl][sel]].detach().cpu().numpy()
+                                msa_id = fnames[sel].split(".")[0]
+                                plot_msa_attr(sal_map, ig_map, msa,
+                                              molecule_type,
+                                              save=f'{attr_path}/'
+                                                   f'[{i}]_{msa_id}_{score}_'
+                                                   f'{cl}.pdf')
         if len(bs_lst) > 1 and result_path is not None:
             np.savetxt(f'{result_path}/step_time.csv',
                        train_throughput, delimiter=',')
