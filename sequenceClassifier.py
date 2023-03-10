@@ -266,7 +266,8 @@ def main():
             for key, val in data_dict.items():
                 cfg['data'][key] = val
 
-            if molecule_type == 'protein':
+            if molecule_type == 'protein' and '-' not in ''.join(alns[1][0]):
+                # for protein data without gaps
                 for i in range(len(alns)):
                     # remove first 2 sites
                     alns[i] = [[seq[2:] for seq in aln] for aln in alns[i]]
