@@ -60,6 +60,8 @@ def plot_summary(attrs, pad_mask, sum_ax, preds=None,
                 if max_sl is not None:
                     sl = min(sl, max_sl)
                 map = np.abs(attr[pad_mask[cl][a]])[:sl]
+                if len(map) == 0:
+                    break
                 if op == 'max':
                     summary_maps[op][cl][a, :sl] = np.max(
                         map, axis=site_ax if sum_ax == 'sites' else mol_ax)

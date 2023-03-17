@@ -250,7 +250,7 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
 
     # load fasta filenames
     if fasta_dir.endswith('.txt'):
-        # files in txt file must be in same directory as the txt file!
+        # files in txt file must be in same directory as data!
         fasta_files = np.genfromtxt(fasta_dir, dtype=str)
         if not fasta_files[0].endswith('.fasta'):
             fasta_files = np.core.defchararray.add(fasta_files,
@@ -298,7 +298,7 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
                             fastas.append(file)
                         else:
                             count_empty += 1
-                            print(f'\n{file} empty after cleaning: '
+                            print(f'{file} empty after cleaning: '
                                   f'{frac_ambig} amig. letters')
                     else:
                         count_wrong_mol_type += 1
@@ -352,8 +352,8 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
 
     if n_alns is not None:  # optional
         if (n_alns - len(fastas)) > 0:  # we get less MSAs than wanted
-            print('Only {} / {} fasta files taken into account.'.format(
-                len(fastas), n_alns))
+            print(f'Only {len(fastas)} / {n_alns} fasta files taken into '
+                  f'account.')
         else:  # restrict number of MSAs to n_alns
             fastas = fastas[:n_alns]
             n_seqs = n_seqs[:n_alns]
@@ -612,6 +612,7 @@ def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
     alns, fastas, stats = [], [], []
     for i, path in enumerate(fasta_paths):
         path = str(path)
+        size = n_alns[i] if isinstance(n_alns, list) else n_alns
 
         # in case of simulations with multiple MSA clusters each cluster has dir
         sim_cl_dirs = [dir for dir in os.listdir(path)
@@ -620,7 +621,7 @@ def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
             sim_alns, sim_fastas, sim_stats = [], [], {}
             for dir in sim_cl_dirs:
                 sim_data = alns_from_fastas(f'{path}/{dir}', quantiles[i],
-                                            n_alns, seq_len,
+                                            size, seq_len,
                                             molecule_type=molecule_type)
                 # concat remove cluster dimension
                 sim_alns += sim_data[0]
@@ -634,50 +635,29 @@ def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
                     for k in sim_stats.keys():
                         sim_stats[k] += [sim_data[2][k]]
 
-            if n_alns is not None and len(sim_alns) > n_alns:
-                inds = np.random.choice(np.arange(len(sim_alns)), size=n_alns,
-                                        replace=False)
+            if size is not None and len(sim_alns) > size:
+                inds = np.random.permutation(len(sim_alns))[:size]
                 raw_data = [[sim_alns[ind] for ind in inds],
                             [sim_fastas[ind] for ind in inds],
                             sim_stats]
             else:
                 raw_data = [sim_alns, sim_fastas, sim_stats]
         else:  # empirical data set or simulations without MSA clusters
-            raw_data = alns_from_fastas(path, quantiles[i], n_alns, seq_len,
+            raw_data = alns_from_fastas(path, quantiles[i], size, seq_len,
                                         molecule_type=molecule_type)
 
         alns.append(raw_data[0])
         fastas.append(raw_data[1])
         stats.append(raw_data[2])
 
-    if len(alns) == 2 and len(fastas) == 2:  # if there is simulated data
+    if len(alns) == 2 and len(fastas) == 2:
         print(f"avg. seqs. len. : {stats[1]['seq_lens_avg']} (sim.) vs. "
               f"{stats[0]['seq_lens_avg']} (emp.)")
         print(f"avg. n.seqs. : {stats[1]['n_seqs_avg']} (sim.) vs. "
               f"{stats[0]['n_seqs_avg']} (emp.)")
 
-        """???
-        # sort simulated data by sequence length
-        ind_s = np.argsort(get_n_sites_per_msa(alns[1]))
-
-        alns[1] = [alns[1][i] for i in ind_s]
-        fastas[1] = [fastas[1][i] for i in ind_s]
-
-        # keeping same amount of simulated alns from the "middle"(regarding
-        # lengths)
-        start = len(alns[0]) // 2
-        alns[1] = alns[1][start:start + len(alns[0])]
-        fastas[1] = fastas[1][start:start + len(alns[0])]
-
-        # shuffling the sorted simulated alignments and their ids
-        indices = np.arange(len(alns[1]))
-        np.random.shuffle(indices)
-        alns[1] = [alns[1][i] for i in indices]
-        fastas[1] = [fastas[1][i] for i in indices]
-        """
-
     # ensure same number of MSAs for all data sets
-    if n_alns is not None:
+    if n_alns is not None and not isinstance(n_alns, list):
         for i in range(len(alns)):
             inds = np.random.choice(range(len(alns[i])), n_alns, replace=False)
             alns[i] = [alns[i][ind] for ind in inds]

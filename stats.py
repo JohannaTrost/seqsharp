@@ -10,7 +10,8 @@ from sklearn.preprocessing import StandardScaler
 from utils import dim
 
 
-def sample_indel_params(kde_obj, pca, scaler, sample_size=1, min_rl=50):
+def sample_indel_params(kde_obj, pca, scaler, sample_size=1, min_rl=50,
+                        max_rl=30000):
     new_data = []
     while len(new_data) < sample_size:
         tmp = kde_obj.resample(1)
@@ -20,13 +21,19 @@ def sample_indel_params(kde_obj, pca, scaler, sample_size=1, min_rl=50):
         # apply SpartaABC prior limits on indel length
         cond = 1.001 <= tmp[0] <= 2
         cond &= 1.001 <= tmp[1] <= 2
-        cond &= min_rl < tmp[2]
+        cond &= min_rl <= tmp[2] <= max_rl
         cond &= 0 <= tmp[3] <= 0.05
         cond &= 0 <= tmp[4] <= 0.05
 
         if cond:
             new_data.append(tmp)
-    return np.asarray(new_data)
+
+    param_names = ['RIM A_D', 'RIM A_I', 'RIM RL', 'RIM R_D', 'RIM R_I']
+    new_data_dict ={}
+    for key, val in zip(param_names, np.asarray(new_data).T):
+        new_data_dict[key] = val
+
+    return new_data_dict
 
 
 def kde(data, n_components=None):

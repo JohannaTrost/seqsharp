@@ -360,7 +360,3 @@ def load_kde(dir_path):
     with open(f'{dir_path}/scaler.KDE', 'rb') as file:
         scaler = pickle.load(file)
     return kde_obj, pca, scaler
-
-
-#n_sites_pdf = load_custom_distr('data/n_sites_hogenom_6971.CustomPDF')
-#gamma_shape_pdf = load_custom_distr('data/gamma_shape.CustomPDF')
