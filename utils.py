@@ -8,12 +8,19 @@ import warnings
 
 import numpy as np
 import matplotlib.transforms as transforms
-from datetime import datetime
 from tompy import CustomPDF
 
-from ConvNet import load_net
-from matplotlib import pylab as plt
 from matplotlib.patches import Ellipse
+
+
+def index_neighbours(index, arr_len, n=4):
+    inds_template = np.arange(-n, n + 1)
+    # indices relative to "index" in center
+    inds = inds_template + index
+    inds -= np.min([inds[0], 0])  # shift to right
+    inds -= np.max([inds[-1] - arr_len + 1, 0])  # shift to left
+    inds = inds[inds != index]
+    return inds
 
 
 def get_divisor_min_diff_quotient(divident):
@@ -23,61 +30,7 @@ def get_divisor_min_diff_quotient(divident):
     return divisors[np.argmin(np.abs(divisors - quotients))]
 
 
-def get_model_performance(model_path):
-    """Get array of (most recent) BACC, class acc. and loss of model for all
-    folds
-
-    :param model_path: <path/to> model containing 'val_folds'-file
-    :return: array of BACC, class acc. and loss for each fold and csv header
-    """
-
-    val_files = [f for f in os.listdir(model_path) if
-                 f.startswith('val_folds')]
-
-    # get most recent val. results
-    if len(val_files) > 1:
-        file_age = []
-        for f in val_files:
-            if f.startswith('val_folds_'):  # timestamp given
-                time = datetime.strptime(f.split('_')[2].split('.csv')[0],
-                                         "%d-%b-%Y-%H:%M:%S.%f")
-            else:  # if timestamp is not given then this is the oldest result
-                time = datetime.strptime('01-Nov-1000-00:00:00.000000',
-                                         "%d-%b-%Y-%H:%M:%S.%f")
-            file_age.append(time)
-        ind_most_recent = np.argmax(file_age)
-        val_file = val_files[ind_most_recent]
-    else:
-        val_file = val_files[0]
-
-    return fold_val_from_csv(f'{model_path}/{val_file}')
-
-
-def fold_val_dict2csv(dict, path):
-    """Save dictionary with BACC, class acc. and loss for each fold to csv
-
-    :param dict: dictionary with BACC, class acc. and loss for each fold
-    :param path: <path/to> csv file
-    :return: -
-    """
-    tab = np.asarray(list(dict.values())).T
-    header = ','.join(list(dict.keys()))
-    np.savetxt(path, tab, header=header, comments='', delimiter=',')
-
-
-def fold_val_from_csv(path):
-    """Get array of BACC, class acc. and loss for each fold and csv header
-
-    :param path: <path/to> csv file
-    :return: array of BACC, class acc. and loss for each fold and csv header
-    """
-    header = np.asarray(np.genfromtxt(path, names=True,
-                                      delimiter=',').dtype.names)
-    val_folds = np.genfromtxt(path, skip_header=True, delimiter=',')
-    return val_folds, header
-
-
-def write_cfg_file(cfg, cfg_path, model_path='', timestamp=None):
+def write_cfg_file(cfg, cfg_path, model_path=None, timestamp=None):
     """Save parameters in a json file
 
     If a recent cfg contains the same parameters it will be put into
@@ -89,7 +42,7 @@ def write_cfg_file(cfg, cfg_path, model_path='', timestamp=None):
     :param timestamp: format %d-%b-%Y-%H:%M:%S.%f (string)
     """
 
-    if cfg_path == '':
+    if cfg_path == '' or cfg_path is None:
         cfg_dir = ''
     elif os.path.isfile(cfg_path):
         cfg_dir = cfg_path.rpartition('/')[0]
@@ -98,17 +51,14 @@ def write_cfg_file(cfg, cfg_path, model_path='', timestamp=None):
     else:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                 cfg_path)
-
+    if model_path is None:
+        model_path = ''
+    cfg['results_path'] = model_path
     if cfg_dir != '':
-        out_path = f'{cfg_dir}/cfg-{timestamp}.json'
-        cfg['results_path'] = model_path
-
         # save cfg to file
-        with open(out_path, "w") as outfile:
+        with open(f'{cfg_dir}/cfg-{timestamp}.json', "w") as outfile:
             json.dump(cfg, outfile)
-
     if model_path != '':
-        cfg['results_path'] = model_path
         with open(f'{model_path}/cfg.json', "w") as outfile:
             json.dump(cfg, outfile)
 
@@ -153,45 +103,6 @@ def dim(lst):
     if not type(lst) == list:
         return 0
     return 1 + dim(lst[0])
-
-
-def get_histories_folds(path, nb_folds, model_params):
-    """Gets validation and training history from models in *path* directory
-
-    :param path: <path/to> directory containing .pth file(s) (string)
-    :param nb_folds: number of folds/models (integer)
-    :param seq_len: number of sites (integer)
-    :param nb_chnls: number of channels (typically 1 per amino acid) (integer)
-    :return: 2 lists of training/validation history dictionaries
-    """
-
-    train_history_folds = []
-    val_history_folds = []
-
-    for fold in range(1, nb_folds + 1):
-        model_path = f'{path}/model-fold-{fold}.pth'
-        model = load_net(model_path, model_params)
-        train_history_folds.append(model.train_history)
-        val_history_folds.append(model.val_history)
-
-    return merge_fold_hist_dicts(train_history_folds, val_history_folds)
-
-
-def merge_fold_hist_dicts(train_history_folds, val_history_folds):
-    """Extracts losses and accuracies from training and validation history"""
-    # init dicts
-    train_folds, val_folds = {}, {}
-    for key in train_history_folds[0].keys():
-        train_folds[key] = []
-        val_folds[key] = []
-    # populate dicts merging dicts of multiple folds
-    for fold in range(len(train_history_folds)):
-        for key, hist in train_history_folds[fold].items():
-            train_folds[key].append(hist)
-        for key, hist in val_history_folds[fold].items():
-            val_folds[key].append(hist)
-
-    return train_folds, val_folds
 
 
 def largest_remainder_method(fractions, total):

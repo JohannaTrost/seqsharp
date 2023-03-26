@@ -197,7 +197,7 @@ def distance_stats(dists):
 
 def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
                           csv_path=None):
-    """Returns a dataframe with information about input
+    """Returns a dataframe with information about input_plt_fct
        alignments with option to save the table as a csv file
 
     :param fastas: list of lists with fasta filenames (2D string list)
@@ -206,7 +206,7 @@ def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
     :param alns_repr: list of lists with MSA representations
     :param is_sim: list of 0s and 1s (0: real MSAs, 1: simulated MSAs)
     :param csv_path: <path/to> file to store dataframe
-    :return: dataframe with information about input alignments
+    :return: dataframe with information about input_plt_fct alignments
     """
 
     ids, aa_freqs, paddings, number_seqs, seq_length = [], [], [], [], []

@@ -14,24 +14,22 @@ import time
 import gc
 from datetime import datetime
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from minepy import MINE
 from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import DataLoader
 
-from ConvNet import ConvNet, load_net, compute_device
+from ConvNet import ConvNet, load_model, compute_device
 from attr_methods import get_attr, get_sorted_pred_scores, plot_pred_scores, \
     plot_summary, plot_msa_attr
-from preprocessing import TensorDataset, alns_from_fastas, raw_alns_prepro, \
-    make_msa_reprs, load_msa_reprs
-from plots import plot_folds, plot_hist_quantiles, plot_corr_pred_sl, \
-    plot_groups_folds
-from stats import get_n_sites_per_msa, get_n_seqs_per_msa
-from utils import write_cfg_file, read_cfg_file, merge_fold_hist_dicts, \
-    fold_val_dict2csv
-from train_eval import fit, eval_per_align, generate_eval_dict, evaluate, \
-    evaluate_folds, find_lr_bounds
+from preprocessing import TensorDataset, raw_alns_prepro, make_msa_reprs, \
+    load_msa_reprs
+from plots import plot_folds, plot_corr_pred_sl, plot_groups_folds, make_fig
+from stats import get_n_sites_per_msa
+from utils import write_cfg_file, read_cfg_file
+from train_eval import fit, evaluate,  find_lr_bounds, print_model_performance
 
 torch.cuda.empty_cache()
 
@@ -93,24 +91,30 @@ def main():
 
     args = parser.parse_args()
 
-    # -------------------- verify argument usage -------------------- #
-
-    if args.test and (not args.models or not args.sim):
-        parser.error('--test requires --modles and --sim')
-
-    if (args.training or args.resume) and not args.emp:
-        parser.error('Training requires exactly 2 datasets: one directory '
-                     'containing empirical alignments and one simulated '
-                     'alignments.')
-
     # ---------------------------- get arguments ---------------------------- #
 
+    test, train, resume = args.test, args.training, args.resume
     emp_fasta_path, sim_fasta_path = args.emp, args.sim
     result_path = args.save if args.save else None
     model_path = args.models
     cfg_path = args.cfg
     molecule_type = args.molecule_type
     shuffle = args.shuffle
+    attribution = args.attr
+    clr = args.clr
+
+    # -------------------- verify argument usage -------------------- #
+
+    if not (train ^ test ^ resume) or (train and test and resume):
+        parser.error('Use either --training, --test or --resume.')
+
+    if test and (not model_path or not sim_fasta_path):
+        parser.error('--test requires --modles and --sim')
+
+    if (train or resume) and not emp_fasta_path:
+        parser.error('Training requires exactly 2 datasets: one directory '
+                     'containing empirical alignments and one simulated '
+                     'alignments.')
 
     # ------------------ verify existence of files/folders ------------------ #
 
@@ -207,7 +211,6 @@ def main():
         alns, fastas, data_dict = raw_alns_prepro(
             [emp_fasta_path] + sim_fasta_path,
             n_alns, n_sites, shuffle=shuffle, molecule_type=molecule_type)
-        fastas_emp, fastas_sim = fastas.copy()
 
         # update config with info from loaded data
         for key, val in data_dict.items():
@@ -221,50 +224,28 @@ def main():
 
         seq_lens = np.concatenate(get_n_sites_per_msa(alns))
 
-        emp_alns, sim_alns = make_msa_reprs(alns, fastas,
+        print(molecule_type)
+        emp_alns, sim_alns = make_msa_reprs(alns,
                                             cfg['data']['nb_sites'],
                                             cfg['data']['padding'],
-                                            molecule_type=molecule_type
-                                            )
+                                            molecule_type=molecule_type)
         fastas = np.concatenate(fastas)
         del alns
-    elif first_input_file.endswith('.csv'):  # msa representations given
-        emp_alns, fastas_emp = load_msa_reprs(emp_fasta_path, pairs,
-                                              cfg['data'][
-                                                  'nb_alignments'])
-        sim_alns, fastas_sim = load_msa_reprs(emp_fasta_path, pairs,
-                                              cfg['data']['nb_alignments'])
+    elif first_input_file.endswith('.csv'):  # msa representations is given
+        emp_alns, fastas_emp = load_msa_reprs(emp_fasta_path, n_alns[0])
+        sim_alns, fastas_sim = load_msa_reprs(emp_fasta_path, n_alns[1])
 
     n_emp_alns, n_sim_alns = len(emp_alns), len(sim_alns)
     data = np.asarray(emp_alns + sim_alns, dtype='float32')
     labels = np.concatenate((np.zeros(n_emp_alns), np.ones(n_sim_alns)))
 
-    if args.track_stats:
-        emp_alns_dict = {fastas_emp[i]: emp_alns[i] for i in
-                         range(len(emp_alns))}
-        sim_alns_dict = {fastas_sim[i]: sim_alns[i] for i in
-                         range(len(sim_alns))}
-
-    if args.models:
-        if os.path.isdir(model_path):
-            model_paths = [f'{model_path}/model-fold-{i + 1}.pth'
-                           for i in range(nb_folds)
-                           if os.path.exists(f'{model_path}/'
-                                             f'model-fold-{i + 1}.pth')]
-        elif os.path.isfile(model_path):
-            model_paths = [model_path]
-        else:
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    model_path)
+    if model_path:
+        state = 'train' if resume else 'eval'
+        loaded_models = load_model(model_path, state)
 
     # -------------------- k-fold cross validation -------------------- #
 
     print(f'\nCompute device: {compute_device}\n')
-
-    if 'val_loss' in cfg.keys():
-        best_val_loss = cfg['val_loss']
-    else:
-        best_val_loss = np.inf
 
     bs_lst = batch_size if isinstance(batch_size, list) else [batch_size]
     epochs_lst = epochs if isinstance(epochs, list) else [epochs]
@@ -279,7 +260,6 @@ def main():
         print(sep_line + '\n')
 
         models = []
-        dfs = []
         lrs = []
 
         for fold, (train_ids, val_ids) in enumerate(kfold.split(data,
@@ -290,9 +270,8 @@ def main():
             # splitting dataset by alignments
             print("Building training and validation dataset ...")
             start = time.time()
-            train_ds = TensorDataset(data[train_ids], labels[train_ids],
-                                     pairs)
-            val_ds = TensorDataset(data[val_ids], labels[val_ids], pairs)
+            train_ds = TensorDataset(data[train_ids], labels[train_ids])
+            val_ds = TensorDataset(data[val_ids], labels[val_ids])
             print(f'Finished after {round(time.time() - start, 2)}s\n')
 
             bs = int(bs)
@@ -300,36 +279,27 @@ def main():
                                       num_workers=4)
             val_loader = DataLoader(val_ds, bs, num_workers=4)
 
-            # generate model
             model_params['input_size'] = train_ds.data.shape[2]  # seq len
-            model_params['nb_chnls'] = train_ds.data.shape[
-                1]  # 1 channel per amino acid
-            if args.models:
-                state = 'train' if args.resume else 'eval'
-                # load model if testing or if continuing training
-                model = load_net(model_paths[fold]
-                                 if len(model_paths) == nb_folds
-                                 else model_paths[0],
-                                 model_params,
-                                 state=state).to(compute_device)
+            if model_path:
+                # use existing model for testing or continuing training
+                model = loaded_models[fold]
             else:
                 model = ConvNet(model_params).to(compute_device)
-
-            if args.training:
+            if train:
                 # determine lr (either lr from cfg or lr finder)
                 if isinstance(lr, list) and len(lr) == nb_folds:
                     # cfg lr is list of lrs per fold
                     fold_lr = lr[fold]
-                elif args.clr or lr_range != '':  # use lr finder
+                elif clr or lr_range != '':  # use lr finder
                     min_lr, max_lr = find_lr_bounds(model, train_loader,
                                                     optimizer,
                                                     result_path if fold == 0
                                                     else '', lr_range,
                                                     prefix=f'{fold + 1}_'
                                                     if fold == 0 else '')
-                    if opt == 'Adagrad' and args.clr:
+                    if opt == 'Adagrad' and clr:
                         max_lr = max(0.1, max_lr)
-                    if args.clr:
+                    if clr:
                         lrs.append((min_lr, max_lr))
                     else:  # lr finder determined lr for non-clr
                         lrs.append(max_lr)
@@ -347,8 +317,8 @@ def main():
                                     if len(bs_lst) == 1 else '',
                                     fold=fold)
                 train_throughput[i, fold] = time_per_step
-
-            elif args.test:
+                models.append(model.to('cpu'))
+            elif test:
                 with torch.no_grad():
                     train_result = evaluate(model, train_loader)
                     for key, val in train_result.items():
@@ -363,76 +333,30 @@ def main():
                           f"emp. acc: {val_result['acc_emp']}, "
                           f"sim. acc: {val_result['acc_sim']}")
 
-            models.append(model.to('cpu'))
-
-            if args.track_stats:
-                emp_train_ids = train_ids[:(len(train_ds) // 2)]
-                sim_train_ids = train_ids[(len(train_ds) // 2):]
-                sim_train_ids -= n_emp_alns
-                emp_pred_tr, sim_pred_tr = eval_per_align(model, emp_alns,
-                                                          sim_alns,
-                                                          fastas_emp,
-                                                          fastas_sim,
-                                                          emp_train_ids)
-                emp_pred_va, sim_pred_va = eval_per_align(model, emp_alns,
-                                                          sim_alns,
-                                                          fastas_emp,
-                                                          fastas_sim,
-                                                          sim_train_ids)
-
-                df = generate_eval_dict(fold, emp_pred_tr, sim_pred_tr,
-                                        emp_pred_va, sim_pred_va,
-                                        emp_alns_dict, sim_alns_dict)
-                dfs.append(df)
 
         # print avg across folds time per step
         print(f'Avg. time-per-step across folds: '
               f'{np.round(train_throughput[i], 2)}s')
 
-        print(f'models {len(models)}')
-        train_hist_folds, val_hist_folds = merge_fold_hist_dicts(
-            [model.train_history for model in models],
-            [model.val_history for model in models])
-        # get bcc., emp. acc., sim. acc, and loss
-        if args.training:
-            val_folds = evaluate_folds(val_hist_folds, nb_folds)
-        elif args.test:  # get results from last epoch = test results
-            val_folds = evaluate_folds(val_hist_folds, nb_folds,
-                                       which='last')
+        save_sum = os.path.join(result_path,
+                                f'val_folds_{timestamp}_{str(bs)}.csv')
+        print_model_performance(models, save=save_sum if result_path else '')
 
-        val_acc = np.mean(val_folds['acc'])
-        val_loss = np.mean(val_folds['loss'])
-
-        # print k-fold cross-validation evaluation
-        print(sep_line)
-        print(f'K-FOLD CROSS VALIDATION RESULTS FOR {nb_folds} FOLDS')
-        for key, val in val_folds.items():
-            print(f'Average {key}: {np.mean(val)}')
-        print(sep_line)
-
-        # save validation acc./loss
+        # save config
         if result_path is not None:
-            fold_val_dict2csv(val_folds,
-                              f'{result_path}/'
-                              f'val_folds_{timestamp}_{str(bs)}.csv')
-
             # save cfg
             cfg['hyperparameters']['lr'] = lrs if len(lrs) > 0 else lr
-            if val_loss > best_val_loss:
-                cfg['val_loss'] = best_val_loss
-            else:
-                cfg['val_loss'] = val_loss
-                cfg['val_acc'] = val_acc
-            write_cfg_file(cfg,
-                           cfg_path if cfg_path is not None else '',
+            write_cfg_file(cfg, cfg_path if cfg_path is not None else '',
                            result_path if result_path is not None else '',
                            timestamp)
 
             # save plot of learning curve
-            if args.training:
-                plot_folds(train_hist_folds, val_hist_folds,
-                           path=f'{result_path}/fig-fold-eval-'
-                                f'{str(bs) if len(bs_lst) > 1 else ""}.png')
+            if train or resume:
+                fig_file = 'fig-fold-eval'
+                fig_file += f'-{bs}' if len(bs_lst) > 1 else ""
+                fig_file += '.png'
+                make_fig(plot_folds, [models], (1, 2),
+                         save=os.path.join(result_path, fig_file))
             print(f'\nSaved results to {result_path}\n')
         else:
             print(
@@ -441,7 +365,7 @@ def main():
                 f'your results!\n')
 
         # -------------------- attribution study -------------------- #
-        if args.attr:
+        if attribution:
             # choose best fold
             fold_eval = [np.min(model.val_history['loss']) for model in
                          models]

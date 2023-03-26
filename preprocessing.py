@@ -234,7 +234,7 @@ def load_msa(filename):
 
 
 def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
-                     molecule_type='protein', rem_ambig_chars='remove'):
+        molecule_type='protein', rem_ambig_chars='remove'):
     """Extracts alignments from fasta files in given directory
 
     :param rem_ambig_chars: indicate how to remove ambiguous letters: either
@@ -428,7 +428,7 @@ def remove_gaps(alns):
 
 
 def encode_aln(alned_seqs_raw, seq_len, padding='', molecule_type='protein'):
-    """Turns aligned sequences into (padded) one-hot encodings
+    """Transforms aligned sequences to (padded) one-hot encodings
 
     Trims/pads the alignment to a certain number of sites (*seq_len*)
     If sequences are > *seq_len* only the middle part of the sequence is taken
@@ -586,8 +586,8 @@ class DatasetAln(Dataset):
 
 
 def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
-                    quantiles=None, shuffle=False,
-                    molecule_type='protein'):
+        quantiles=None, shuffle=False,
+        molecule_type='protein'):
     """Loads and preprocesses raw (not encoded) alignments
 
     :param shuffle: shuffle sites if True
@@ -690,16 +690,13 @@ def shuffle_sites(msa_ds):
     return msa_ds
 
 
-def make_msa_reprs(alns, fastas, seq_len, padding='zeros', pairs=False,
-                   csv_path=None, molecule_type='protein'):
+def make_msa_reprs(alns, seq_len, pad='zeros', molecule_type='protein'):
     """Encodes alignments and generates their representations
 
-    :param padding: TODO
-    :param molecule_type: either protein or DNA sequences
-    :param fastas: a set of lists of alignment identifiers (2D string list )
     :param alns: preprocessed raw alignment sets (3D string list)
-    :param pairs: choose representation by pairs if true (boolean)
-    :param csv_path: <path/to> store csv file with info about alignments
+    :param seq_len: max. sequence length, used for padding
+    :param pad: padding type, default: zeros
+    :param molecule_type: either protein or DNA sequences
     :return: alignment representations
     """
 
@@ -707,32 +704,16 @@ def make_msa_reprs(alns, fastas, seq_len, padding='zeros', pairs=False,
 
     print("Generating alignment representations ...")
 
-    if pairs:
-        print("Pairing sequences ...")
-
-        start = time.time()
-        for alns_set in alns:
-            alns_reprs.append([make_seq_pairs(
-                encode_aln(aln, seq_len, padding, molecule_type))
-                for aln in alns_set])
-        print(f'Finished pairing after {round(start - time.time(), 2)}s\n')
-    else:
-        for alns_set in alns:
-            alns_reprs.append([get_aln_repr(
-                encode_aln(aln, seq_len, padding, molecule_type))
-                for aln in alns_set])
-
-    if csv_path is not None:
-        generate_aln_stats_df(fastas, alns, seq_len,
-                              alns_reprs if not pairs else None,
-                              is_sim=[0, 1] if len(alns) == 2 else [],
-                              csv_path=csv_path if not pairs else None)
+    for alns_set in tqdm(alns):
+        alns_reprs.append([get_aln_repr(
+            encode_aln(aln, seq_len, pad, molecule_type))
+            for aln in alns_set])
 
     return alns_reprs
 
 
 def aa_freq_samples(in_dir, data_dirs, sample_prop, n_alns, levels,
-                    out_dir=None):
+        out_dir=None):
     if out_dir is not None and not os.path.exists(out_dir):
         os.mkdir(out_dir)
 

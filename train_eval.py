@@ -7,14 +7,11 @@ import time
 import numpy as np
 import pandas as pd
 import torch
-from torch import nn as nn
-from torch.utils.data import DataLoader
+
 from matplotlib import pylab as plt
 
 from ConvNet import compute_device, accuracy
-from preprocessing import DatasetAln
-from stats import mse, distance_stats
-from tompy import median_smooth
+
 
 torch.cuda.empty_cache()
 
@@ -110,7 +107,7 @@ def validation(model, train_loader, val_loader):
 
 
 def evaluate_folds(val_hist_folds, nb_folds, which='best'):
-    """Return acc., emp./sim. acc. and loss of best epoch for each fold
+    """Return acc., emp./sim. acc. and loss of best/last epoch for each fold
 
     :param val_hist_folds: acc., emp./sim. acc. and loss for each epoch and fold
     :param nb_folds: number of folds
@@ -119,21 +116,70 @@ def evaluate_folds(val_hist_folds, nb_folds, which='best'):
     """
 
     val_folds = {'loss': [], 'acc': [], 'acc_emp': [], 'acc_sim': []}
+    best_epochs = []
     for fold in range(nb_folds):
         if which == 'best':
-            epoch = np.argmax(val_hist_folds['acc'][fold])
+            epoch = np.argmax(val_hist_folds[fold]['acc'])
+            best_epochs.append((int(epoch)))
         elif which == 'last':
             epoch = -1
         for key in val_folds.keys():
-            val_folds[key].append(val_hist_folds[key][fold][epoch])
-    return val_folds
+            val_folds[key].append(val_hist_folds[fold][key][epoch])
+
+    return val_folds, best_epochs
+
+
+def get_close_baccs(baccs, selected_epochs):
+    # select 4 epochs preceding and succeeding best epoch
+    bacc_around_sel = []
+    for fold, epoch in enumerate(selected_epochs):
+        n_epochs = len(baccs[fold])
+        close_epochs = np.zeros(n_epochs, dtype=bool)
+        close_epochs[epoch - 6:epoch + 7] = True
+        close_epochs[epoch] = False
+        bacc_around_sel.append(np.asarray(baccs[fold])[close_epochs])
+    # adjust number of selected epochs when n_epochs < epoch + 7 in a fold
+    n_sel_epochs = np.min([len(b) for b in bacc_around_sel])
+    bacc_around_sel = [b[:n_sel_epochs] for b in bacc_around_sel]
+    bacc_around_sel = np.asarray(bacc_around_sel)
+    avg_bacc = np.mean(bacc_around_sel, axis=0)  # mean over folds
+
+    return avg_bacc
+
+
+def print_model_performance(models, save=''):
+    n_folds = len(models)
+    val_hist_folds = [m.val_history for m in models]
+
+    val_folds, best_epochs = evaluate_folds(val_hist_folds, n_folds)
+    df = pd.DataFrame(val_folds)
+    df.rename({'acc': 'bacc'}, axis=1, inplace=True)
+    df_folds = df.copy()
+    df_folds.index = [f'Fold {i}' for i in range(1, len(models) + 1)]
+    df_folds.insert(0, 'best_epoch', best_epochs)
+    print('---- Performance on validation data\n')
+    print(df_folds)
+
+    df['abs(emp-sim)'] = np.abs(df['acc_emp'] - df['acc_sim'])
+    df_summarize = df.describe().loc[['mean', 'std', 'min', 'max']]
+    close_epochs = pd.DataFrame(get_close_baccs([x['acc'] for x in val_hist_folds],
+                                best_epochs))
+    close_epochs = close_epochs.describe().loc[['mean', 'std', 'min', 'max']]
+    df_summarize.insert(2, 'bacc_close_epochs', close_epochs)
+    print('\n---- Summary\n')
+    print(df_summarize)
+
+    if save != '':
+        df_summarize.to_csv(save)
+
+    return df_summarize
 
 
 def evaluate(model, val_loader):
     """Feeds the model with data and returns its performance
 
     :param model: ConvNet object
-    :param val_loader: networks input data (DataLoader object)
+    :param val_loader: networks input_plt_fct data (DataLoader object)
     :return: losses and accuracies for each data batch (dict)
     """
 
@@ -229,10 +275,11 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         # validation phase
         model = validation(model, train_loader, val_loader)
 
+        save_checkpoint(model, optimizer, scheduler, fold, save)
         if epoch % 10 == 0 and save != '':
             # save checkpoint every 10 epochs
             if (np.min(model.val_history['loss'][:-10]) >
-                    model.val_history['loss'][-1]):
+                    np.min(model.val_history['loss'][-10:])):
                 save_checkpoint(model, optimizer, scheduler, fold, save)
 
         if epoch % step_size == 0 and epoch > min_epochs - 1:
@@ -255,130 +302,3 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
             prev_val_loss = np.min(model.val_history['loss'][-step_size:])
 
     return np.mean(time_per_step)
-
-
-def eval_per_align(conv_net, real_alns, sim_alns,
-                   fastas_real, fastas_sim, indices, pairs=False):
-    """
-    Predicting whether given alignments are simulated or empirical using a
-    given (trained) network
-    :param conv_net: ConvNet object
-    :param real_alns: list of floats of shape (alignments, aa channels, sites)
-    :param sim_alns: list of floats of shape (alignments, aa channels, sites)
-    :param fastas_real: list of alignment identifiers (string list)
-    :param fastas_sim: list of alignment identifiers (string list)
-    :param indices: list of integers to pick alignments (e.g. from training set)
-    :param pairs: whether the alignments are represented as pairs (bool)
-    (which would mean an additional (pair-)dimension in real_alns, sim_alns)
-    :return: acc_real, acc_sim : dictionaries with accuracies and alignment ids
-    """
-    # evaluate val data per alignment
-    acc_real = {'acc': [], 'aln': np.asarray(fastas_real)[indices]}
-    acc_sim = {'acc': [], 'aln': np.asarray(fastas_sim)[indices]}
-
-    conv_net.eval()
-    conv_net = conv_net.to(compute_device)
-
-    if pairs:
-        for i in indices:
-            loader_real = DataLoader(DatasetAln(real_alns[i], True),
-                                     len(real_alns[i]))
-            loader_sim = DataLoader(DatasetAln(sim_alns[i], False),
-                                    len(sim_alns[i]))
-            with torch.no_grad():
-                # eval for real align
-                result = evaluate(conv_net, loader_real)
-                print(f"loss: {result['loss']}, acc: {result['acc']}")
-                acc_real['acc'].append(result['acc'])
-                # eval for sim align
-                result = evaluate(conv_net, loader_sim)
-                print(f"loss: {result['loss']}, acc: {result['acc']}")
-                acc_sim['acc'].append(result['acc'])
-                del result
-    else:
-        with torch.no_grad():
-            # prediction for empirical alns
-            alns = torch.from_numpy(np.asarray(real_alns)[indices]).float()
-            labels = torch.FloatTensor([0] * len(indices))
-            alns, labels = alns.to(compute_device), labels.to(compute_device)
-
-            outputs = conv_net(alns)
-
-            preds = torch.round(torch.flatten(torch.sigmoid(outputs)))
-            acc_real['acc'] = list(map(int, (preds == labels)))
-
-            # prediction for simulated alns
-            alns = torch.from_numpy(np.asarray(sim_alns)[indices]).float()
-            labels = torch.FloatTensor([1] * len(indices))
-            alns, labels = alns.to(compute_device), labels.to(compute_device)
-
-            outputs = conv_net(alns)
-            preds = torch.round(torch.flatten(torch.sigmoid(outputs)))
-            acc_sim['acc'] = list(map(int, (preds == labels)))
-
-            del alns, labels, outputs, preds
-
-    return acc_real, acc_sim
-
-
-def generate_eval_dict(fold, train_real, train_sim, val_real, val_sim,
-                       real_alns, sim_alns, save=None):
-    """
-    Generate data frame containing training specific information about the
-    alignment e.g. the distance between an alignment and the training data set
-    :param fold: number of folds (int)
-    :param train_real: empirical training data (dict with accuracies and ids)
-    :param train_sim: simulated training data (dict with accuracies and ids)
-    :param val_real: empirical validation data (dict with accuracies and ids)
-    :param val_sim: simulated validation data (dict with accuracies and ids)
-    :param real_alns: dict: keys: alignment ids values: alignment representation
-    :param sim_alns: dict: keys: alignment ids values: alignment representation
-    :param save: <path/to/> save the data frame of alignment infos as a csv file
-    :return: data frame with training related infos about each alignment
-    """
-    accs = train_real['acc'] + val_real['acc']
-    accs += train_sim['acc'] + val_sim['acc']
-    ids_real = np.concatenate((train_real['aln'], val_real['aln']))
-    ids_sim = np.concatenate((train_sim['aln'], val_sim['aln']))
-    ids = np.concatenate((ids_real, ids_sim))
-
-    # save info about alignments
-    is_val = [0] * len(train_real['acc']) + [1] * len(val_real['acc']) + \
-             [0] * len(train_sim['acc']) + [1] * len(val_sim['acc'])
-    # distances real aln to all real training data seperated from simulated
-    dists_real_sim = np.asarray([
-        [mse(real_alns[id1], real_alns[id2]) for id2 in train_real['aln']]
-        if id1 in ids_real
-        else
-        [mse(sim_alns[id1], sim_alns[id2]) for id2 in train_sim['aln']]
-        for id1 in ids])
-    # distances of alignment to simulated and real training data
-    all_alns = dict(real_alns, **sim_alns)
-    dists_both = np.asarray([
-        [mse(all_alns[id1], all_alns[id2])
-         for id2 in np.concatenate((train_real['aln'], train_sim['aln']))]
-        for id1 in ids])
-
-    mse_stats_real_sim = distance_stats(dists_real_sim)
-    mse_stats_both = distance_stats(dists_both)
-
-    dat_dict = {'fold': [fold] * len(ids),
-                'id': ids,
-                'accuracy': accs,
-                'is_val': is_val,
-                'mean_mse_sep': mse_stats_real_sim['mean'],
-                'max_mse_sep': mse_stats_real_sim['max'],
-                'min_mse_sep': mse_stats_real_sim['min'],
-                'mean_mse_both': mse_stats_both['mean'],
-                'max_mse_both': mse_stats_both['max'],
-                'min_mse_both': mse_stats_both['min']
-                }
-
-    df = pd.DataFrame(dat_dict)
-
-    if save is not None:
-        csv_string = df.to_csv(index=False)
-        with open(save, 'a') as file:
-            file.write(csv_string)
-
-    return df

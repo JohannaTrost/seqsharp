@@ -3,14 +3,6 @@ import os.path
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-
-from sklearn.model_selection import StratifiedKFold
-
-from stats import get_n_sites_per_msa
-from utils import read_cfg_file, get_model_performance
-from preprocessing import raw_alns_prepro, make_msa_reprs
-from ConvNet import load_net, accuracy
-from preprocessing import TensorDataset
 from captum.attr import Saliency, DeepLift, IntegratedGradients
 
 
@@ -18,7 +10,7 @@ def plot_msa_attr(saliency_map, ig_xinput_map, msa, molecule_type='protein',
                   save=''):
     alphabet = 'ACGT-' if molecule_type == 'DNA' else 'ARNDCQEGHILKMFPSTWYV-'
     fig, ax = plt.subplots(nrows=3, figsize=(16, 9))
-    # saliency map, IG x input, MSA site frequencies
+    # saliency map, IG x input_plt_fct, MSA site frequencies
     for i, map in enumerate([np.abs(saliency_map).T, np.abs(ig_xinput_map).T,
                              msa]):
         im = ax[i].imshow(map, cmap=plt.cm.viridis, aspect="auto",

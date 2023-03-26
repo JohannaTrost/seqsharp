@@ -9,8 +9,10 @@ import pandas as pd
 from matplotlib import pylab as plt
 from sklearn.decomposition import PCA
 
+from ConvNet import load_model
+from train_eval import evaluate_folds
 from utils import confidence_ellipse, pred_runtime, \
-    get_model_performance, get_divisor_min_diff_quotient
+    get_divisor_min_diff_quotient
 
 
 # matplotlib.use("Agg")
@@ -54,7 +56,7 @@ def plot_corr_pred_sl(sl, scores, save=''):
 
 
 def plot_compare_msa_stats(stats, fastas, group_labels, sample_size=42,
-                           save=None, figsize=None):
+        save=None, figsize=None):
     sample_inds = [np.random.randint(len(fastas[0]), size=sample_size)]
     s_fastas = np.asarray(fastas[0])[sample_inds[0]]
     sample_inds += [[np.where(fs == rf.replace('.fasta', '.fa'))[0][0]
@@ -86,15 +88,16 @@ def plot_compare_msa_stats(stats, fastas, group_labels, sample_size=42,
 
 
 def plot_model_emp_sim_accs(model_paths, model_names, ax=None, cols=None):
-    val_res = [get_model_performance(model_path) for model_path in model_paths]
-    n_folds = len(val_res[0][0])
+    models = [load_model(mp) for mp in model_paths]
+    val_res = [evaluate_folds([mf.val_history for mf in m], len(m))[0]
+               for m in models]
+
+    n_folds = len(val_res[0]['loss'])
     n_models = len(val_res)
 
-    m_acc = np.asarray([acc[:, h == 'acc'].flatten() for acc, h in val_res])
-    m_acc_emp = np.asarray([acc[:, h == 'acc_emp'].flatten()
-                            for acc, h in val_res])
-    m_acc_sim = np.asarray([acc[:, h == 'acc_sim'].flatten()
-                            for acc, h in val_res])
+    m_acc = np.asarray([mres['acc'] for mres in val_res])
+    m_acc_emp = np.asarray([mres['acc_emp'] for mres in val_res])
+    m_acc_sim = np.asarray([mres['acc_sim'] for mres in val_res])
 
     if ax is None:
         ax = plt.gca()
@@ -116,11 +119,11 @@ def plot_model_emp_sim_accs(model_paths, model_names, ax=None, cols=None):
     ax.plot(x, m_acc.mean(axis=1), 'o', color='grey',
             label='BACC (folds mean)')
 
-    #ylims = (np.true_divide(np.floor(ax.get_ylim()[0] * 10**2), 10**2), 1)
+    # ylims = (np.true_divide(np.floor(ax.get_ylim()[0] * 10**2), 10**2), 1)
     ylims = ax.get_ylim()
     ax.set_ylim((0.9 - 0.005 * (ylims[1] - ylims[0]),
                  1 + 0.04 * (ylims[1] - ylims[0])))
-    ax.set_yticks(np.arange(ylims[0], ylims[1]+0.05, 0.05))
+    ax.set_yticks(np.arange(ylims[0], ylims[1] + 0.05, 0.05))
     ax.set_xticks(np.arange(1, n_models + 1))
     ax.set_xticklabels(model_names, rotation=0)
     ax.set(frame_on=False)
@@ -137,11 +140,13 @@ def plot_model_emp_sim_accs(model_paths, model_names, ax=None, cols=None):
 
 
 def plot_model_folds_accs(model_paths, model_names, ax=None, cols=None):
-    val_res = [get_model_performance(model_path) for model_path in model_paths]
-    n_folds = len(val_res[0][0])
-    n_models = len(val_res)
+    models = [load_model(mp) for mp in model_paths]
+    val_res = [evaluate_folds([mf.val_history for mf in m], len(m))[0]
+               for m in models]
+    m_acc = np.asarray([mres['acc'] for mres in val_res])
 
-    m_acc = np.asarray([acc[:, h == 'acc'].flatten() for acc, h in val_res])
+    n_folds = m_acc.shape[1]
+    n_models = m_acc.shape[0]
 
     if ax is None:
         ax = plt.gca()
@@ -159,7 +164,7 @@ def plot_model_folds_accs(model_paths, model_names, ax=None, cols=None):
     ax.plot(np.arange(1, n_models + 1), m_acc.mean(axis=1), color='grey',
             label='BACC (folds mean)', linewidth=1, marker='o')
 
-    #ylims = (np.true_divide(np.floor(ax.get_ylim()[0] * 10**2), 10**2), 1)
+    # ylims = (np.true_divide(np.floor(ax.get_ylim()[0] * 10**2), 10**2), 1)
     ylims = ax.get_ylim()
     ax.set_ylim((0.9 - 0.005 * (ylims[1] - ylims[0]),
                  1 + 0.04 * (ylims[1] - ylims[0])))
@@ -224,7 +229,7 @@ def plot_aa_dens(real, sim, save, aas='ARNDCQEGHILKMFPSTWYV'):
 
 
 def plot_em_learning_curves(n_runs, n_iter, vlbs_dips, vlbs, debug, test,
-                            lk_type, optimal_lk=None, save_path=''):
+        lk_type, optimal_lk=None, save_path=''):
     # highlight dips with red edge color of marker
     edgecol = np.repeat('b', n_runs * n_iter * 2).reshape((n_runs, n_iter * 2))
     edgecol[:, ::2] = 'g'  # e-step
@@ -305,131 +310,54 @@ def plot_em_learning_curves(n_runs, n_iter, vlbs_dips, vlbs, debug, test,
     plt.close(fig)
 
 
-def plot_folds(train_history_folds, val_history_folds, plotname='', path=None):
-    """Plots validation and training history over folds
-
-    Left plot with mean and standard diviation of accuracies, right plot with
-    mean of loss. Each plot contains both validation and training results.
-    x-axis showing training epochs, y-axis showing values [0, 1] for accracies.
-    If a plot is specified, given histories will be added to that plot.
-
-    :param train_history_folds: dicts list with training acc. and loss of folds
-    :param val_history_folds: dicts list with validation acc. and loss of folds
-    :param std: if True standard dev. plotted for acc., not plotted otherwise
-    :param plot: fig and axses of a matplotlib plot (None)
-    :param plotname: (short) word that describes the data (string)
-    :param path: directory where plot will be saved as png (string)
-    :return: figure, axes of matplotlib plot
-    """
-
-    nb_folds = len(train_history_folds['acc'])
-    train_col, val_col = (0.518, 0.753, 0.776), (0.576, 1.0, 0.588)
-
-    # plot the model evaluation
-    fig, axs = plt.subplots(ncols=2, sharex=True, figsize=(12., 6.))
-
-    # 1. subplot: accuracy
-    axs[0].set_xlabel('epoch')
-    axs[0].set_ylabel('BACC')
-    axs[0].set_title(f'BACC per fold vs. No. of epochs ({nb_folds} folds)')
-
-    for fold in range(nb_folds):
-        axs[0].plot(val_history_folds['acc'][fold], '-', color=val_col,
-                    label=f'validation {plotname}' if fold == 0 else '',
-                    alpha=0.5)
-        axs[0].plot(train_history_folds['acc'][fold], '-', color=train_col,
-                    label=f'training {plotname}' if fold == 0 else '',
-                    alpha=0.5)
-
-    #axs[0].set_ylim([np.floor(plt.ylim()[0] * 100) / 100, 1.0])
-
-    # 2. subplot: loss
-    axs[1].set_xlabel('epoch')
-    axs[1].set_ylabel('loss')
-    axs[1].set_title(f'Loss per fold vs. No. of epochs ({nb_folds} folds)')
-
-    for fold in range(nb_folds):
-        axs[1].plot(val_history_folds['loss'][fold], '-', color=val_col,
-                    label=f'validation {plotname}' if fold == 0 else '',
-                    alpha=0.5)
-        axs[1].plot(train_history_folds['loss'][fold], '-', color=train_col,
-                    label=f'training {plotname}' if fold == 0 else '',
-                    alpha=0.5)
-
-    plt.subplots_adjust(bottom=0.25)
-
-    handles, labels = axs[0].get_legend_handles_labels()
-    plt.legend(handles, labels,
-               bbox_to_anchor=[-0.1, -0.3], loc='lower center', ncol=2)
-
-    if path is not None:
-        plt.savefig(path)
-
+def make_fig(plt_fct, input_plt_fct, subplt_shape, figsize=(16, 9), save=''):
+    fig, axs = plt.subplots(*subplt_shape, figsize=figsize)
+    plt_fct(*input_plt_fct, axs=axs)
+    if save != '' and save is not None:
+        plt.savefig(save)
     return fig, axs
 
 
-def plot_hist_quantiles(datasets, labels=None, xlabels=None, ylabels=None,
-                        path=None):
-    """Plotting histograms of given data sets and their 0.25, 0.5 and 0.75
-    quantiles
+def plot_folds(models, axs):
+    """Plots validation and training history over folds
 
-    :param datasets: list of array of list with numeric data
-    :param labels: label per data set to indicate its type
-                   e.g. number of sequences (list string)
-    :param xlabels: x-axis labels for the data sets (list string)
-    :param ylabels: y-axis labels for the data sets (list string)
-    :param path: directory where plot will be saved as png (string)
+    TODO
     """
+    folds_val = [m.val_history for m in models]
+    folds_train = [m.train_history for m in models]
+    n_folds = len(folds_train)
+    train_col, val_col = '#1F77B4', '#FF7F0E'
 
-    if ylabels is None:
-        ylabels = []
-    if xlabels is None:
-        xlabels = []
-    if labels is None:
-        labels = []
+    for i in range(len(axs)):
+        if axs[i] is None:
+            axs[i] = plt.gca()
 
-    cmap = plt.cm.get_cmap('viridis')
+    # subplots: BACC and Loss
+    axs[0].set_xlabel('Epoch')
+    axs[0].set_ylabel('BACC')
+    axs[0].set_title(f'BACC vs. No. of epochs (for {n_folds} folds)')
+    axs[1].set_xlabel('Epoch')
+    axs[1].set_ylabel('Loss')
+    axs[1].set_title(f'Loss vs. No. of epochs (for {n_folds} folds)')
+    for fold in range(n_folds):
+        axs[0].plot(folds_val[fold]['acc'], '-', color=val_col,
+                    label=f'validation' if fold == 0 else '', alpha=0.3)
+        axs[0].plot(folds_train[fold]['acc'], '-', color=train_col,
+                    label=f'training' if fold == 0 else '', alpha=0.3)
+        axs[1].plot(folds_val[fold]['loss'], '-', color=val_col,
+                    label=f'validation' if fold == 0 else '', alpha=0.3)
+        axs[1].plot(folds_train[fold]['loss'], '-', color=train_col,
+                    label=f'training' if fold == 0 else '', alpha=0.3)
+    plt.subplots_adjust(bottom=0.25)
+    handles, labels = axs[0].get_legend_handles_labels()
+    plt.legend(handles, labels, bbox_to_anchor=[-0.1, -0.3],
+               loc='lower center', ncol=2)
 
-    if len(datasets) > 1:
-        fig, axs = plt.subplots(ncols=2, nrows=int(np.ceil(len(datasets) / 2)),
-                                sharex=True, figsize=(12., 6.))
-    else:
-        fig, axs = plt.subplots(ncols=1, nrows=1, sharex=True,
-                                figsize=(12., 6.))
-
-    for i, data in enumerate(datasets):
-
-        label = labels[i] if i < len(labels) else ''
-        xlabel = xlabels[i] if i < len(xlabels) else ''
-        ylabel = ylabels[i] if i < len(ylabels) else ''
-
-        q1 = np.quantile(data, 0.25)
-        q2 = np.quantile(data, 0.5)
-        q3 = np.quantile(data, 0.75)
-
-        if len(datasets) > 1:
-            axs[i].hist(data, bins=200, label=label, color=cmap(1 / (i + 1)))
-            axs[i].axvline(x=q1, label=f"0.25q = {q1}", c='#6400e4')
-            axs[i].axvline(x=q2, label=f"0.5q = {q2}", c='#fd4d3f')
-            axs[i].axvline(x=q3, label=f"0.75q = {q3}", c='#4fe0b0')
-            axs[i].set_xlabel(xlabel)
-            axs[i].set_ylabel(ylabel)
-            axs[i].legend()
-        else:
-            axs.hist(data, bins=200, label=label, color=cmap(1 / (i + 1)))
-
-            axs.axvline(x=q1, label=f"0.25q = {q1}", c='#6400e4')
-            axs.axvline(x=q2, label=f"0.5q = {q2}", c='#fd4d3f')
-            axs.axvline(x=q3, label=f"0.75q = {q3}", c='#4fe0b0')
-            axs.set_xlabel(xlabel)
-            axs.set_ylabel(ylabel)
-            axs.legend()
-
-    if path is not None:
-        plt.savefig(path)
+    return axs[0], axs[1]
 
 
-def freq_real_sim_violins(real_msas, sim_msas, aas=None, save_path='', scale='area'):
+def freq_real_sim_violins(real_msas, sim_msas, aas=None, save_path='',
+        scale='area'):
     """
     Violin plots per AA frequencies over real and simulated data as well
     as their 20 PCs from PCA
@@ -566,15 +494,18 @@ def pca_plot():  # TODO
                  if em_name in file]
     real_msas = np.genfromtxt('data/freq_samples/fasta_no_gaps_alns.csv',
                               skip_header=True, delimiter=',')
-    sim_msas = np.asarray([np.genfromtxt(f'data/freq_samples/{file}', delimiter=',',
-                                         skip_header=True) for file in sim_files])
-    init_msa_freqs = np.genfromtxt('results/profiles_weights/sim_5cls_6000alns_1000_22606/init_weights/msa_freqs.csv',
-                                 delimiter=',', skip_header=True)
-    init_weight = np.genfromtxt('results/profiles_weights/sim_5cls_6000alns_1000_22606/init_weights/init_weights.csv',
-                                 delimiter=',', skip_header=True)
+    sim_msas = np.asarray(
+        [np.genfromtxt(f'data/freq_samples/{file}', delimiter=',',
+                       skip_header=True) for file in sim_files])
+    init_msa_freqs = np.genfromtxt(
+        'results/profiles_weights/sim_5cls_6000alns_1000_22606/init_weights/msa_freqs.csv',
+        delimiter=',', skip_header=True)
+    init_weight = np.genfromtxt(
+        'results/profiles_weights/sim_5cls_6000alns_1000_22606/init_weights/init_weights.csv',
+        delimiter=',', skip_header=True)
     res_w = np.asarray([np.genfromtxt(
-        f'results/profiles_weights/sim_5cls_6000alns_1000_22606/cl{i+1}_pro_weights_1.csv')
-             for i in range(n_cl)])
+        f'results/profiles_weights/sim_5cls_6000alns_1000_22606/cl{i + 1}_pro_weights_1.csv')
+        for i in range(n_cl)])
 
     init_w_freq = np.asarray([init_weight[i, :n_pro] @ profiles.T
                               for i in range(n_cl)])
@@ -586,12 +517,12 @@ def pca_plot():  # TODO
 
     # exclude outliers
     mean_msa = real_msas[:, :20].mean(axis=0)
-    dists = np.sum((real_msas[:, :20] - mean_msa)** 2, axis=1) ** 0.5
+    dists = np.sum((real_msas[:, :20] - mean_msa) ** 2, axis=1) ** 0.5
     real_msas = real_msas[dists < np.quantile(dists, 0.99)]
 
     pca = PCA(n_components=20)
     pca_msa_freqs = pca.fit_transform(real_msas[:, :20])
-    #predict
+    # predict
     pca_sim = pca.transform(sim_msas[run, :, :20])
     pca_init_msa = pca.transform(init_msa_freqs[:, :20])
     pca_init_w = pca.transform(init_w_freq)
@@ -603,7 +534,7 @@ def pca_plot():  # TODO
 
     fig, ax = plt.subplots(nrows=1, ncols=1)
     ax.scatter(pca_msa_freqs[sample_real, 0], pca_msa_freqs[sample_real, 1],
-                color='coral', s=1, alpha=0.2)
+               color='coral', s=1, alpha=0.2)
     sc = ax.scatter(pca_sim[sample_sim, 0], pca_sim[sample_sim, 1],
                     c=sim_msas[run, sample_sim, 20], s=1, alpha=0.2)
 

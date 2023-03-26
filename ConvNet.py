@@ -3,16 +3,14 @@
     a function to load a network and to initialize values of a tensor
 """
 
-from numpy import floor
-from matplotlib import pylab as plt
-
+import os
 import torch
 import torch.nn as nn
 
-# import matplotlib
-
-# matplotlib.use('Agg')
+from matplotlib import pylab as plt
 from sklearn.metrics import balanced_accuracy_score
+
+from utils import read_cfg_file
 
 if torch.cuda.is_available():
     compute_device = torch.device("cuda:0")
@@ -34,32 +32,40 @@ def init_weights(m):
         torch.nn.init.xavier_uniform_(m.weight)
 
 
-def load_net(path, params, state='eval'):
-    """Loads a model and sets it to evaluation or training mode
-
-    :param path: <path/to/*.pth> model to be loaded (string)
-    :param params: model parameters (input size etc.) (dict)
-    :param state: 'eval' or 'train' to indicate desired model state (string)
-    :return: the model (ConvNet object)
-    """
-
-    model = ConvNet(params)
+def load_checkpoint(path, model):
     checkpoint = torch.load(path, map_location=compute_device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.train_history = checkpoint['train_history']
     model.val_history = checkpoint['val_history']
-    # check because old models didn't have optimizer and scheduler state
     if 'opt_state_dict' in checkpoint.keys():
         model.opt_state = checkpoint['opt_state_dict']
     if 'scheduler_state_dict' in checkpoint.keys():
         model.scheduler_state = checkpoint['scheduler_state_dict']
+    return model
 
-    if state == 'eval':
-        model.eval()
-    elif state == 'train':
-        model.train()
 
-    return model.to(compute_device)
+def load_model(path, state='eval'):
+    """Loads a model and sets it to evaluation or training mode
+
+    :param path: <path/to/model folder> with <.pth> model files (string)
+    :param state: 'eval' or 'train' to indicate desired model state (string)
+    :return: the model (ConvNet object)
+    """
+
+    cfg = read_cfg_file(os.path.join(path, 'cfg.json'))
+    models = []
+    for fold in range(cfg['hyperparameters']['nb_folds']):
+        model_path = os.path.join(path, f'model-fold-{fold + 1}.pth')
+        if os.path.exists(model_path):
+            model = ConvNet(cfg['conv_net_parameters']).to(compute_device)
+            model = load_checkpoint(model_path, model)
+            if state == 'eval':
+                model.eval()
+            elif state == 'train':
+                model.train()
+            models.append(model)
+
+    return models
 
 
 class ConvNet(nn.Module):
@@ -106,7 +112,7 @@ class ConvNet(nn.Module):
         nb_features = p['channels']
         nb_conv_layer = len(p['channels']) - 1
 
-        # determine output size after conv. layers (input size for lin. layer)
+        # determine output size after conv. layers (input_plt_fct size for lin. layer)
         if p['do_maxpool'] == 1:  # local max pooling
             out_size = (int(p['input_size'] / 2 ** nb_conv_layer) *
                         nb_features[-1])
@@ -127,7 +133,7 @@ class ConvNet(nn.Module):
 
             self.conv_layers += [conv1d, nn.ReLU()]
 
-            #if (p['do_maxpool'] == 1 or
+            # if (p['do_maxpool'] == 1 or
             #        (p['do_maxpool'] == 2 and i < nb_conv_layer - 1)):
             #    # local pooling
             #    self.conv_layers.append(nn.MaxPool1d(kernel_size=2, stride=2))
@@ -152,7 +158,7 @@ class ConvNet(nn.Module):
                 self.lin_layers.append(nn.Linear(out_size, 1))
             else:
                 if nb_lin_layers > 2 and i == 0:
-                    # if at least 3 lin layers have a first "input layer" with
+                    # if at least 3 lin layers have a first "input_plt_fct layer" with
                     # same number of output nodes and dropout
                     self.lin_layers += [nn.Linear(out_size, out_size),
                                         nn.ReLU(),
@@ -209,7 +215,7 @@ class ConvNet(nn.Module):
         """
 
         if len(self.train_history['loss']) > 0:
-            train_col, val_col = (0.518, 0.753, 0.776), (0.576, 1.0, 0.588)
+            train_col, val_col = '#1F77B4', '#FF7F0E'
             keys = ['acc', 'acc_emp', 'acc_sim']
             line_styles = ['-', '--', ':']
             labels = ['', 'empirical', 'simulated']
@@ -275,7 +281,6 @@ def accuracy(outputs, labels):
         labels.detach().cpu().numpy(), preds.detach().cpu().numpy())])
 
     for label, key in enumerate(['acc_emp', 'acc_sim']):
-
         class_mask = (labels == label).clone().detach()
         n = torch.sum(class_mask)
         n_correct = torch.sum(preds[class_mask] == labels[class_mask])
