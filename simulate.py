@@ -5,7 +5,7 @@ import argparse
 import numpy as np
 
 from tqdm import tqdm
-from preprocessing import load_msa
+from seqsharp.preprocessing import load_msa
 from utils import load_custom_distr, load_kde
 from stats import sample_indel_params
 
@@ -24,10 +24,12 @@ def main():
 
     args = parser.parse_args()
 
-    n_sites_pdf = load_custom_distr('data/n_sites_hogenom_6971.CustomPDF')
-    gamma_shape_pdf = load_custom_distr('data/gamma_shape.CustomPDF')
+    n_sites_pdf = load_custom_distr(
+        'emp_pdfs/n_sites_hogenom_6971.CustomPDF')
+    gamma_shape_pdf = load_custom_distr(
+        'emp_pdfs/gamma_shape.CustomPDF')
 
-    indel_distr = load_kde('data/indel_param_distr')
+    indel_distr = load_kde('emp_pdfs/indel_param_distr')
 
     sub_m = args.subm
     n_prof = args.nprof
@@ -47,7 +49,7 @@ def main():
 
     mix_m_str = f'_s{n_prof}' if n_prof != "" else n_prof
     gamma_str = '_' + gamma.lower() if gamma != '' else gamma
-    out_path = f'../../data/simulations/test_samples/alisim_{sub_m.lower()}{mix_m_str}{gamma_str}{name_add_on}'
+    out_path = f'../../emp_pdfs/simulations/test_samples/alisim_{sub_m.lower()}{mix_m_str}{gamma_str}{name_add_on}'
     if not os.path.exists(out_path):
         os.mkdir(out_path)
 
