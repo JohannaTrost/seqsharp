@@ -28,12 +28,15 @@ DNA_ENCODER = str.maketrans('ACGT-', '\x00\x01\x02\x03\x04')
 PROTEIN_EMP_ALPHABET = 'ARNDCQEGHILKMFPSTWYV-BZJUOX'
 DNA_EMP_ALPHABET = 'AGCTNDHVBRYKMSW-X*'
 
+PROTEIN_ALPHABET = 'ARNDCQEGHILKMFPSTWYV'
+DNA_ALPHABET = 'ACGT'
+
 PROTEIN_AMBIG = {'B': ['N', 'D'],
                  'Z': ['Q', 'E'],
-                 'J': list('ARNDCQEGHILKMFPSTWYV'),
-                 'U': list('ARNDCQEGHILKMFPSTWYV'),
-                 'O': list('ARNDCQEGHILKMFPSTWYV'),
-                 'X': list('ARNDCQEGHILKMFPSTWYV')}
+                 'J': PROTEIN_ALPHABET,
+                 'U': PROTEIN_ALPHABET,
+                 'O': PROTEIN_ALPHABET,
+                 'X': PROTEIN_ALPHABET}
 DNA_AMBIG = {'*': ['A', 'G', 'C', 'T'],
              'X': ['A', 'G', 'C', 'T'],
              'N': ['A', 'G', 'C', 'T'], 'D': ['G', 'A', 'T'],
@@ -231,7 +234,7 @@ def load_msa(filename):
     return alned_seqs_raw
 
 
-def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
+def load_alns(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
         molecule_type='protein', rem_ambig_chars='remove'):
     """Extracts alignments from fasta files in given directory
 
@@ -618,9 +621,9 @@ def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
         if len(sim_cl_dirs) > 0:  # there are multiple clusters
             sim_alns, sim_fastas, sim_stats = [], [], {}
             for dir in sim_cl_dirs:
-                sim_data = alns_from_fastas(f'{path}/{dir}', quantiles[i],
-                                            size, seq_len,
-                                            molecule_type=molecule_type)
+                sim_data = load_alns(f'{path}/{dir}', quantiles[i],
+                                     size, seq_len,
+                                     molecule_type=molecule_type)
                 # concat remove cluster dimension
                 sim_alns += sim_data[0]
                 sim_fastas += sim_data[1]
@@ -641,8 +644,8 @@ def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
             else:
                 raw_data = [sim_alns, sim_fastas, sim_stats]
         else:  # empirical data set or simulations without MSA clusters
-            raw_data = alns_from_fastas(path, quantiles[i], size, seq_len,
-                                        molecule_type=molecule_type)
+            raw_data = load_alns(path, quantiles[i], size, seq_len,
+                                 molecule_type=molecule_type)
 
         alns.append(raw_data[0])
         fastas.append(raw_data[1])
@@ -670,7 +673,7 @@ def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
                                     for i in range(n_msa_ds)]
     params['min_seqs_per_align'] = [int(min(nb_seqs[i]))
                                     for i in range(n_msa_ds)]
-    params['nb_alignments'] = [len(alns[i]) for i in range(n_msa_ds)]
+    params['n_alignments'] = [len(alns[i]) for i in range(n_msa_ds)]
 
     if shuffle:  # shuffle sites/columns of alignments
         alns = shuffle_sites(alns)
@@ -703,19 +706,24 @@ def make_msa_reprs(alns, seq_len, pad='zeros', molecule_type='protein'):
     print("Generating alignment representations ...")
 
     for alns_set in tqdm(alns):
-        alns_reprs.append([get_aln_repr(
-            encode_aln(aln, seq_len, pad, molecule_type))
-            for aln in alns_set])
+        if seq_len == 1:
+            alns_reprs.append(get_msa_compositions(alns_set))
+        else:
+            alns_reprs.append([get_aln_repr(
+                encode_aln(alns, seq_len, pad, molecule_type))
+                for alns in alns_set])
 
     return alns_reprs
 
 
-def msa_compositions(data_collection_path, save=''):
-    mol_cnts = count_mols(alns_from_fastas(data_collection_path,
-                            molecule_type='DNA')[0],
-                          molecule_type='DNA', level='msa')
-    comps = mol_cnts / np.repeat(mol_cnts.sum(axis=1)[:, np.newaxis], 4, axis=1)
-    df_comps = pd.DataFrame(comps, columns=list('ACGT'))
+def msa_comp2df(data_collection_path, save='', molecule_type='protein'):
+    comps = get_msa_compositions(load_alns(data_collection_path,
+                                           molecule_type=molecule_type)[0],
+                                 molecule_type=molecule_type)
+    df_comps = pd.DataFrame(comps,
+                            columns=list(PROTEIN_ALPHABET)
+                            if molecule_type == 'protein'
+                            else list(DNA_ALPHABET))
     if save is not None and save != '':
         df_comps.to_csv(save, index=False)
     return df_comps

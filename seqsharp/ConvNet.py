@@ -54,10 +54,10 @@ def load_model(path, state='eval'):
 
     cfg = read_cfg_file(os.path.join(path, 'cfg.json'))
     models = []
-    for fold in range(cfg['hyperparameters']['n_folds']):
+    for fold in range(cfg['training']['n_folds']):
         model_path = os.path.join(path, f'model-fold-{fold + 1}.pth')
         if os.path.exists(model_path):
-            model = ConvNet(cfg['conv_net_parameters']).to(compute_device)
+            model = ConvNet(cfg['model']).to(compute_device)
             model = load_checkpoint(model_path, model)
             if state == 'eval':
                 model.eval()
@@ -112,7 +112,7 @@ class ConvNet(nn.Module):
         n_features = p['channels']
         n_conv_layer = len(p['channels']) - 1
 
-        # determine output size after conv. layers (input_plt_fct size for lin. layer)
+        # determine output size after conv. layers
         if p['do_maxpool'] == 1:  # local max pooling
             out_size = (int(p['input_size'] / 2 ** n_conv_layer) *
                         n_features[-1])
@@ -122,32 +122,34 @@ class ConvNet(nn.Module):
             out_size = p['input_size'] * n_features[-1]
 
         # convolutional layers
-        if not isinstance(p['kernel_size'], list):
-            p['kernel_size'] = [p['kernel_size']]
         self.conv_layers = []
-        for i in range(n_conv_layer):
-            conv1d = nn.Conv1d(n_features[i],
-                               n_features[i + 1],
-                               kernel_size=p['kernel_size'][i], stride=1,
-                               padding=p['kernel_size'][i] // 2)
+        if n_conv_layer > 0:
+            if not isinstance(p['kernel_size'], list):
+                p['kernel_size'] = [p['kernel_size']]
+            for i in range(n_conv_layer):
+                conv1d = nn.Conv1d(n_features[i],
+                                   n_features[i + 1],
+                                   kernel_size=p['kernel_size'][i], stride=1,
+                                   padding=p['kernel_size'][i] // 2)
 
-            self.conv_layers += [conv1d, nn.ReLU()]
+                self.conv_layers += [conv1d, nn.ReLU()]
 
-            # if (p['do_maxpool'] == 1 or
-            #        (p['do_maxpool'] == 2 and i < n_conv_layer - 1)):
-            #    # local pooling
-            #    self.conv_layers.append(nn.MaxPool1d(kernel_size=2, stride=2))
-            if p['do_maxpool'] == 2 and i == n_conv_layer - 1:
-                # global pooling after last conv layer
-                ks = int(p['input_size'])
-                self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
+                if p['do_maxpool'] == 1:
+                    # local pooling
+                    self.conv_layers.append(
+                        nn.MaxPool1d(kernel_size=2, stride=2))
+                if p['do_maxpool'] == 2 and i == n_conv_layer - 1:
+                    # global pooling after last conv layer
+                    ks = int(p['input_size'])
+                    self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
+
+            self.conv_layers.append(nn.Dropout(0.2))
 
         if n_conv_layer == 0 and p['do_maxpool'] == 2:
             # global avg pooling -> global MSA AA frequencies
             ks = int(p['input_size'])
             self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
 
-        self.conv_layers.append(nn.Dropout(0.2))
         self.conv_layers = nn.Sequential(*self.conv_layers)
 
         # fully connected layer(s)
@@ -157,16 +159,9 @@ class ConvNet(nn.Module):
             if i == n_lin_layers - 1:  # the last layer has a single output
                 self.lin_layers.append(nn.Linear(out_size, 1))
             else:
-                if n_lin_layers > 2 and i == 0:
-                    # if at least 3 lin layers have a first "input_plt_fct layer" with
-                    # same number of output nodes and dropout
-                    self.lin_layers += [nn.Linear(out_size, out_size),
-                                        nn.ReLU(),
-                                        nn.Dropout(0.2)]
-                elif i < n_lin_layers - 1:
-                    self.lin_layers += [nn.Linear(out_size, out_size // 2),
-                                        nn.ReLU()]
-                    out_size = out_size // 2
+                self.lin_layers += [nn.Linear(out_size, out_size // 2),
+                                    nn.ReLU()]
+                out_size = out_size // 2
 
         self.lin_layers = (nn.Sequential(*self.lin_layers)
                            if n_lin_layers > 0 else None)

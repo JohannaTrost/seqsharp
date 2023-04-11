@@ -12,7 +12,7 @@ from utils import dim
 
 
 def sample_indel_params(kde_obj, pca, scaler, sample_size=1, min_rl=50,
-                        max_rl=30000):
+        max_rl=30000):
     new_data = []
     while len(new_data) < sample_size:
         tmp = kde_obj.resample(1)
@@ -30,7 +30,7 @@ def sample_indel_params(kde_obj, pca, scaler, sample_size=1, min_rl=50,
             new_data.append(tmp)
 
     param_names = ['RIM A_D', 'RIM A_I', 'RIM RL', 'RIM R_D', 'RIM R_I']
-    new_data_dict ={}
+    new_data_dict = {}
     for key, val in zip(param_names, np.asarray(new_data).T):
         new_data_dict[key] = val
 
@@ -108,6 +108,13 @@ def mse(aln1, aln2):
     return np.mean(np.sum((aln1 - aln2) ** 2, axis=0))
 
 
+def get_msa_compositions(alns, molecule_type='protein'):
+    mol_cnts = count_mols(alns, molecule_type=molecule_type, level='msa')
+    return mol_cnts / np.repeat(mol_cnts.sum(axis=1)[:, np.newaxis],
+                                21 if molecule_type == 'protein' else 5,
+                                axis=1)
+
+
 def padding(alns, max_seq_len=300):
     """Generated list with padding size per alignment"""
 
@@ -157,67 +164,6 @@ def distance_stats(dists):
     min_mse = masked_dists.min(axis=1).data
 
     return {'mean': mean_mse, 'max': max_mse, 'min': min_mse}
-
-
-def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
-                          csv_path=None):
-    """Returns a dataframe with information about input_plt_fct
-       alignments with option to save the table as a csv file
-
-    :param fastas: list of lists with fasta filenames (2D string list)
-    :param alns: list of lists with MSAs (3D string list)
-    :param max_seq_len: max. number of sites (integer)
-    :param alns_repr: list of lists with MSA representations
-    :param is_sim: list of 0s and 1s (0: real MSAs, 1: simulated MSAs)
-    :param csv_path: <path/to> file to store dataframe
-    :return: dataframe with information about input_plt_fct alignments
-    """
-
-    ids, aa_freqs, paddings, number_seqs, seq_length = [], [], [], [], []
-    mean_mse_all, max_mse_all, min_mse_all = [], [], []
-
-    for i in range(len(fastas)):
-        ids += fastas[i]
-        aa_freqs += get_aa_freqs(alns[i])
-        paddings += padding(alns[i], max_seq_len)
-        number_seqs += get_n_seqs_per_msa(alns[i])
-        seq_length += get_n_sites_per_msa(alns[i])
-
-        dists = np.asarray([[mse(aln1, aln2) for aln2 in alns_repr[i]]
-                            for aln1 in alns_repr[i]])
-
-        mean_mse_all += list(distance_stats(dists)['mean'])
-        max_mse_all += list(distance_stats(dists)['max'])
-        min_mse_all += list(distance_stats(dists)['min'])
-
-    simulated = []
-    if len(is_sim) > 0:
-        for is_sim_, msa in zip(is_sim, alns):
-            simulated += len(msa) * [is_sim_]
-    elif len(alns) == 2:
-        simulated = [0] * len(alns[0]) + [1] * len(alns[1])
-    else:
-        simulated = [-1] * (len(alns))
-
-    dat_dict = {'id': ids,
-                'aa_freqs': aa_freqs,
-                'padding': paddings,
-                'number_seqs': number_seqs,
-                'seq_length': seq_length,
-                'mean_mse_all': mean_mse_all,
-                'max_mse_all': max_mse_all,
-                'min_mse_all': min_mse_all,
-                'simulated': simulated
-                }
-
-    df = pd.DataFrame(dat_dict)
-
-    if csv_path is not None:
-        csv_string = df.to_csv(index=False)
-        with open(csv_path, 'w') as file:
-            file.write(csv_string)
-
-    return df
 
 
 def best_fit_distribution(data, bins=200, ax=None):
@@ -296,8 +242,10 @@ def generate_data_from_dist(data):
 def count_mols(data, level='msa', molecule_type='protein', save=''):
     # pid = os.getpid()
     # print(f'starting process {pid}')
-
-    alphabet = 'ARNDCQEGHILKMFPSTWYV' if molecule_type == 'protein' else 'ACGT'
+    if molecule_type == 'protein':
+        alphabet = 'ARNDCQEGHILKMFPSTWYV-'
+    else:
+        alphabet = 'ACGT-'
     counts_alns = []
     n_sites = 0
 
@@ -335,7 +283,7 @@ def count_mols(data, level='msa', molecule_type='protein', save=''):
             counts_alns = mol_counts
         else:
             counts_alns = np.concatenate((counts_alns, mol_counts),
-                                            axis=(0 if level == 'msa' else 1))
+                                         axis=(0 if level == 'msa' else 1))
 
     return counts_alns
 

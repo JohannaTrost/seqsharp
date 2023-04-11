@@ -30,7 +30,7 @@ from plots import plot_folds, plot_corr_pred_sl, plot_groups_folds, \
 from stats import get_n_sites_per_msa
 from utils import write_cfg_file, read_cfg_file
 from train_eval import fit, evaluate, find_lr_bounds, print_model_performance, \
-    results2table
+    results2table, evaluate_folds
 
 import seaborn as sns
 
@@ -140,13 +140,16 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
                 # remove first 2 sites
                 alns[i] = [[seq[2:] for seq in aln] for aln in alns[i]]
 
+        if 'input_size' in cfg['model'].keys():
+            n_sites = cfg['model']['input_size']
+        else:
+            n_sites = data_dict['n_sites']
         reprs = make_msa_reprs(alns,
-                               data_dict['n_sites'] if model_path is None
-                               else cfg['conv_net_parameters']['input_size'],
+                               n_sites,
                                cfg['data']['padding'],
                                molecule_type=molecule_type)
         del alns
-    elif first_input_file.endswith('.csv'):  # msa representations is given
+    elif first_input_file.endswith('.csv'):  # msa representations is provided
         reprs = []
         for i in range(len(cnt_datasets)):
             reprs.append(load_msa_reprs(data_paths[i], n_alns[i])[0])
@@ -167,7 +170,7 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
 def model_test(opts):
     timestamp = datetime.now()
     cfg = read_cfg_file(opts['cfg_path'])
-    bs = cfg['hyperparameters']['batch_size']
+    bs = cfg['training']['batch_size']
     # save cfg with timestmp
     write_cfg_file(cfg, cfg_path=opts['cfg_path'], timestamp=timestamp)
 
@@ -210,11 +213,11 @@ def validate(opts, in_data):
     timestamp = datetime.now()
     data, labels, data_dict = in_data
     cfg = read_cfg_file(opts['cfg_path'])
-    bs = cfg['hyperparameters']['batch_size']
+    bs = cfg['training']['batch_size']
     # load data and models
     models = load_model(opts['model_path'])
     # k-fold validator (kfold-seed ensures same fold-splits in opt. loop)
-    kfold = StratifiedKFold(cfg['hyperparameters']['n_folds'],
+    kfold = StratifiedKFold(cfg['training']['n_folds'],
                             shuffle=True, random_state=42)
 
     res_dict = {'loss': [], 'bacc': [], 'acc_emp': [], 'acc_sim': []}
@@ -266,9 +269,9 @@ def train(opts, in_data):
     timestamp = datetime.now()
     cfg = read_cfg_file(opts['cfg_path'])
     # parameters of network architecture
-    model_params = cfg['conv_net_parameters']
+    model_params = cfg['model']
     # hyperparameters
-    bs, epochs, lr, lr_range, opt, n_folds = cfg['hyperparameters'].values()
+    bs, epochs, lr, lr_range, opt, n_folds = cfg['training'].values()
     if opt == 'Adagrad':
         optimizer = torch.optim.Adagrad
     elif opt == 'SGD':
@@ -297,7 +300,7 @@ def train(opts, in_data):
           f"\tLearning rate: {lr_range if lr_range != '' else lr}")
 
     # k-fold validator (kfold-seed ensures same fold-splits in opt. loop)
-    kfold = StratifiedKFold(cfg['hyperparameters']['n_folds'],
+    kfold = StratifiedKFold(cfg['training']['n_folds'],
                             shuffle=True, random_state=seed)
 
     lrs = []
@@ -310,7 +313,10 @@ def train(opts, in_data):
                                   num_workers=opts['n_cpus'])
         val_loader = DataLoader(val_ds, bs, num_workers=opts['n_cpus'])
 
-        model_params['input_size'] = train_ds.data.shape[2]  # max seq len
+        if len(train_ds.data.shape) > 2:
+            model_params['input_size'] = train_ds.data.shape[2]  # max seq len
+        else:
+            model_params['input_size'] = 1
         if opts['train']:
             model = ConvNet(model_params).to(compute_device)
             start_epoch = 0
@@ -332,15 +338,18 @@ def train(opts, in_data):
             models[fold] = model.to('cpu')
 
         if opts['result_path'] is not None:  # save cfg
-            cfg['hyperparameters']['lr'] = lrs if len(lrs) > 0 else lr
+            cfg['training']['lr'] = lrs if len(lrs) > 0 else lr
             write_cfg_file(cfg, model_path=opts['result_path'],
                            timestamp=timestamp)
     # save results
     save_path = os.path.join(opts['result_path'], f'val_{timestamp}.csv')
     print(f'{sep_line}\nModel Performance:')
-    print_model_performance(models,
-                            save=save_path if opts['result_path'] else '')
+    print_model_performance(models)
     if opts['result_path'] is not None:
+        # save results table
+        val_hist_folds = [m.val_history for m in models]
+        results2table(evaluate_folds([m.val_history for m in models],
+                                     n_folds)[0], save=None)
         # save plot of learning curves
         make_fig(plot_folds, [models], (1, 2),
                  save=os.path.join(opts['result_path'], 'fig-fold-eval.png'))
@@ -369,7 +378,7 @@ def attribute(opts, in_data):
     print(f'\nCompute device: {compute_device}\n')
     print(f'Random seed: {seed}\n')
     # k-fold validator (kfold-seed ensures same fold-splits in opt. loop)
-    kfold = StratifiedKFold(cfg['hyperparameters']['n_folds'],
+    kfold = StratifiedKFold(cfg['training']['n_folds'],
                             shuffle=True, random_state=seed)
     classes = {'emp': 0, 'sim': 1}
     val_inds = {}
