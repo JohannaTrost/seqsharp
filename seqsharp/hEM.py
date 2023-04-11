@@ -5,7 +5,7 @@ import argparse
 from matplotlib import pylab as plt
 
 from preprocessing import raw_alns_prepro
-from stats import count_aas
+from stats import count_mols
 from utils import read_cfg_file
 from hem_fcts import *
 from plots import get_ylim, plot_em_learning_curves
@@ -99,7 +99,7 @@ def main():
                        f'real_fastanames4estim.txt',
                        fastas, delimiter=',', fmt='%s')
 
-        aa_counts = [count_aas([aln], 'sites').T for aln in alns]
+        aa_counts = [count_mols([aln], 'sites').T for aln in alns]
         n_aas = aa_counts[0].shape[-1]
 
         optimal_lk = None  # only avail in test when true params. given

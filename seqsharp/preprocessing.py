@@ -1,13 +1,12 @@
-"""Functions and classes for emp_pdfs preprocessing
+"""Functions and classes for data preprocessing
 
 Provides functions to turn multiple alignments from fasta files
 into 'neural-network-readable' representations that can be
 transformed into tensor datasets using
-the child classes of *torch.utils.emp_pdfs.Dataset*
+the child classes of *torch.utils.data.Dataset*
 """
 import errno
 import os
-import time
 
 import psutil
 import torch
@@ -15,7 +14,6 @@ import multiprocessing as mp
 
 from Bio import Phylo, SeqIO, Seq
 from torch.utils.data import Dataset
-from tqdm import tqdm
 
 from stats import *
 from utils import split_lst, flatten_lst
@@ -250,7 +248,7 @@ def alns_from_fastas(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
 
     # load fasta filenames
     if fasta_dir.endswith('.txt'):
-        # files in txt file must be in same directory as emp_pdfs!
+        # files in txt file must be in same directory as data!
         fasta_files = np.genfromtxt(fasta_dir, dtype=str)
         if not fasta_files[0].endswith('.fasta'):
             fasta_files = np.core.defchararray.add(fasta_files,
@@ -438,7 +436,7 @@ def encode_aln(alned_seqs_raw, seq_len, padding='', molecule_type='protein'):
     :param molecule_type: either protein or DNA sequences
     :param alned_seqs_raw: list of amino acid sequences (strings)
     :param seq_len: number of sites (integer)
-    :param padding: 'emp_pdfs' or else padding will use zeros
+    :param padding: 'data' or else padding will use zeros
     :return: one-hot encoded alignment (3D array)
     """
 
@@ -466,7 +464,7 @@ def encode_aln(alned_seqs_raw, seq_len, padding='', molecule_type='protein'):
         seqs_shape[2] = int(seqs_shape[2] + pad_after + pad_before)
         seqs_new = np.zeros(seqs_shape)
 
-        if padding == 'emp_pdfs':  # pad with random amino acids
+        if padding == 'data':  # pad with random amino acids
             seqs_new = np.asarray([index2code(np.random.randint(0,
                                                                 seqs_shape[1],
                                                                 seqs_shape[
@@ -642,7 +640,7 @@ def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
                             sim_stats]
             else:
                 raw_data = [sim_alns, sim_fastas, sim_stats]
-        else:  # empirical emp_pdfs set or simulations without MSA clusters
+        else:  # empirical data set or simulations without MSA clusters
             raw_data = alns_from_fastas(path, quantiles[i], size, seq_len,
                                         molecule_type=molecule_type)
 
@@ -663,16 +661,16 @@ def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
             alns[i] = [alns[i][ind] for ind in inds]
             fastas[i] = [fastas[i][ind] for ind in inds]
 
-    params['n_sites'] = int(np.max([ds_stats['seq_lens_max']
+    params['nb_sites'] = int(np.max([ds_stats['seq_lens_max']
                                      for ds_stats in stats]))
     # before it was int(min(seq_len, stats[0]['seq_lens_max'])), why?
     n_msa_ds = len(alns)
-    n_seqs = [get_n_seqs_per_msa(alns[i]) for i in range(n_msa_ds)]
-    params['max_seqs_per_align'] = [int(max(n_seqs[i]))
+    nb_seqs = [get_n_seqs_per_msa(alns[i]) for i in range(n_msa_ds)]
+    params['max_seqs_per_align'] = [int(max(nb_seqs[i]))
                                     for i in range(n_msa_ds)]
-    params['min_seqs_per_align'] = [int(min(n_seqs[i]))
+    params['min_seqs_per_align'] = [int(min(nb_seqs[i]))
                                     for i in range(n_msa_ds)]
-    params['n_alignments'] = [len(alns[i]) for i in range(n_msa_ds)]
+    params['nb_alignments'] = [len(alns[i]) for i in range(n_msa_ds)]
 
     if shuffle:  # shuffle sites/columns of alignments
         alns = shuffle_sites(alns)
@@ -680,9 +678,9 @@ def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
 
 
 def shuffle_sites(msa_ds):
-    """Shuffle sites within MSAs of MSA emp_pdfs sets"""
+    """Shuffle sites within MSAs of MSA data sets"""
 
-    for i in range(len(msa_ds)):  # emp_pdfs set
+    for i in range(len(msa_ds)):  # data set
         for j in range(len(msa_ds[i])):  # MSA
             aln = np.asarray([list(seq) for seq in msa_ds[i][j]])
             aln[:, :] = aln[:, np.random.permutation(range(aln.shape[1]))]
@@ -701,113 +699,23 @@ def make_msa_reprs(alns, seq_len, pad='zeros', molecule_type='protein'):
     """
 
     alns_reprs = []
+
     print("Generating alignment representations ...")
-    for alns_set in alns:
+
+    for alns_set in tqdm(alns):
         alns_reprs.append([get_aln_repr(
             encode_aln(aln, seq_len, pad, molecule_type))
-            for aln in tqdm(alns_set)])
+            for aln in alns_set])
 
     return alns_reprs
 
 
-def aa_freq_samples(in_dir, data_dirs, sample_prop, n_alns, levels,
-        out_dir=None):
-    if out_dir is not None and not os.path.exists(out_dir):
-        os.mkdir(out_dir)
-
-    freqs = {}
-    for i in range(len(data_dirs)):
-        data_dir = data_dirs[i]
-        print(data_dir)
-
-        if os.path.exists(f'{in_dir}/{data_dir}'):
-            cl_dirs = ['/' + name for name in os.listdir(f'{in_dir}/{data_dir}')
-                       if
-                       os.path.isdir(
-                           os.path.join(f'{in_dir}/{data_dir}', name))]
-            alns_samples, cl_assign = [], []
-            if len(cl_dirs) == 0:
-                alns = alns_from_fastas(f'{in_dir}/{data_dir}',
-                                        quantiles=False,
-                                        n_alns=n_alns)[0]
-                # sampling
-                sample_size = np.round(sample_prop * len(alns)).astype(int)
-                sample_inds = np.random.randint(0, len(alns), sample_size)
-                alns_samples = [alns[ind] for ind in sample_inds]
-                cl_assign = [1] * sample_size
-            else:
-                for cl, cl_dir in enumerate(cl_dirs):
-                    alns = alns_from_fastas(f'{in_dir}/{data_dir}{cl_dir}',
-                                            quantiles=False,
-                                            n_alns=n_alns)[0]
-                    # sampling
-                    sample_size = np.round(sample_prop * len(alns)).astype(int)
-                    sample_inds = np.random.randint(0, len(alns), sample_size)
-                    alns_samples += [alns[ind] for ind in sample_inds]
-                    cl_assign += [cl + 1] * sample_size
-
-            seq_lens = np.asarray([len(aln[0]) for aln in alns_samples])
-            n_seqs = np.asarray([len(aln) for aln in alns_samples])
-
-            # frequency vectors on MSA level
-            if 'msa' in levels:
-                counts_alns = count_aas(alns_samples, level='msa')
-                counts_alns /= np.repeat(counts_alns.sum(axis=1)[:, np.newaxis],
-                                         20,
-                                         axis=1)
-                freqs_alns = np.round(counts_alns, 8)
-                cl_assign = np.asarray(cl_assign).reshape(-1, 1)
-
-                table = np.concatenate((freqs_alns, cl_assign), axis=1)
-                if out_dir is not None:
-                    np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_alns.csv",
-                               table,
-                               delimiter=",",
-                               header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,cl',
-                               comments='')
-                freqs[data_dir.split('/')[-1] + '_msa'] = table.T
-
-            # frequency vectors on gene level
-            if 'genes' in levels:
-                counts_genes = count_aas(alns_samples, level='genes')
-                div_seq_lens = np.repeat(np.asarray(seq_lens), n_seqs)
-                freqs_genes = np.round(counts_genes / div_seq_lens, 8)
-
-                aln_assign = np.repeat(np.arange(1, len(alns_samples) + 1),
-                                       n_seqs).reshape(1, -1)
-                cl_assign = np.repeat(cl_assign, n_seqs).reshape(1, -1)
-
-                table = np.concatenate((freqs_genes, aln_assign, cl_assign),
-                                       axis=0)
-                if out_dir is not None:
-                    np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_genes.csv",
-                               table.T,
-                               delimiter=",",
-                               header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,aln,cl',
-                               comments='')
-                freqs[data_dir.split('/')[-1] + '_genes'] = table
-
-            # frequency vectors on site level
-            if 'sites' in levels:
-                counts_sites = count_aas(alns_samples, level='sites')
-                div_n_seqs = np.repeat(np.asarray(n_seqs), seq_lens)
-                freqs_sites = np.round(counts_sites / div_n_seqs, 8)
-
-                aln_assign = np.repeat(np.arange(1, len(alns_samples) + 1),
-                                       seq_lens).reshape(1, -1)
-                cl_assign = np.repeat(cl_assign, seq_lens).reshape(1, -1)
-
-                table = np.concatenate((freqs_sites, aln_assign, cl_assign),
-                                       axis=0)
-                if out_dir is not None:
-                    np.savetxt(f"{out_dir}/{data_dir.split('/')[-1]}_sites.csv",
-                               table.T,
-                               delimiter=",",
-                               header='A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,'
-                                      'aln,cl',
-                               comments='')
-                freqs[data_dir.split('/')[-1] + '_sites'] = table
-        else:
-            warnings.warn(f'{in_dir}/{data_dir} does not exist')
-
-    return freqs
+def msa_compositions(data_collection_path, save=''):
+    mol_cnts = count_mols(alns_from_fastas(data_collection_path,
+                            molecule_type='DNA')[0],
+                          molecule_type='DNA', level='msa')
+    comps = mol_cnts / np.repeat(mol_cnts.sum(axis=1)[:, np.newaxis], 4, axis=1)
+    df_comps = pd.DataFrame(comps, columns=list('ACGT'))
+    if save is not None and save != '':
+        df_comps.to_csv(save, index=False)
+    return df_comps

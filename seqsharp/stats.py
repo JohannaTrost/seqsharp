@@ -6,6 +6,7 @@ from scipy import stats as st
 from scipy.stats._continuous_distns import _distn_names
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+from tqdm import tqdm
 
 from utils import dim
 
@@ -39,7 +40,7 @@ def sample_indel_params(kde_obj, pca, scaler, sample_size=1, min_rl=50,
 def kde(data, n_components=None):
     ndim = data.shape[1] if n_components is None else n_components
 
-    # project the n-dimensional emp_pdfs to a lower dimension
+    # project the n-dimensional data to a lower dimension
     scaler = StandardScaler()
     scaler.fit(data)
     data_scaled = scaler.transform(data)
@@ -149,43 +150,6 @@ def get_frac_sites_with(chars, aln):
     return n_sites_with_chars / n_sites if n_sites_with_chars > 0 else 0
 
 
-def get_aa_freqs(alns, gaps=True, dict=True):
-    """Returns amino acid frequencies for given alignments
-
-    :param alns: list of multiple alignments (list of string list)
-    :param gaps: there are gaps in alignments if true (boolean)
-    :param dict: a dictionary shall be returned if true (boolean)
-    :return: list of aa frequencies
-    """
-
-    aas = 'ARNDCQEGHILKMFPSTWYVX-' if gaps else 'ARNDCQEGHILKMFPSTWYVX'
-    aa_freqs_alns = []
-
-    for aln in alns:
-        freqs = np.zeros(23) if gaps else np.zeros(22)
-
-        for seq in aln:
-            for i, aa in enumerate(aas):
-                freqs[i] += seq.count(aa)
-            freqs[-1] += (seq.count('B') + seq.count('Z') + seq.count('J') +
-                          seq.count('U') + seq.count('O'))
-
-        freqs /= len(aln) * len(aln[0])  # get proportions
-
-        # limit to 6 digits after the comma
-        freqs = np.floor(np.asarray(freqs) * 10 ** 6) / 10 ** 6
-
-        if dict:
-            freq_dict = {aas[i]: freqs[i] for i in range(len(aas))}
-            freq_dict['other'] = freqs[-1]
-
-            aa_freqs_alns.append(freq_dict)
-        else:
-            aa_freqs_alns.append(freqs)
-
-    return aa_freqs_alns
-
-
 def distance_stats(dists):
     masked_dists = np.ma.masked_equal(dists, 0.0, copy=False)
     mean_mse = masked_dists.mean(axis=1).data
@@ -257,13 +221,13 @@ def generate_aln_stats_df(fastas, alns, max_seq_len, alns_repr, is_sim=[],
 
 
 def best_fit_distribution(data, bins=200, ax=None):
-    """Model emp_pdfs by finding best fit distribution to emp_pdfs
+    """Model data by finding best fit distribution to data
 
         src: https://stackoverflow.com/questions/6620471/fitting-empirical
              -distribution-to-theoretical-ones-with-scipy-python
     """
 
-    # Get histogram of original emp_pdfs
+    # Get histogram of original data
     y, x = np.histogram(data, bins=bins, density=True)
     x = (x + np.roll(x, -1))[:-1] / 2.0
 
@@ -274,15 +238,15 @@ def best_fit_distribution(data, bins=200, ax=None):
     # Best holders
     best_distr = []
 
-    # Estimate distribution parameters from emp_pdfs
+    # Estimate distribution parameters from data
     for distribution in tqdm(distributions):
         # Try to fit the distribution
         try:
-            # Ignore warnings from emp_pdfs that can't be fit
+            # Ignore warnings from data that can't be fit
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore')
 
-                # fit dist to emp_pdfs
+                # fit dist to data
                 params = distribution.fit(data)
 
                 # Separate parts of parameters
@@ -312,7 +276,7 @@ def best_fit_distribution(data, bins=200, ax=None):
 
 
 def generate_data_from_dist(data):
-    """Generate emp_pdfs based on the distribution of a given dataset"""
+    """Generate data based on the distribution of a given dataset"""
 
     # Find best fit distribution
     best_fit_name, best_fit_params = best_fit_distribution(data, 200)
@@ -329,58 +293,51 @@ def generate_data_from_dist(data):
     return new_data
 
 
-def count_aas(data, level='msa', save=''):
+def count_mols(data, level='msa', molecule_type='protein', save=''):
     # pid = os.getpid()
     # print(f'starting process {pid}')
 
-    aas = 'ARNDCQEGHILKMFPSTWYV'
-    aa_counts_alns = []
+    alphabet = 'ARNDCQEGHILKMFPSTWYV' if molecule_type == 'protein' else 'ACGT'
+    counts_alns = []
     n_sites = 0
 
     for aln in data:
-        n_seqs = len(aln)
+        nb_seqs = len(aln)
         seq_len = len(aln[0])
 
         if level == 'sites':
             # transform alignment into array to make sites accessible
-            aln_arr = np.empty((n_seqs, seq_len), dtype='<U1')
-            for j in range(n_seqs):
-                aln_arr[j, :] = np.asarray([aa for aa in aln[j]])
+            aln_arr = np.empty((nb_seqs, seq_len), dtype='<U1')
+            for j in range(nb_seqs):
+                aln_arr[j, :] = np.asarray([mol for mol in aln[j]])
 
-            aa_counts = np.zeros((len(aas), seq_len))
-            # count aa at each site
+            mol_counts = np.zeros((len(alphabet), seq_len))
+            # count mol at each site
             for site_ind in range(seq_len):
-                site = ''.join([aa for aa in aln_arr[:, site_ind]])
-                for i, aa in enumerate(aas):
-                    aa_counts[i, site_ind] = site.count(aa)
+                site = ''.join([mol for mol in aln_arr[:, site_ind]])
+                for i, mol in enumerate(alphabet):
+                    mol_counts[i, site_ind] = site.count(mol)
             n_sites += seq_len
         elif level == 'genes':
-            aa_counts = np.zeros((len(aas), n_seqs))
-            # count aa for each gene
-            for gene_ind in range(n_seqs):
-                for i, aa in enumerate(aas):
-                    aa_counts[i, gene_ind] = aln[gene_ind].count(aa)
+            mol_counts = np.zeros((len(alphabet), nb_seqs))
+            # count mol for each gene
+            for gene_ind in range(nb_seqs):
+                for i, mol in enumerate(alphabet):
+                    mol_counts[i, gene_ind] = aln[gene_ind].count(mol)
         elif level == 'msa':
-            aa_counts = np.zeros((1, len(aas)))
-            # count aa for each gene
-            for gene_ind in range(n_seqs):
-                for i, aa in enumerate(aas):
-                    aa_counts[0, i] += aln[gene_ind].count(aa)
+            mol_counts = np.zeros((1, len(alphabet)))
+            # count mol for each gene
+            for gene_ind in range(nb_seqs):
+                for i, mol in enumerate(alphabet):
+                    mol_counts[0, i] += aln[gene_ind].count(mol)
 
-        if len(aa_counts_alns) == 0:
-            aa_counts_alns = aa_counts
+        if len(counts_alns) == 0:
+            counts_alns = mol_counts
         else:
-            aa_counts_alns = np.concatenate((aa_counts_alns, aa_counts),
+            counts_alns = np.concatenate((counts_alns, mol_counts),
                                             axis=(0 if level == 'msa' else 1))
 
-    if save != '':
-        np.savetxt(save,
-                   np.asarray(aa_counts),
-                   delimiter=',',
-                   fmt='%1.1f')
-        print(f'Successfully saved {n_sites} sites.\n')
-    else:
-        return aa_counts_alns
+    return counts_alns
 
 
 def freq_pca_from_raw_alns(data, n_components=2, level='sites'):
@@ -394,9 +351,9 @@ def freq_pca_from_raw_alns(data, n_components=2, level='sites'):
     """
 
     # get avg. MSA AA frequencies
-    freqs = count_aas(data, level=level)
+    freqs = count_mols(data, level=level)
     freqs /= np.repeat(freqs.sum(axis=1)[:, np.newaxis], 20, axis=1)
-    freqs = np.round(freqs, 8)
+
     # perform PCA and center resulting PCs
     pca = PCA(n_components=n_components)
     pca_freqs = pca.fit_transform(freqs)
