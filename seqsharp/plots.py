@@ -11,7 +11,7 @@ from minepy import MINE
 from sklearn.decomposition import PCA
 from scipy.stats import pearsonr
 
-from seqsharp.ConvNet import load_model
+from ConvNet import load_model
 from train_eval import evaluate_folds
 from utils import confidence_ellipse, pred_runtime, \
     min_diff_divisor

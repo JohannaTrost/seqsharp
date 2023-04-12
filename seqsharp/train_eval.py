@@ -10,7 +10,7 @@ import torch
 
 from matplotlib import pylab as plt
 
-from seqsharp.ConvNet import compute_device, accuracy
+from ConvNet import compute_device, accuracy
 
 torch.cuda.empty_cache()
 

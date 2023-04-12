@@ -1,8 +1,8 @@
 import argparse
 
-from seqsharp.ConvNet import load_model
+from ConvNet import load_model
 from seqsharp_fcts import handle_args, load_data, validate, model_test, train
-from seqsharp.train_eval import print_model_performance
+from train_eval import print_model_performance
 
 
 def main():
