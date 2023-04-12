@@ -111,13 +111,13 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
     n_sites = cfg['data']['n_sites']
     n_alns = cfg['data']['n_alignments']
     molecule_type = cfg['data']['molecule_type']
-    n_alns = n_alns if isinstance(n_alns, list) else [n_alns]
     cnt_datasets = len(sim_paths)
     cnt_datasets += 1 if emp_path is not None else 0
-    if len(n_alns) == cnt_datasets:
+    if len(n_alns) == cnt_datasets and n_alns != '':
+        n_alns = n_alns if isinstance(n_alns, list) else [n_alns]
         n_alns = [int(x) for x in n_alns]
-    elif model_path is None:
-        n_alns = int(n_alns[0])
+    elif model_path is None and n_alns != '':
+        n_alns = int(n_alns[0]) if isinstance(n_alns, list) else int(n_alns)
     else:
         n_alns = None
 
