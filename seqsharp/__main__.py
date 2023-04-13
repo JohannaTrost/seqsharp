@@ -72,14 +72,15 @@ def main():
     elif args['test']:
         model_test(args)
     else:
-        in_data = load_data(args['emp_path'], args['sim_paths'], args['cfg_path'],
-                            args['model_path'], args['shuffle'])
+        in_data = load_data(args['emp_path'], args['sim_paths'],
+                            args['cfg_path'], args['model_path'],
+                            args['shuffle'])
         if args['val']:
             validate(args, in_data)
         elif args['train'] or args['resume']:
             train(args, in_data)
-        #if args['attr']:
-            #attribute(args, in_data)
+        # if args['attr']:
+        # attribute(args, in_data)
 
 
 if __name__ == '__main__':
