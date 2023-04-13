@@ -78,8 +78,8 @@ def main():
             validate(args, in_data)
         elif args['train'] or args['resume']:
             train(args, in_data)
-        if args['attr']:
-            attribute(args, in_data)
+        #if args['attr']:
+            #attribute(args, in_data)
 
 
 if __name__ == '__main__':

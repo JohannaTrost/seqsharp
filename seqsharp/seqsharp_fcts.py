@@ -1,12 +1,11 @@
 """Program to classify empirical and simulated sequence alignments
 
 Allows to train and evaluate a (convolutional) neural network or use a
-trained network. Plots can be generated to provide information about a
-dataset with alignments or the performance of a network.
+trained network.
 
-Please execute 'python seqsharp_fcts.py --help' to view all the options
+Please execute 'python seqsharp --help' to view all the options
 """
-import argparse
+
 import errno
 import os
 import gc
@@ -15,7 +14,6 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import torch
-from minepy import MINE
 from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import DataLoader
 
@@ -154,7 +152,7 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
         for i in range(len(cnt_datasets)):
             reprs.append(load_msa_reprs(data_paths[i], n_alns[i])[0])
 
-    data = np.concatenate(reprs, dtype='float32')
+    data = np.concatenate(np.asarray(reprs))
     labels_emp = np.zeros(len(reprs[0])) if emp_path is not None else []
     if cnt_datasets > 1 or len(labels_emp) == 0:
         labels_sim = np.ones(np.sum([len(r) for r in (reprs[1:]

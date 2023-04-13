@@ -709,9 +709,11 @@ def make_msa_reprs(alns, seq_len, pad='zeros', molecule_type='protein'):
         if seq_len == 1:
             alns_reprs.append(get_msa_compositions(alns_set))
         else:
-            alns_reprs.append([get_aln_repr(
-                encode_aln(alns, seq_len, pad, molecule_type))
-                for alns in alns_set])
+            alns_set_reprs = [get_aln_repr(encode_aln(alns, seq_len, pad,
+                                                      molecule_type))
+                              for alns in alns_set]
+            alns_set_reprs = np.asarray(alns_set_reprs, dtype='float32')
+            alns_reprs.append(alns_set_reprs)
 
     return alns_reprs
 
