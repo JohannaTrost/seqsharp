@@ -310,19 +310,16 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         # validation phase
         model = validation(model, train_loader, val_loader)
 
-        save_checkpoint(model, optimizer, scheduler, fold, save)
-        if epoch % 10 == 0 and save != '':
-            # save checkpoint every 10 epochs
-            if (np.min(model.val_history['loss'][:-10]) >
-                    np.min(model.val_history['loss'][-10:])):
+        if epoch > 1 and epoch % 2 == 0 and save != '':
+            # save checkpoint of best model every other epoch
+            if (np.min(model.val_history['loss']) >
+                    model.val_history['loss'][-1]):
                 save_checkpoint(model, optimizer, scheduler, fold, save)
 
         if epoch % step_size == 0 and epoch > min_epochs - 1:
             # do eval for early stopping every 50th epoch
             # after reaching min num epochs
-            # smooth_val_loss = median_smooth(model.val_history['loss'], 25)
             curr_val_loss = np.min(model.val_history['loss'][-step_size:])
-
             if prev_val_loss - curr_val_loss < min_delta:
                 no_imporv_cnt += 1
                 if no_imporv_cnt >= patience:
@@ -330,8 +327,6 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
                     break
             else:
                 no_imporv_cnt = 0
-                save_checkpoint(model, optimizer, scheduler, fold, save)
-
             prev_val_loss = curr_val_loss
         elif epoch >= min_epochs - (step_size + 1):
             if prev_val_loss is None:
