@@ -293,7 +293,7 @@ def load_alns(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
                                                           molecule_type)
                                 aln = aln.split(',')
 
-                        if len(aln[0]) > 0:  # check again if empty
+                        if len(aln[0]) > 10:  # exclude alns with <=10 sites
                             frac_ambig_mol_sites.append(frac_ambig)
                             alns.append(aln)
                             fastas.append(file)
