@@ -2,13 +2,14 @@ numpy
 matplotlib
 pandas
 torch>=1.8.1
-scikit-learn==1.1.3
+scikit-learn>=0.9
 psutil
 biopython>=1.78
-scipy>=1.7.3
+scipy>=1.5.4
 statsmodels>=0.12.2
 tqdm
 seaborn
 tompy@git+https://github.com/tommyclausner/tompy.git
 captum
 minepy
+importlib-metadata ~= 1.0 ; python_version < '3.8'
