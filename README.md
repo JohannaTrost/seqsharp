@@ -91,7 +91,7 @@ An argument that specifies a path to a file or directory with a cfguration of pa
 **`-s <str>`** example: `-s my/path/to/where/models/and/results/will/be/stored`
 
 Plots (.png), eventually csv files and trained models (.pth) are saved in the directory specified with this argument. More specifically they will be stored in a newly generated folder starting with *cnn-* followed by a time stamp. 
-According to other used arguments result plots could be plots showing the performance of each fold of a training (*fig-fold-[fold number].png*) as well as the overall accuracy and loss during the training (*fig-fold-eval.png*). For the `--plot_stats` flag histograms will be saved (*hist_nb_seqs.png*, *hist_nb_sites.png*). Moreover, the cfg file will be saved in *conig.json*. 
+According to other used arguments result plots could be plots showing the performance of each fold of a training (*fig-fold-[fold number].png*) as well as the overall accuracy and loss during the training (*folds_learning_curve.png*). For the `--plot_stats` flag histograms will be saved (*hist_nb_seqs.png*, *hist_nb_sites.png*). Moreover, the cfg file will be saved in *conig.json*. 
 
 **`--track_stats`**
 

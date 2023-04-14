@@ -55,7 +55,7 @@ def load_model(path, state='eval'):
     cfg = read_cfg_file(os.path.join(path, 'cfg.json'))
     models = []
     for fold in range(cfg['training']['n_folds']):
-        model_path = os.path.join(path, f'model-fold-{fold + 1}.pth')
+        model_path = os.path.join(path, f'model_fold_{fold + 1}.pth')
         if os.path.exists(model_path):
             model = ConvNet(cfg['model']).to(compute_device)
             model = load_checkpoint(model_path, model)
@@ -247,7 +247,7 @@ class ConvNet(nn.Module):
                        bbox_to_anchor=[-0.1, -0.3], loc='lower center', ncol=2)
 
             if path is not None:
-                plt.savefig(path)
+                plt.savefig(path, dpi=300)
             plt.close('all')
 
     def save(self, path):

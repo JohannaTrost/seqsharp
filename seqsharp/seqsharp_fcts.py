@@ -109,10 +109,12 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
     n_sites = cfg['data']['n_sites']
     n_alns = cfg['data']['n_alignments']
     molecule_type = cfg['data']['molecule_type']
+
     cnt_datasets = len(sim_paths)
     cnt_datasets += 1 if emp_path is not None else 0
+
+    n_alns = n_alns if isinstance(n_alns, list) or n_alns == '' else [n_alns]
     if len(n_alns) == cnt_datasets and n_alns != '':
-        n_alns = n_alns if isinstance(n_alns, list) else [n_alns]
         n_alns = [int(x) for x in n_alns]
     elif model_path is None and n_alns != '':
         n_alns = int(n_alns[0]) if isinstance(n_alns, list) else int(n_alns)
@@ -312,8 +314,9 @@ def train(opts, in_data):
         val_loader = DataLoader(val_ds, bs, num_workers=opts['n_cpus'])
 
         if len(train_ds.data.shape) > 2:
+            # if the input are site-wise compositions
             model_params['input_size'] = train_ds.data.shape[2]  # max seq len
-        else:
+        else:  # if the input are avg MSA compositions
             model_params['input_size'] = 1
         if opts['train']:
             model = ConvNet(model_params).to(compute_device)
@@ -340,17 +343,17 @@ def train(opts, in_data):
             write_cfg_file(cfg, model_path=opts['result_path'],
                            timestamp=timestamp)
     # save results
-    save_path = os.path.join(opts['result_path'], f'val_{timestamp}.csv')
     print(f'{sep_line}\nModel Performance:')
     print_model_performance(models)
     if opts['result_path'] is not None:
         # save results table
-        val_hist_folds = [m.val_history for m in models]
+        save_path = os.path.join(opts['result_path'], f'val_{timestamp}.csv')
         results2table(evaluate_folds([m.val_history for m in models],
-                                     n_folds)[0], save=None)
+                                     n_folds)[0], save=save_path)
         # save plot of learning curves
         make_fig(plot_folds, [models], (1, 2),
-                 save=os.path.join(opts['result_path'], 'fig-fold-eval.png'))
+                 save=os.path.join(opts['result_path'],
+                                   'folds_learning_curve.pdf'))
         print(f'\nSaved results to {opts["result_path"]}\n')
     else:
         print(

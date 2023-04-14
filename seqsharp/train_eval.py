@@ -220,10 +220,9 @@ def save_checkpoint(model, optimizer, scheduler, fold, save):
     model.opt_state = optimizer.state_dict()
     if model.scheduler_state is not None:  # because CLR is optional
         model.scheduler_state = scheduler.state_dict()
-    # save each fold directly if there is only one bs
-    # otherwise only the best performing model is saved
-    model.save(f'{save}/model-fold-{fold + 1}.pth')
-    model.plot(f'{save}/fig-fold-{fold + 1}.png')
+    # save model and learning curve of th current fold
+    model.save(f'{save}/model_fold_{fold + 1}.pth')
+    model.plot(f'{save}/learning_curve_fold_{fold + 1}.png')
     print('\nSave checkpoint\n')
 
 
@@ -312,7 +311,7 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
 
         if epoch > 1 and epoch % 2 == 0 and save != '':
             # save checkpoint of best model every other epoch
-            if (np.min(model.val_history['loss']) >
+            if (np.min(model.val_history['loss'][:-1]) >=
                     model.val_history['loss'][-1]):
                 save_checkpoint(model, optimizer, scheduler, fold, save)
 
