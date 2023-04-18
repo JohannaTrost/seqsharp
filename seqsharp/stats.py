@@ -250,13 +250,13 @@ def count_mols(data, level='msa', molecule_type='protein', save=''):
     n_sites = 0
 
     for aln in data:
-        nb_seqs = len(aln)
+        n_seqs = len(aln)
         seq_len = len(aln[0])
 
         if level == 'sites':
             # transform alignment into array to make sites accessible
-            aln_arr = np.empty((nb_seqs, seq_len), dtype='<U1')
-            for j in range(nb_seqs):
+            aln_arr = np.empty((n_seqs, seq_len), dtype='<U1')
+            for j in range(n_seqs):
                 aln_arr[j, :] = np.asarray([mol for mol in aln[j]])
 
             mol_counts = np.zeros((len(alphabet), seq_len))
@@ -267,15 +267,15 @@ def count_mols(data, level='msa', molecule_type='protein', save=''):
                     mol_counts[i, site_ind] = site.count(mol)
             n_sites += seq_len
         elif level == 'genes':
-            mol_counts = np.zeros((len(alphabet), nb_seqs))
+            mol_counts = np.zeros((len(alphabet), n_seqs))
             # count mol for each gene
-            for gene_ind in range(nb_seqs):
+            for gene_ind in range(n_seqs):
                 for i, mol in enumerate(alphabet):
                     mol_counts[i, gene_ind] = aln[gene_ind].count(mol)
         elif level == 'msa':
             mol_counts = np.zeros((1, len(alphabet)))
             # count mol for each gene
-            for gene_ind in range(nb_seqs):
+            for gene_ind in range(n_seqs):
                 for i, mol in enumerate(alphabet):
                     mol_counts[0, i] += aln[gene_ind].count(mol)
 

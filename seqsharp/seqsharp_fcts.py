@@ -154,7 +154,7 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
         for i in range(len(cnt_datasets)):
             reprs.append(load_msa_reprs(data_paths[i], n_alns[i])[0])
 
-    data = np.concatenate(np.asarray(reprs))
+    data = np.concatenate(reprs)
     labels_emp = np.zeros(len(reprs[0])) if emp_path is not None else []
     if cnt_datasets > 1 or len(labels_emp) == 0:
         labels_sim = np.ones(np.sum([len(r) for r in (reprs[1:]

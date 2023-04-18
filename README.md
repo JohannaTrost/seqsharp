@@ -91,7 +91,7 @@ An argument that specifies a path to a file or directory with a cfguration of pa
 **`-s <str>`** example: `-s my/path/to/where/models/and/results/will/be/stored`
 
 Plots (.png), eventually csv files and trained models (.pth) are saved in the directory specified with this argument. More specifically they will be stored in a newly generated folder starting with *cnn-* followed by a time stamp. 
-According to other used arguments result plots could be plots showing the performance of each fold of a training (*fig-fold-[fold number].png*) as well as the overall accuracy and loss during the training (*folds_learning_curve.png*). For the `--plot_stats` flag histograms will be saved (*hist_nb_seqs.png*, *hist_nb_sites.png*). Moreover, the cfg file will be saved in *conig.json*. 
+According to other used arguments result plots could be plots showing the performance of each fold of a training (*fig-fold-[fold number].png*) as well as the overall accuracy and loss during the training (*folds_learning_curve.png*). For the `--plot_stats` flag histograms will be saved (*hist_n_seqs.png*, *hist_n_sites.png*). Moreover, the cfg file will be saved in *conig.json*. 
 
 **`--track_stats`**
 
@@ -150,10 +150,10 @@ an example `cfg.json` file looks like this:
 {
     "data": 
     {
-        "nb_alignments": 2500, 
+        "n_alignments": 2500, 
         "min_seqs_per_align": 4, 
         "max_seqs_per_align": 1000, 
-        "nb_sites": 1000, "padding": "data"
+        "n_sites": 1000, "padding": "data"
     }, 
     
     "hyperparameters": 
@@ -162,13 +162,13 @@ an example `cfg.json` file looks like this:
         "epochs": 20, 
         "lr": 0.01, 
         "optimizer": "Adagrad", 
-        "nb_folds": 10
+        "n_folds": 10
     }, 
         
     "conv_net_parameters": 
     {
-        "nb_conv_layer": 2, 
-        "nb_lin_layer": 1, 
+        "n_conv_layer": 2, 
+        "n_lin_layer": 1, 
         "kernel_size": 5, 
         "do_maxpool": 1
     }, 

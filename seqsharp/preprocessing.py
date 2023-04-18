@@ -664,14 +664,14 @@ def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
             alns[i] = [alns[i][ind] for ind in inds]
             fastas[i] = [fastas[i][ind] for ind in inds]
 
-    params['nb_sites'] = int(np.max([ds_stats['seq_lens_max']
+    params['n_sites'] = int(np.max([ds_stats['seq_lens_max']
                                      for ds_stats in stats]))
     # before it was int(min(seq_len, stats[0]['seq_lens_max'])), why?
     n_msa_ds = len(alns)
-    nb_seqs = [get_n_seqs_per_msa(alns[i]) for i in range(n_msa_ds)]
-    params['max_seqs_per_align'] = [int(max(nb_seqs[i]))
+    n_seqs = [get_n_seqs_per_msa(alns[i]) for i in range(n_msa_ds)]
+    params['max_seqs_per_align'] = [int(max(n_seqs[i]))
                                     for i in range(n_msa_ds)]
-    params['min_seqs_per_align'] = [int(min(nb_seqs[i]))
+    params['min_seqs_per_align'] = [int(min(n_seqs[i]))
                                     for i in range(n_msa_ds)]
     params['n_alignments'] = [len(alns[i]) for i in range(n_msa_ds)]
 
