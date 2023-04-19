@@ -1,4 +1,4 @@
-# Assessing the realism of biological sequence evolution simulations
+# Seqsharp - Sequence simulions
 
 Project on the classification of simulated and empirical aligned protein sequences with a supervised learning approach. 
 

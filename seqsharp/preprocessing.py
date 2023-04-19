@@ -707,7 +707,8 @@ def make_msa_reprs(alns, seq_len, pad='zeros', molecule_type='protein'):
 
     for alns_set in tqdm(alns):
         if seq_len == 1:
-            alns_reprs.append(get_msa_compositions(alns_set))
+            alns_reprs.append(get_msa_compositions(alns_set,
+                                                   molecule_type=molecule_type))
         else:
             alns_set_reprs = [get_aln_repr(encode_aln(alns, seq_len, pad,
                                                       molecule_type))
