@@ -239,12 +239,15 @@ def validate(opts, in_data):
     return res_df
 
 
-def determine_fold_lr(lr, lr_range, n_folds, curr_fold, clr, train_loader,
-        model_params, optimizer, opt,  result_path):
+def determine_fold_lr(lr, lr_range, curr_fold, clr, train_loader,
+        model_params, optimizer,  result_path):
     # determine lr (either lr from cfg or lr finder)
-    if isinstance(lr, list) and len(lr) == n_folds:
+    if isinstance(lr, list) and len(lr) > curr_fold:
         # cfg lr is list of lrs per fold
         fold_lr = lr[curr_fold]
+    elif isinstance(lr, list) and len(lr) <= curr_fold and lr_range == '':
+        # e.g. when resuming and the current fold was not at all trained yet
+        fold_lr = lr[-1]
     elif clr or lr_range != '':  # use lr finder
         model = ConvNet(model_params).to(compute_device)
         min_lr, max_lr = find_lr_bounds(model, train_loader,
@@ -318,19 +321,31 @@ def train(opts, in_data):
             model_params['input_size'] = train_ds.data.shape[2]  # max seq len
         else:  # if the input are avg MSA compositions
             model_params['input_size'] = 1
+
+        # get (pretrained) model
         if opts['train']:
             model = ConvNet(model_params).to(compute_device)
             start_epoch = 0
+            max_epochs = start_epoch + epochs
         elif opts['resume']:
-            model = models[fold]
-            start_epoch = len(model.train_history['loss']) - 1
+            if models[fold] is not None:
+                model = models[fold]
+                start_epoch = len(model.train_history['loss']) - 1
+                max_epochs = start_epoch+epochs
+            else:
+                model = ConvNet(model_params).to(compute_device)
+                start_epoch = 0
+                max_epochs = start_epoch
+                # add num. of epochs other folds were trained already
+                max_epochs += [len(m.train_history['loss']) - 1
+                               for m in models if m is not None][0]
 
-        fold_lr = determine_fold_lr(lr, lr_range, n_folds, fold, opts['clr'],
-                                    train_loader, model_params, optimizer, opt,
+        fold_lr = determine_fold_lr(lr, lr_range, fold, opts['clr'],
+                                    train_loader, model_params, optimizer,
                                     opts['result_path'])
         lrs.append(fold_lr)
         fit(fold_lr, model, train_loader, val_loader, optimizer,
-            start_epoch, start_epoch+epochs, save=opts['result_path'],
+            start_epoch, max_epochs, save=opts['result_path'],
             fold=fold)
 
         if opts['train']:

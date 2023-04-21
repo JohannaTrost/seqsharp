@@ -64,6 +64,8 @@ def load_model(path, state='eval'):
             elif state == 'train':
                 model.train()
             models.append(model)
+        else:
+            models.append(None)
 
     return models
 
