@@ -70,13 +70,13 @@ def plot_corr_pred_sl(val_ds, preds, save=''):
         plt.savefig(save)
 
 
-def plot_compare_msa_stats(stats, fastas, group_labels, sample_size=42,
+def plot_compare_msa_stats(stats, files, group_labels, sample_size=42,
         save=None, figsize=None):
-    sample_inds = [np.random.randint(len(fastas[0]), size=sample_size)]
-    s_fastas = np.asarray(fastas[0])[sample_inds[0]]
+    sample_inds = [np.random.randint(len(files[0]), size=sample_size)]
+    s_files = np.asarray(files[0])[sample_inds[0]]
     sample_inds += [[np.where(fs == rf.replace('.fasta', '.fa'))[0][0]
-                     for rf in s_fastas]
-                    for fs in fastas[1:]]
+                     for rf in s_files]
+                    for fs in files[1:]]
     sample_inds = np.asarray(sample_inds)
 
     plots_shape = (min_diff_divisor(sample_size),
@@ -382,7 +382,7 @@ def plot_folds(models, axs):
 def freq_real_sim_violins(real_msas, sim_msas, aas=None, save_path='',
         scale='area'):
     """
-    Violin plots per AA frequencies over real and simulated emp_pdfs as well
+    Violin plots per AA frequencies over real and simulated data as well
     as their 20 PCs from PCA
 
     :param real_msas: ndarray of frequencies N x N_AA
@@ -444,7 +444,7 @@ def freq_real_sim_violins(real_msas, sim_msas, aas=None, save_path='',
 
 def freq_compare_n_cl_violins(real_msas, sim_msas_sets, aas=None, save_path=''):
     """
-    Violin plots per AA frequencies over real and simulated emp_pdfs as well
+    Violin plots per AA frequencies over real and simulated data as well
     as their 20 PCs from PCA
 
     :param real_msas: ndarray of frequencies N x N_AA
@@ -612,7 +612,7 @@ def plot_pred_runtime(n_alns=None, n_cl=None, save=None):
 
 
 def get_ylim(data, factor=1.1):
-    """Get y-axis limits of plotted emp_pdfs
+    """Get y-axis limits of plotted data
 
     :param data: array
     :return: tuple with low and high y-axis limit

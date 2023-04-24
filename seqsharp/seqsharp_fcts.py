@@ -43,27 +43,23 @@ def handle_args(parser):
     # ---------------------------- get arguments ---------------------------- #
 
     opts = {'val': args.validate, 'test': args.test, 'train': args.train,
-            'resume': args.resume,
             'emp_path': args.emp, 'sim_paths': args.sim,
             'result_path': (args.save or None),
-            'model_path': (args.models or None), 'cfg_path': (args.cfg or None),
-            'molecule_type': args.molecule_type, 'shuffle': args.shuffle,
+            'model_path': (args.model or None), 'cfg_path': (args.cfg or None),
+            'shuffle': args.shuffle,
             'attr': args.attr, 'clr': args.clr, 'n_cpus': args.ncpus}
 
     # -------------------- verify argument usage -------------------- #
 
-    if (not (opts['train'] ^ opts['val'] ^ opts['test'] ^ opts['resume'])
-            or (opts['train'] and opts['val'] and opts['test'] and
-                opts['resume'])):
+    if (not (opts['train'] ^ opts['val'] ^ opts['test'])
+            or (opts['train'] and opts['val'] and opts['test'])):
         if opts['model_path'] is None:
-            parser.error('Specify --training, --test, --validate, --resume'
-                         'or --models.')
+            parser.error('Specify --training, --test, --validate or --models.')
 
-    if ((opts['resume'] or opts['val'] or opts['test'])
-            and not opts['model_path']):
-        parser.error('--validate, --test, --resume require --modles')
+    if (opts['val'] or opts['test']) and not opts['model_path']:
+        parser.error('--validate and --test require --modles')
 
-    if (opts['train'] or opts['resume']) and not opts['emp_path']:
+    if opts['train'] and not opts['emp_path']:
         parser.error('Training requires exactly 2 datasets: one directory '
                      'containing empirical alignments and one with simulated '
                      'alignments.')
@@ -80,7 +76,7 @@ def handle_args(parser):
     for path in ['emp_path', 'result_path', 'model_path', 'cfg_path']:
         if opts[path] is not None and not os.path.exists(opts[path]):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    path)
+                                    opts[path])
     if opts['sim_paths'] is not None:
         for sim_path in opts['sim_paths']:
             if not os.path.exists(sim_path):
@@ -104,6 +100,9 @@ def handle_args(parser):
 
 
 def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
+    if sim_paths is None:
+        sim_paths = []
+
     cfg = read_cfg_file(cfg_path)
     # parameters for loading data
     n_sites = cfg['data']['n_sites']
@@ -130,10 +129,11 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
     fmts = ['.fa', '.fasta', '.phy']
     correct_fmt = np.any([first_input_file.endswith(f) for f in fmts])
     if correct_fmt:
-        alns, fastas, data_dict = raw_alns_prepro(
+        alns, files, max_n_sites = raw_alns_prepro(
             data_paths, n_alns, n_sites, shuffle=shuffle,
             molecule_type=molecule_type)
-
+        print('-------------------------------------------------------'
+              '---------')
         if molecule_type == 'protein' and '-' not in ''.join(alns[0][0]):
             # for protein data without gaps
             for i in range(len(alns)):
@@ -143,7 +143,7 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
         if 'input_size' in cfg['model'].keys():
             n_sites = cfg['model']['input_size']
         else:
-            n_sites = data_dict['n_sites']
+            n_sites = max_n_sites
         reprs = make_msa_reprs(alns,
                                n_sites,
                                cfg['data']['padding'],
@@ -154,6 +154,7 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
         for i in range(len(cnt_datasets)):
             reprs.append(load_msa_reprs(data_paths[i], n_alns[i])[0])
 
+    ds_sizes = [len(ds) for ds in reprs]
     data = np.concatenate(reprs)
     labels_emp = np.zeros(len(reprs[0])) if emp_path is not None else []
     if cnt_datasets > 1 or len(labels_emp) == 0:
@@ -164,55 +165,74 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
         labels_sim = []
     labels = np.concatenate((labels_emp, labels_sim))
 
-    return data, labels, data_dict
+    return data, labels, ds_sizes
 
 
-def model_test(opts):
-    timestamp = datetime.now()
+def model_test(opts, in_data):
+
+    # load config and save with timestamp
     cfg = read_cfg_file(opts['cfg_path'])
-    bs = cfg['training']['batch_size']
-    # save cfg with timestmp
-    write_cfg_file(cfg, cfg_path=opts['cfg_path'], timestamp=timestamp)
+    timestamp = datetime.now()
 
-    # load data and models
-    data, labels = {}, {}
-    if opts['emp_path'] is not None:
-        data['emp'], labels['emp'], _ = load_data(opts['emp_path'], [],
-                                                  cfg, opts['model_path'],
-                                                  opts['shuffle'])
-    if opts['sim_paths'] is not None:
-        for sim_path in opts['sim_paths']:
-            sim = os.path.basename(sim_path)
-            data[sim], labels[sim], _ = load_data(None, [sim_path],
-                                                  cfg, opts['model_path'],
-                                                  opts['shuffle'])
+    # get data and models
+    data, labels, ds_sizes = in_data
     models = load_model(opts['model_path'])
 
-    cols = [np.repeat(list(data.keys()), 2), ['loss', 'acc'] * len(data.keys())]
+    # determine names for data collections
+    ds_names = []
+    if opts['emp_path'] is not None:
+        ds_names.append('emp')
+    if opts['sim_paths'] is not None:
+        for sim_path in opts['sim_paths']:
+            ds_names.append(os.path.basename(sim_path))
+
+    # save config with timestamp and data collection names
+    cfg['comments'] += ' Test on data collections: ' + ', '.join(ds_names)
+    write_cfg_file(cfg, opts['cfg_path'], timestamp=timestamp)
+
+    # prepare dataframe to store performance (BACC, loss etc.)
+    cols = [np.repeat(ds_names, 2), ['loss', 'acc'] * len(ds_names)]
     ds_res = pd.DataFrame(columns=cols)
-    for ds in data.keys():
+    # indices to split arrays (data, labels) into original data collections
+    ds_inds = np.split(np.arange(len(data)), np.cumsum(ds_sizes))[:-1]
+
+    for ds_name, ds_ind in zip(ds_names, ds_inds):
+
         res_dict = {'loss': [], 'acc': []}
         for fold in range(len(models)):
             model = models[fold]
-            test_loader = DataLoader(TensorDataset(data[ds], labels[ds]), bs)
+            test_ds = TensorDataset(data[ds_ind], labels[ds_ind])
+            test_loader = DataLoader(test_ds, cfg['training']['batch_size'])
+
+            # eval on test data collection
             with torch.no_grad():
-                # eval on test dataset
                 test_result = evaluate(model, test_loader)
+
+            # populate results dictionary
             res_dict['loss'].append(test_result['loss'])
-            if ds == 'emp':
+            if ds_name == 'emp':
                 res_dict['acc'].append(test_result['acc_emp'])
             else:
                 res_dict['acc'].append(test_result['acc_sim'])
-        ds_res[(ds, 'loss')] = res_dict['loss']
-        ds_res[(ds, 'acc')] = res_dict['acc']
-    results2table(ds_res, f'{opts["result_path"]}/test_{timestamp}.csv')
+
+        # populate MultiIndex df separating different data collections
+        ds_res[(ds_name, 'loss')] = res_dict['loss']
+        ds_res[(ds_name, 'acc')] = res_dict['acc']
+
+    # print and save results
+    ds_res = results2table(ds_res,
+                           f'{opts["result_path"]}/test_{timestamp}.csv')
+    print('\n#########################  PERFORMANCE  '
+          '#########################\n')
     print(ds_res)
 
 
 def validate(opts, in_data):
     timestamp = datetime.now()
-    data, labels, data_dict = in_data
+    data, labels, _ = in_data
     cfg = read_cfg_file(opts['cfg_path'])
+    # save cfg with timestamp
+    write_cfg_file(cfg, opts['cfg_path'], timestamp=timestamp)
     bs = cfg['training']['batch_size']
     # load data and models
     models = load_model(opts['model_path'])
@@ -233,14 +253,14 @@ def validate(opts, in_data):
                 res_dict[k].append(v)
 
     res_df = results2table(res_dict,
-                          f'{opts["result_path"]}/val_{timestamp}.csv')
+                           f'{opts["result_path"]}/val_{timestamp}.csv')
+    print('\n#########################  PERFORMANCE  '
+          '#########################\n')
     print(res_df)
-
-    return res_df
 
 
 def determine_fold_lr(lr, lr_range, curr_fold, clr, train_loader,
-        model_params, optimizer,  result_path):
+        model_params, optimizer, result_path):
     # determine lr (either lr from cfg or lr finder)
     if isinstance(lr, list) and len(lr) > curr_fold:
         # cfg lr is list of lrs per fold
@@ -286,11 +306,10 @@ def train(opts, in_data):
             'Please specify either Adagrad, Adam or SGD as optimizer')
 
     # get data and models
-    data, labels, data_dict = in_data
-    cfg['data']['n_alignments'] = data_dict['n_alignments']
+    data, labels, _ = in_data
     if opts['train']:
         models = []
-    elif opts['resume']:
+    elif opts['model_path']:
         models = load_model(opts['model_path'], state='train')
 
     seed = 42
@@ -327,11 +346,11 @@ def train(opts, in_data):
             model = ConvNet(model_params).to(compute_device)
             start_epoch = 0
             max_epochs = start_epoch + epochs
-        elif opts['resume']:
+        elif opts['model_path']:
             if models[fold] is not None:
                 model = models[fold]
                 start_epoch = len(model.train_history['loss']) - 1
-                max_epochs = start_epoch+epochs
+                max_epochs = start_epoch + epochs
             else:
                 model = ConvNet(model_params).to(compute_device)
                 start_epoch = 0
@@ -350,15 +369,18 @@ def train(opts, in_data):
 
         if opts['train']:
             models.append(model.to('cpu'))
-        elif opts['resume']:
+        elif opts['model_path']:
             models[fold] = model.to('cpu')
 
         if opts['result_path'] is not None:  # save cfg
             cfg['training']['lr'] = lrs if len(lrs) > 0 else lr
-            write_cfg_file(cfg, model_path=opts['result_path'],
-                           timestamp=timestamp)
+            cfg['results_path'] = opts['result_path']
+            write_cfg_file(cfg, opts['cfg_path'])
+            # save cfg with timestamp
+            write_cfg_file(cfg, opts['cfg_path'], timestamp=timestamp)
     # save results
-    print(f'{sep_line}\nModel Performance:')
+    print('\n#########################  PERFORMANCE  '
+          '#########################\n')
     print_model_performance(models)
     if opts['result_path'] is not None:
         # save results table
@@ -381,7 +403,7 @@ def attribute(opts, in_data):
     timestamp = datetime.now()
     cfg = read_cfg_file(opts['cfg_path'])
     # get data and models
-    data, labels, data_dict = in_data
+    data, labels, _ = in_data
     models = load_model(opts['model_path'])
     # choose best fold
     fold_eval = [np.min(model.val_history['loss']) for model in models]
@@ -469,7 +491,7 @@ def attribute(opts, in_data):
             # validation data, sorted according to attr. maps
             msas = val_ds.data[val_ds.labels == l][
                 sort_by_pred[cl]]
-            fnames = fastas[val_ids][val_ds.labels == l][
+            fnames = files[val_ids][val_ds.labels == l][
                 sort_by_pred[cl]]
 
             for i, sel in enumerate(select):

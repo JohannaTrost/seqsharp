@@ -158,8 +158,7 @@ def results2table(val_folds, save=None):
                        axis=0)
     if save != '' and save is not None:
         res_df.to_csv(save)
-    else:
-        return res_df
+    return res_df
 
 
 def print_model_performance(models):
@@ -188,11 +187,11 @@ def print_model_performance(models):
 
 
 def evaluate(model, val_loader):
-    """Feeds the model with emp_pdfs and returns its performance
+    """Feeds the model with data and returns its performance
 
     :param model: ConvNet object
-    :param val_loader: networks input_plt_fct emp_pdfs (DataLoader object)
-    :return: losses and accuracies for each emp_pdfs batch (dict)
+    :param val_loader: networks input_plt_fct data (DataLoader object)
+    :return: losses and accuracies for each data batch (dict)
     """
 
     losses = []
@@ -309,7 +308,7 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         # validation phase
         model = validation(model, train_loader, val_loader)
 
-        if epoch > 1 and epoch % 2 == 0 and save != '':
+        if epoch > 1 and epoch % 2 == 0 and save is not None:
             # save checkpoint of best model every other epoch
             if (np.min(model.val_history['loss'][:-1]) >=
                     model.val_history['loss'][-1]):

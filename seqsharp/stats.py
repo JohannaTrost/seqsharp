@@ -109,7 +109,7 @@ def mse(aln1, aln2):
 
 
 def get_msa_compositions(alns, molecule_type='protein'):
-    mol_cnts = count_mols(alns, molecule_type=molecule_type, level='msa')
+    mol_cnts = cnt_mols(alns, molecule_type=molecule_type, level='msa')
     return mol_cnts / np.repeat(mol_cnts.sum(axis=1)[:, np.newaxis],
                                 21 if molecule_type == 'protein' else 5,
                                 axis=1)
@@ -239,7 +239,7 @@ def generate_data_from_dist(data):
     return new_data
 
 
-def count_mols(data, level='msa', molecule_type='protein', save=''):
+def cnt_mols(data, level='msa', molecule_type='protein', save=''):
     # pid = os.getpid()
     # print(f'starting process {pid}')
     if molecule_type == 'protein':
@@ -299,7 +299,7 @@ def freq_pca_from_raw_alns(data, n_components=2, level='sites'):
     """
 
     # get avg. MSA AA frequencies
-    freqs = count_mols(data, level=level)
+    freqs = cnt_mols(data, level=level)
     freqs /= np.repeat(freqs.sum(axis=1)[:, np.newaxis], 20, axis=1)
 
     # perform PCA and center resulting PCs

@@ -195,12 +195,12 @@ def replace_ambig_chars(seq, molecule_type='protein'):
 
 
 def remove_ambig_pos_sites(aln, molecule_type):
-    """Replace all ambiguous nucleotides/amino acids by randomly drawn
+    """Replace all ambiguous nucleotides/amino acids by randomly sampled
     nucleotides (A,C,G or T)/ 20 amino acids
 
     :param aln: (n_sites list of strings) MSA
     :param molecule_type: either 'protein' or 'DNA' sequence
-    :return: cleaned sequence
+    :return: filtered sequence
     """
 
     if molecule_type == 'protein':
@@ -219,24 +219,26 @@ def load_msa(filename):
     """Gets aligned sequences from given file
 
     :param filename: <path/to/> alignments (string)
-    :return: list of strings
+    :return: MSA as list of strings
     """
     if filename.endswith('.fa') or filename.endswith('.fasta'):
-        format = 'fasta'
+        format_name = 'fasta'
     elif filename.endswith('.phy'):
-        format = 'phylip'
+        format_name = 'phylip'
     else:
         raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
-                         f'File format not recognized: '
+                         f'File format_name not recognized: '
                          f'{filename.split(".")[-1]}')
 
-    alned_seqs_raw = [str(seq_record.seq) for seq_record in
-                      SeqIO.parse(open(filename, encoding='utf-8'), format)]
+    alned_seqs_raw = [str(seq_record.seq)
+                      for seq_record in SeqIO.parse(open(filename,
+                                                         encoding='utf-8'),
+                                                    format_name)]
     return alned_seqs_raw
 
 
-def load_alns(fasta_dir, n_alns=None, seq_len=None,
-        molecule_type='protein', rem_ambig_chars='remove'):
+def load_alns(fasta_dir, n_alns=None, seq_len=None, molecule_type='protein',
+              rem_ambig_chars='remove'):
     """Extracts alignments from fasta files in given directory
 
     :param rem_ambig_chars: indicate how to remove ambiguous letters: either
@@ -432,10 +434,9 @@ def encode_aln(aln, seq_len, padding='', molecule_type='protein'):
         return seqs
 
 
-def get_aln_repr(alned_seqs):
-    """Returns proportions of amino acids at each site of the alignment"""
-
-    return np.sum(alned_seqs, axis=0) / len(alned_seqs)
+def get_aln_repr(aln):
+    """ Compute site-wise compositions from one-hot encoded MSA"""
+    return np.sum(aln, axis=0) / len(aln)
 
 
 class TensorDataset(Dataset):

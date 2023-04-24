@@ -30,35 +30,25 @@ def min_diff_divisor(divident):
     return divisors[np.argmin(np.abs(divisors - quotients))]
 
 
-def write_cfg_file(cfg, cfg_path=None, model_path=None, timestamp=None):
+def write_cfg_file(cfg, save, timestamp=None):
     """Save parameters in a json file
 
     If a recent cfg contains the same parameters it will be put into
     this json file by putting together the result paths and comments
 
-    :param cfg: emp_pdfs-,model-specific and hyper-parameters (dictionary)
-    :param model_path: directory where model/results are stored (string)
-    :param cfg_path: directory to cfgs or cfg file (string)
-    :param timestamp: format %d-%b-%Y-%H:%M:%S.%f (string)
+    :param cfg: data-,model-specific and hyper-parameters (dictionary)
+    :param save: directory/file to save the config to (string)
+    :param timestamp: timestamp (string)
     """
 
-    if cfg_path == '' or cfg_path is None:
-        cfg_dir = ''
-    elif os.path.isfile(cfg_path):
-        cfg_dir = cfg_path.rpartition('/')[0]
-    elif os.path.isdir(cfg_path):
-        cfg_dir = cfg_path
-    else:
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                cfg_path)
-
-    if cfg_dir != '':
-        # save cfg to file
-        cfg['results_path'] = model_path
-        with open(f'{cfg_dir}/cfg-{timestamp}.json', "w") as outfile:
+    if os.path.isfile(save):
+        with open(save, "w") as outfile:
             json.dump(cfg, outfile)
-    if model_path != '' and model_path is not None:
-        with open(f'{model_path}/cfg.json', "w") as outfile:
+    elif os.path.isdir(save) and timestamp is None:
+        with open(f'{save}/cfg.json', "w") as outfile:
+            json.dump(cfg, outfile)
+    elif os.path.isdir(save) and timestamp is not None:
+        with open(f'{save}/cfg_{timestamp}.json', "w") as outfile:
             json.dump(cfg, outfile)
 
 
@@ -68,7 +58,7 @@ def read_cfg_file(path):
     If directory is given, cfg will be taken from latest modified file
 
     :param path: <path/to> cfg file or directory
-    :return: emp_pdfs-,model-specific and hyper-parameters (dictionary)
+    :return: data-,model-specific and hyper-parameters (dictionary)
     """
 
     if os.path.exists(path):
