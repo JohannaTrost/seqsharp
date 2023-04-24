@@ -1,0 +1,35 @@
+{
+    "data": {
+        "n_alignments": [
+            7375,
+            7416
+        ],
+        "n_sites": 9930,
+        "padding": "zeros",
+        "molecule_type": "DNA"
+    },
+    "training": {
+        "batch_size": 64,
+        "epochs": 500,
+        "lr": 0.001,
+        "lr_range": "",
+        "optimizer": "Adam",
+        "n_folds": 10
+    },
+    "model": {
+        "channels": [
+            5,
+            100,
+            210
+        ],
+        "n_lin_layer": 1,
+        "kernel_size": [
+            3,
+            1
+        ],
+        "pooling": 2,
+        "input_size": 9930
+    },
+    "results_path": "/pbs/home/j/jtrost/results/cnn_sim_gtr_g_i_k[3,1]_25-Feb-2023-23:32:33.797977",
+    "comments": ""
+}

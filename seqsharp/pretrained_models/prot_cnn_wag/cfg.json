@@ -1,0 +1,33 @@
+{
+    "data": {
+        "n_alignments": "",
+        "n_sites": 1479,
+        "padding": "zeros",
+        "molecule_type": "protein"
+    },
+    "training": {
+        "batch_size": 128,
+        "epochs": 1000,
+        "lr": [
+            0.001
+        ],
+        "lr_range": [
+            1e-07,
+            0.5
+        ],
+        "optimizer": "Adam",
+        "n_folds": 10
+    },
+    "model": {
+        "channels": [
+            21,
+            210
+        ],
+        "n_lin_layer": 1,
+        "kernel_size": 1,
+        "pooling": 2,
+        "input_size": 622
+    },
+    "results_path": "",
+    "comments": ""
+}

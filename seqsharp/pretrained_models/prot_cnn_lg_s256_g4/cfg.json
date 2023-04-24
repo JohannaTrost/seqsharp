@@ -1,0 +1,45 @@
+{
+    "data": {
+        "n_alignments": [
+            6971,
+            6971
+        ],
+        "n_sites": 1479,
+        "padding": "zeros",
+        "molecule_type": "protein"
+    },
+    "training": {
+        "batch_size": 128,
+        "epochs": 1000,
+        "lr": [
+            0.0016666666666666629,
+            0.0016666666666666629,
+            0.0016666666666666629,
+            0.0015909140944363887,
+            0.0016666666666666629,
+            0.0016666666666666629,
+            0.0016666666666666629,
+            0.0016666666666666629,
+            0.0015909140944363887,
+            0.0016666666666666629
+        ],
+        "lr_range": [
+            1e-07,
+            0.12
+        ],
+        "optimizer": "Adam",
+        "n_folds": 10
+    },
+    "model": {
+        "channels": [
+            21,
+            210
+        ],
+        "n_lin_layer": 1,
+        "kernel_size": 1,
+        "pooling": 2,
+        "input_size": 1479
+    },
+    "results_path": "/pbs/home/j/jtrost/results/cnn_alisim_lg_s0256_g4_gapless_k1_03-Feb-2023-03:36:05.842207",
+    "comments": ""
+}
