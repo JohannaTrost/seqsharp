@@ -74,18 +74,20 @@ class ConvNet(nn.Module):
     """Neural network with at least 1 linear layer,
        which can have multiple convolutional and linear layers
        for a binary classification task, where classes are empirical
-       alignments and simulated alignments
+       alignments (0) and simulated alignments (1)
 
         Attributes
         ----------
-        conv_layers : nn.Sequential
-            a sequence of conv1D, ReLu and maxpooling
-        lin_layers : nn.Sequential
-            one or multiple linear layers, the last one having 1 output node
-        train_history : list of dictionaries keys: 'bacc', 'loss'
-            accuracy and loss for each epoch on training dataset
-        val_history : list of dictionaries keys: 'bacc', 'loss'
-            accuracy and loss for each epoch on validaiton dataset
+        conv_layers : nn.Sequential a sequence of conv1D, ReLu and pooling
+        lin_layers : nn.Sequential one or multiple linear layers, ReLU succeeds
+                     inner nodes
+        train_history : dictionary with keys: 'bacc', 'loss', acc_emp, acc_sim
+                        accuracy and loss for each epoch on training dataset
+        val_history : dictionary with keys: 'bacc', 'loss', acc_emp, acc_sim
+                      accuracy and loss for each epoch on validaiton dataset
+        opt_state : state dictionary of optimizer (initially None)
+        scheduler_state : state dictionary of scheduler for cyclic lr
+                          (initially None)
 
         Methods
         -------
@@ -93,19 +95,18 @@ class ConvNet(nn.Module):
             initializes the networks layers
         forward(x)
             performs feed forward pass
-        training_step(batch)
-        validation_step(batch)
-            combines losses and accuracies for all batches
+        feed(batch)
+            process batch, compute loss and predictions
         plot(path=None)
-            plots performance of the network
+            plot performance of the network
         save(path)
-            save the model in a .pth file
+            save ConvNet object
     """
 
     def __init__(self, p):
         """Initializes network layers
 
-        :param p: parameters that determine the network architecture (dict)
+        :param p: parameters for network architecture (dict)
         """
 
         super(ConvNet, self).__init__()
@@ -114,62 +115,66 @@ class ConvNet(nn.Module):
         n_features = p['channels']
         n_conv_layer = len(p['channels']) - 1
 
-        # determine output size after conv. layers
-        if p['do_maxpool'] == 1:  # local max pooling
-            out_size = (int(p['input_size'] / 2 ** n_conv_layer) *
-                        n_features[-1])
-        elif p['do_maxpool'] == 2:  # global max pooling
+        # ----- determine output size after conv. layers
+        if p['pooling'] == 1:
+            # local max pooling
+            out_size = int(p['input_size'] / 2 ** n_conv_layer)
+            out_size *= n_features[-1]
+        elif p['pooling'] == 2:
+            # global max pooling
             out_size = n_features[-1]
-        else:  # no pooling
+        else:
+            # no pooling
             out_size = p['input_size'] * n_features[-1]
 
-        # convolutional layers
+        # ----- convolutional layers
         self.conv_layers = []
         if n_conv_layer > 0:
+
             if not isinstance(p['kernel_size'], list):
                 p['kernel_size'] = [p['kernel_size']]
+
             for i in range(n_conv_layer):
+
                 conv1d = nn.Conv1d(n_features[i],
                                    n_features[i + 1],
                                    kernel_size=p['kernel_size'][i], stride=1,
                                    padding=p['kernel_size'][i] // 2)
-
                 self.conv_layers += [conv1d, nn.ReLU()]
 
-                if p['do_maxpool'] == 1:
+                if p['pooling'] == 1:
                     # local pooling
-                    self.conv_layers.append(
-                        nn.MaxPool1d(kernel_size=2, stride=2))
-                if p['do_maxpool'] == 2 and i == n_conv_layer - 1:
-                    # global pooling after last conv layer
+                    self.conv_layers.append(nn.MaxPool1d(kernel_size=2,
+                                                         stride=2))
+                if p['pooling'] == 2 and i == n_conv_layer - 1:
+                    # global pooling after last conv. layer
                     ks = int(p['input_size'])
                     self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
 
             self.conv_layers.append(nn.Dropout(0.2))
 
-        if n_conv_layer == 0 and p['do_maxpool'] == 2:
-            # global avg pooling -> global MSA AA frequencies
+        if n_conv_layer == 0 and p['pooling'] == 2:
+            # global avg pooling -> global MSA compopsitions
             ks = int(p['input_size'])
             self.conv_layers.append(nn.AvgPool1d(kernel_size=ks))
 
-        self.conv_layers = nn.Sequential(*self.conv_layers)
-
-        # fully connected layer(s)
+        # ----- fully connected layer(s)
         self.lin_layers = []
         n_lin_layers = p['n_lin_layer']
         for i in range(n_lin_layers):
-            if i == n_lin_layers - 1:  # the last layer has a single output
+
+            if i == n_lin_layers - 1:
+                # the last layer has a single output
                 self.lin_layers.append(nn.Linear(out_size, 1))
             else:
                 self.lin_layers += [nn.Linear(out_size, out_size // 2),
                                     nn.ReLU()]
                 out_size = out_size // 2
 
+        self.conv_layers = (nn.Sequential(*self.conv_layers)
+                            if len(self.conv_layers) > 0 else None)
         self.lin_layers = (nn.Sequential(*self.lin_layers)
                            if n_lin_layers > 0 else None)
-
-        self.global_avgpool = (nn.AdaptiveAvgPool1d(1)
-                               if n_lin_layers == 0 else None)
 
         self.train_history = {'loss': [], 'bacc': [], 'acc_emp': [],
                               'acc_sim': []}
@@ -187,8 +192,6 @@ class ConvNet(nn.Module):
 
         if self.lin_layers is not None:
             out = self.lin_layers(out)
-        else:  # global avg-pooling instead of a linear layer
-            out = self.global_avgpool(out.unsqueeze(0))
 
         return out
 
@@ -200,15 +203,15 @@ class ConvNet(nn.Module):
 
         out = self(alns).to(compute_device)  # generate predictions
 
-        criterion = nn.BCEWithLogitsLoss()
+        criterion = nn.BCEWithLogitsLoss()  # includes sigmoid activation
         loss = criterion(out, torch.reshape(labels, out.shape))
 
         return loss, out.squeeze(dim=1), labels
 
     def plot(self, path=None):
-        """Generates a figure with 2 plots for loss and accuracy over epochs
+        """Generates a figure with 2 plots for loss and BACC over epochs
 
-        :param path: <path/to/> directory to save the plot to (string/None)
+        :param path: <path/to/> directory to save the plot to (string)
         """
 
         if len(self.train_history['loss']) > 0:
@@ -268,7 +271,7 @@ def accuracy(outputs, labels):
 
     :param outputs: network output for all examples (torch tensor)
     :param labels: 0 and 1 labels (0: empirircal, 1:simulated) (torch tensor)
-    :return: accuracy values (between 0 and 1) (torch tensor)
+    :return: BACC and class accuracies (dictionary with torch tensors)
     """
     accs = {}
     preds = torch.round(activation(outputs)).to(compute_device)
@@ -283,9 +286,9 @@ def accuracy(outputs, labels):
         accs[key] = n_correct / n if n.item() > 0 else torch.FloatTensor([-1])
         accs[key].to(compute_device)
 
-    # acc = torch.tensor((torch.sum(preds == labels).item() / len(preds)))
     return accs
 
 
 def activation(outputs):
+    """ Sigmoid activation for binary classification """
     return torch.flatten(torch.sigmoid(outputs))
