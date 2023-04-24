@@ -1,17 +1,16 @@
-# Seqsharp - Sequence simulions
+# Seqsharp: Sequence Simulations Have A Real(ism) Problem
 
-Project on the classification of simulated and empirical aligned protein sequences with a supervised learning approach. 
-
-The performance of the supervised learning to distinguish empirical and simulated alignments shall serve as a metric to evaluate the realism of a sequence evolution simulator and thus to optimize the parameters used for its simulations. 
-
-Furthermore a program is provided that allows to automatically simulate the sequence evolution, based on a set of given evolutionary trees as well as a set of empirical alignments which would also be the empirical input for the classification task. 
-This program is independent from the sequence classification, meaning that any simulated sequences can be used for the classification.   
-
-## The Sequence Classifier
-
+This is a tool that utilizes Convolutional Neural Networks (CNNs) to discriminate simulated and empirical multiple sequence alignments (MSAs). The accuracy of the classifier, that is the average of the accuracies per class (BACC), can be used as a metric to evaluate the realism of sequence evolution simulations. This enables to compare and contrast different evolutionary models used for simulation, and determine the most realistic approach.
 ### Install 
 
-A minimum python version of 3.6 is required to run the program. Install all required python modules as follows:  
+A minimum python version of 3.6 is required to run the program.
+
+1. It is recommended to install required packages in a virtual environment e.g. create and activate a virtual environment in Python: 
+```
+python -m venv <dir/to/venv>
+soucre <dir/to/venv/bin/activate>
+```
+2. Now install the required packages:
 ``` 
 python -m pip install --upgrade pip
 pip install -r requirements.txt 
@@ -19,350 +18,322 @@ pip install -r requirements.txt
 
 ### Usage
 
-To run the script use:
+To run seq# type:
 
-`python sequenceClassifier.py [args]`
+`python seqsharp [args]`
 
-Type `python sequenceClassifier.py -h` obtain the output below for possible arguments:
+Type `python seqsharp --help` to obtain the output below for possible arguments:
 
 ```
-usage: sequenceClassifier.py [-h] -d [DATASETS [DATASETS ...]] [-t] [--test] [-m MODELS] [--real]
-                             [-c cfg] [-s SAVE] [--track_stats] [--shuffle] [--plot_stats]
-                             [--pairs]
+usage: seqsharp [-h] [--sim [SIM ...]] [--emp EMP] [-t] [--test] [--validate] [--attr] [--clr] [-m MODEL] [-c CFG] [-s SAVE] [--shuffle] [--ncpus NCPUS]
 
 optional arguments:
   -h, --help            show this help message and exit
-  -d [DATASETS [DATASETS ...]], --datasets [DATASETS [DATASETS ...]]
-                        Specify the <path/to/> directory(s) containing alignments (in fasta format)
-  -t, --training        Datasets will be used to train the neural network (specified with --datasets
-                        option). Requires --cfg and --datasets.
-  --test                Alignments will be passed to (a) trained model(s). Requires --models,
-                        --datasets and --cfg
-  -m MODELS, --models MODELS
-                        <path/to> directory with trained model(s). These models will then be tested
-                        on a given data set. --cfg, --datasets and --test are required for this
-                        option.
-  --real                Indicates that given data set has empirical alignments for --models option.
-                        Otherwise they are assumed to be simulated
-  -c cfg, --cfg cfg
-                        <path/to> cfg file (.json) or directory containing: hyperparameters, data
-                        specific parameters and parameters determining the structure of the Network.
-                        If a directory is given, the latest modified json file will be used
-  -s SAVE, --save SAVE  <path/to> directory where trained models and result plots will be saved
-  --track_stats         Generate a csv file with information about the data e.g. the number of sites
-                        and the training
-  --shuffle             Shuffle the sites of alignments/pairs in the first directory specified
-  --plot_stats          Generates histograms of number of sites and number of sequences of given
-                        alignments (specified with --datasets)
-  --pairs               A representation for each pair of sequences in an alignment will be used
-
+  --sim [SIM ...]       Specify the <path/to/> directory(s) containing simulated alignments (in fasta or phylip format)
+  --emp EMP             Specify the <path/to/> directory containing empirical alignments (in fasta or phylip format)
+  -t, --train           Data collections will be used to train the neural network (specified with --emp and --sim option). Requires --cfg or --model. If a pretrained model is
+                        given training will be resumed.
+  --test                Test network on given data collections. Requires --models and --sim
+  --validate            K-fold cross validation with pretrained model.Requires --models, --emp and --sim
+  --attr                Generates attribution maps using validation data. Requires --models (only if not --train) and --sim
+  --clr                 Use cyclic learning rates (in this case lr given in config is ignored). Requires --train.
+  -m MODEL, --model MODEL
+                        <path/to> directory with pretrained model(s) (one per fold).
+  -c CFG, --cfg CFG     <path/to> cfg file (.json) or directory containing: hyperparameters for training, data specific parameters and parameters for the network
+                        architecture. Is not required when --model is given.
+  -s SAVE, --save SAVE  <path/to> directory where trained models and result plots/tables will be saved.
+  --shuffle             Shuffle the sites of alignments in the data collections.
+  --ncpus NCPUS         Number of CPUs to be used.
 ```
 
-Note that `--datasets` is required which might not be the case in a future version of the program. 
+### Reproduction of presented results 
+
+To reproduce the training of the models presented in the paper use the following command:
+
+`python seqsharp -t --emp <path/to/emp/data> --sim <path/to/sim/data> -c <path/to/>seqsharp/seqsharp/pretrained_models/<evomodel>/cfg.json -s <path/to/results>
+`
+
+Replace `<evomodel>` with the respective model available in `seqsharp/pretrained_models` and use the corresponding simulated and empirical data collection (i.e. set of MSAs) available at (...).
 
 ### Arguments explained
 
-**`-d <str>`** example: `-d my/path/to/empirical/data my/path/to/simulated/data`
+**`--sim <str>`** example: `--sim my/path/to/simulated/data`
 
-This argument specifies one or two paths to the directory(ies) containing fasta formatted files with multiple sequence alignments (MSAs) typically the first path should lead to the empirical MSAs while the second one should lead to the simulated alignments. Theses 2 data sets serve as an input for the supervised learning method. 
-It is possible to indicate only one path if the `--models` and `--test` options are used. In that case the given data will be used as an input to the given model(s).
+This argument specifies one or more directories containing files in fasta (*.fa*, *.fasta*) or phylib (*.phy*) format containing a simulated multiple sequence alignment (MSA). These data collections will be used to train, validate or test the classifier.
 
-**`-t`**
+**`--emp <str>`** example: `--emp my/path/to/empirical/data`
 
-This flag triggers the training of a Convolutional Neural Network (CNN) on the given data sets (specified by `-d`). It will carry out a binary classification task to distinguish real and simulated MSAs. Thereafter, the performance of the network will be plotted. Use `-s` to save the models and results in a folder.
+With **`--emp`** you can specify the directory for empirical MSAs in fasta (.fa, .fasta) or phylib (.phy) format. 
+
+**`-t`** or **`--train`**
+
+This flag triggers the training of a model on the given data collections (specified by `--sim` and `--emp`). 
+It will carry out a binary classification task to distinguish empirical and simulated MSAs. For this `--cfg` is required to configure the training.
+Except if a pretrained model is specified (`--model`). Then, training of that model is resumed and the cfg.json file in the model folder is used.
 
 **`--test`**
 
-A test of (a) trained CNN(s) is performed in which a (single) data set, specified by `-d` is inputted into the CNN and its performance is subsequently printed.
+Using this flag a pretrained model is tested on one or more data collections (specified by `--sim` and `--emp`). The entire data collection is fed to all trained models for all folds. The performance is printed and saved to the folder of the pretrained models.
 
+**`--validate`**
 
-**`-m <str>`** example: `-m my/path/to/my/trained/model(s)`
+Here the given model is tested on validation data, i.e. there are k folds that are splits into validation and training data, for each fold there is a trained network that is now tested on the given validation data (note that there is a fixed random seed for splitting the data).
 
-This argument can be used to specify a path to a file or directory. It can be either a `.pth` file or a directory containing one or more `.pth` files. These files should contain a trained CNN previously created with this program. 
+**`--attr`**
 
-**`--real`** 
+This functionality is currently not available.
+With this flag attribution maps (saliency and integrated gradients) are computed and summarized for the validation data. It can be used with a given model or after training/resuming a model.
 
-In combination with `-d` only specifying one data set this flag indicates that the data set is composed of empirical alignments. Without this flag set the data is assumed to be simulated. This argument is necessary in order to correctly evaluate the predictions of the tested CNN. 
+**`--clr`**
+
+With this flag cyclic learning rates are used for training. For this a lr range must be specified in the config file.
+
+**`-m <str>`** example: `-m my/path/to/my/pretrained/model`
+
+This argument can be used to specify a directory containing one or more `.pth` files (one per fold). These files should contain a pretrained seq#-model. 
 
 **`-c <str>`** example: `-c my/path/to/the/cfg/file.json`
 
-An argument that specifies a path to a file or directory with a cfguration of parameters in a json format that must look like the example shown below. If a directory is specified, the last modified json file in that directory will be used. The parameters include hyperparameters for the optimization and input size of the CNN, parameters specifying the architecture of the network and parameters for preprocessing the data. In addition, a newly generated cfguration file is stored in the `-s` directory as well as in the `-c` directory, which contains the path of the models and results as well as the rest of the parameters of the input cfguration. After preprocessing the data some of these parameters might have been adjusted.
+Here you can input the configuration file in json format (an example is shown below). The parameters include parameters for: training (e.g. hyperparameters), the model architecture and parameters for processing the data (e.g. padding type).
 
 **`-s <str>`** example: `-s my/path/to/where/models/and/results/will/be/stored`
 
-Plots (.png), eventually csv files and trained models (.pth) are saved in the directory specified with this argument. More specifically they will be stored in a newly generated folder starting with *cnn-* followed by a time stamp. 
-According to other used arguments result plots could be plots showing the performance of each fold of a training (*fig-fold-[fold number].png*) as well as the overall accuracy and loss during the training (*folds_learning_curve.png*). For the `--plot_stats` flag histograms will be saved (*hist_n_seqs.png*, *hist_n_sites.png*). Moreover, the cfg file will be saved in *conig.json*. 
-
-**`--track_stats`**
-
-Information of the input data will be stored in a csv file (*`-s`-directory/alns_stats.csv*) using this flag. Including for each alignment its: id (filename), amino acid frequencies, number of padded sites, number of sequences, number of sites, average mean squared error (mse) to the other alignments in the data set, maximum mse, minimum mse and if it is simulated or not.
-In addition, in case of training a model, training specific information is stored in a file (*`-s`-directory/aln_train_eval.csv*) containing: the fold number, the alignment ID, the accuracy (whether the alignment was correctly classified or not), whether or not it belonged to the validation data set, the average, minimum and maximum mse to the training data set, on the one hand to simulated and real MSAs on the other hand only to real MSAs if the MSA is empirical, respectively only to simulated MSAs if the MSA is simulated. 
+Plots of learning curves, tables with model performances, trained models (.pth) and/or attribution maps are saved in the directory specified with this argument. More specifically they will be stored in a newly generated folder starting with *cnn-* followed by a time stamp. 
+Moreover, the config file, including e.g. learning rates determined during training for each fold will be saved to this folder.
 
 **`--shuffle`**
 
-This flag causes the sites (columns) of the alignments specified in the first path with `-d` to be shuffled. The data in the specified path is not changed. The mixed alignments are used only when testing or training a model. 
+With this flag sites (columns) of the alignments will be permuted.
 
-**`--plot_stats`**
+**`--ncpus`**
 
-Calculation of the number of sites of the alignments in the given data sets as well as the number of sequences per alignment. Histograms are generated from these data, also showing their 0.25, 0.5 and 0.75 quantiles. These graphs are stored in the `-s` directory.
+Number of CPUs to use (only applies for loading data).
 
-**`--pairs`**
-
-This flag indicates that an alignment is represented by every possible pair of its sequences. Where one pair serves as one training example for the model. Please note that this will result in a large set of training examples. If this flag is not set, an alignment is represented by its amino acid frequencies for each site. 
-
-
-### Running the program: examples
-
-Open a terminal and make sure you are in the project folder:
-
-`cd path/to/mlaa`
+### How to train and test a model with seq#
 
 Train a model to distinguish real and simulated data:
 
-`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c cfgs/cfg.json
+`python seqsharp -t --emp <path/to/emp/data> --sim <path/to/sim/data> -c <path/to/cfg.json> -s <path/to/results>
 `
 
-Use a train model to test it on empirical data: 
+Resume training of a pretrained model: 
 
-` python sequenceClassifier.py -d data/fasta_real --test -c results/cnn-example/cfg.json -m results/cnn-example
+`python seqsharp -t --emp <path/to/emp/data> --sim <path/to/sim1/data> -m <path/to/pretrained/models>
 `
 
-Train a model and save it and its performance plots:
+Use a pretrained model to test it on multiple data collections: 
 
-`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c cfgs -s results/example
+`python seqsharp --test --emp <path/to/emp/data> --sim <path/to/sim1/data> <path/to/sim2/data> -m <path/to/pretrained/models>
 `
 
-Train a model, additionally saving information about the data and the training in csv files:
+Test a pretrained model on simulated and empirical validation data: 
 
-`python sequenceClassifier.py -d data/fasta_real data/fasta_sim -t -c cfgs -s results/example --track_stats
-`
-
-Plot the distribution of the number of sites and the number of sequences per alignment: 
-
-`python3 sequenceClassifier.py -d data/fasta_real data/fasta_sim --plot_stats -c cfgs -s results/example
+`python seqsharp --validate --emp <path/to/emp/data> --sim <path/to/sim/data> -m <path/to/pretrained/models>
 `
 
 ### cfg.json
 
-an example `cfg.json` file looks like this:
+An example config file looks like this:
 
 ```
 {
     "data": 
     {
-        "n_alignments": 2500, 
-        "min_seqs_per_align": 4, 
-        "max_seqs_per_align": 1000, 
-        "n_sites": 1000, "padding": "data"
+        "n_alignments": [7000, 8000],  # No. alignments
+        "n_sites": "10000",  # No. sites i.e. sequence length
+        "padding": "zeros",  # type of padding: "zeros", "gaps", or "data"
+        "molecule_type": "protein"  # put "DNA" for nucleotides
     }, 
-    
-    "hyperparameters": 
+    "training": 
     {
         "batch_size": 128, 
-        "epochs": 20, 
-        "lr": 0.01, 
-        "optimizer": "Adagrad", 
-        "n_folds": 10
+        "epochs": 1000,  # max. No. epochs
+        "lr": "",
+        "lr_range": [1e-10,0.1],  # for learning rate range test
+        "optimizer": "Adam",  # options: "Adam", "SGD", "Adagrad"
+        "n_folds": 10  # the k in k-fold cross validation
     }, 
-        
-    "conv_net_parameters": 
+    "model": 
     {
-        "n_conv_layer": 2, 
-        "n_lin_layer": 1, 
-        "kernel_size": 5, 
-        "do_maxpool": 1
+        "channels": [21],  # No. of channels
+        "n_lin_layer": 1,  # No. of linear layers
+        "kernel_size": 1,  # kernel size per conv. layer
+        "pooling": 0,  # 0: no pooling, 1: local max. pooling, 2: global avg. pooling
+        "input_size": 1  # to use the max. No. of sites in your data collections remove this line 
     }, 
-    
-    "results_path": "", 
-    "comments": "This is an example cfguration"
-}
+    "results_path": "",  # the path specified under -s will be put here automatically
+    "comments": "Put your comments, notes here"}
 ```
-Note that you do not have to specify the batch size and the learning rate. In this case, enter `""` instead of a value. Consequently, the following batch sizes are used: `32, 64, 128, 256, 512`. The learning rates in that case are: `0.1, 0.01, 0.001, 0.0001`. All batch sizes and learning rates are combined and used for different trainings. In the end, only the results and models of the training with the best validation accuracy are stored. 
-If you want to use your own parameter spaces, you can specify them like this:
+##### Remarks to parameters in `data`:
+- `n_alignments`: Here you can put the number of alignments you want to use. You can specify an Integer to use the same number for all data collections. To use all MSAs available you can specify `""`. Otherwise, the number of alignments for each input data collection needs to be specified (see example above) in the following order: empirical data collection, first simulated data collection (, second simulated data collection etc.).
+- `n_sites`: All alignments with more than `n_sites` sites will not be considered. For an unlimited number of sites you can specify `""`.
+- `padding`: Alignments with fewer than `input_size` sites will be padded on the edges, such that all MSAs have the same number of sites. Options are "zeros", "gaps" or "data". The latter will use uniformly sampled amino acids / nucleotides.
 
-``` 
-"batch_size": [128, 64]  
-"lr": [0.01, 0.0001]  
-```
+##### Remarks to parameters in `training`:
+- `lr`: `lr` can be either a learning rate e.g. *0.001* or a list of learning rates with one learning rate per fold e.g. *[1e-5, 0.01, 0.001, ...]* 
+-  `lr_range`: If you specify `lr_range` as in the example file above the given range will be used to perform a learning rate range test. In this case `lr` will be ignored. For each fold a tenth of the determined upper bound will be used for training.
 
-### Results
+##### Remarks to parameters in `model`:
+- `channels`: Determines the number of input/output channels and the number of convolution (conv.) layers. In the above example there are only 21 input channels specified, so no conv. layer will be used. The input channels stand for gaps and AAs (21) or nucleotides (5). To use conv. layers output channels need to be specified as well. E.g *[21, 210]*, means that there will be one conv. layer with 210 output channels or *[5, 100, 210]* means that 2 conv. layers will be used. The first of which will output 100 channels and the second 210. 
+- `n_lin_layer`: Linear layers succeed the conv. layers. If more than one layer is to be used, then for each inner linear layer the number of output nodes is reduced by half and a ReLU is applied. The last linear layer for the binary classification has a single output node.
+- `pooling`: Pooling succeeds the conv. layer(s). If multiple conv. layers are used, pooling will be applied after each layer in the case of maximum local pooling and solely after the last layer in the case of global average pooling.
+- `input_size`: Corresponds to the sequence length, i.e. number of sites, plus padding. If it is `""`, it will be set to the maximum number of sites in all input MSAs. All MSAs with more than `input_size` sites will be cropped on the edges and all MSAs with fewer sites will be padded as explained above. In the example the input size of 1 indicates that the average MSA composition shall be used instead of site-wise compositions (hereby reducing the input size to 1). 
 
-When training a model the printed output before and during the learning process looks like this:
+### Standard output of a successful run
+
+When training a model (`--train`) the standard output should look similar to this:
 
 ```
 Loading alignments ...
+  9%|███████████▌                                                                                                                           | 599/6971 [00:05<00:53, 118.26it/s]
+
+
+ => In 74 out of 600 MSAs 1.45% sites include ambiguous letters
+Loaded 600 MSAs from 600 files from ../data/hogenom_fasta with success
+
+  9%|████████████▍                                                                                                                           | 639/6971 [00:07<01:10, 90.13it/s]
+
+
+Loaded 640 MSAs from 640 files from ../data/alisim_lg_gapless_trees with success
+
+      hogenom_fasta              alisim_lg_gapless_trees             
+           No.seqs.     No.sites                No.seqs.     No.sites
+count    600.000000   600.000000              640.000000   640.000000
+mean      24.863333   443.200000               25.107813   470.553125
+std       33.109188   264.428448               35.035050   275.045787
+min        4.000000    40.000000                4.000000    42.000000
+25%        7.000000   237.500000                6.000000   243.750000
+50%       13.000000   394.000000               12.000000   441.000000
+75%       30.000000   593.250000               29.000000   644.250000
+max      318.000000  1428.000000              271.000000  1400.000000
+----------------------------------------------------------------
 Generating alignment representations ...
-Preloaded data uses : 8e-08GB
+100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2/2 [00:01<00:00,  1.47it/s]
 
+Compute device: cpu
 
-Compute device: cuda:0
+Random seed: 42
 
+----------------------------------------------------------------
+        Batch size: 8
+        Learning rate: [0.01, 0.01, 0.01]
+----------------------------------------------------------------
 FOLD 1
 ----------------------------------------------------------------
-Building training and validation data set ...
-Finished after 0.1s
-
-Epoch [0], loss: 0.693507194519043, acc: 0.5
+Epoch [0] Initial Model
+Training: Loss: 0.6929, Acc.: 0.5
+Validation: Loss: 0.6938, Acc.: 0.5, Emp. acc.: 0.0, Sim. acc.: 1.0
 Epoch [1]
-Training: Loss: 0.6885, Acc.: 0.6788
-Validation: Loss: 0.6892, Acc.: 0.6627
+Training: Loss: 0.4922, Acc.: 0.7514
+Validation: Loss: 0.5899, Acc.: 0.6475, Emp. acc.: 0.365, Sim. acc.: 0.9299
 Epoch [2]
-Training: Loss: 0.6905, Acc.: 0.6863
-Validation: Loss: 0.691, Acc.: 0.6468
-Epoch [3]
-Training: Loss: 0.6914, Acc.: 0.7155
-Validation: Loss: 0.6917, Acc.: 0.6786
+Training: Loss: 0.1984, Acc.: 0.9162
+Validation: Loss: 0.6029, Acc.: 0.6783, Emp. acc.: 0.45, Sim. acc.: 0.9065
+----------------------------------------------------------------
+FOLD 2
+----------------------------------------------------------------
+Epoch [0] Initial Model
+Training: Loss: 0.6926, Acc.: 0.5
+Validation: Loss: 0.6928, Acc.: 0.5, Emp. acc.: 0.0, Sim. acc.: 1.0
+Epoch [1]
+Training: Loss: 0.4999, Acc.: 0.8428
+Validation: Loss: 0.6082, Acc.: 0.7412, Emp. acc.: 0.905, Sim. acc.: 0.5775
+Epoch [2]
+Training: Loss: 0.1795, Acc.: 0.9646
+Validation: Loss: 0.6249, Acc.: 0.7508, Emp. acc.: 0.835, Sim. acc.: 0.6667
+----------------------------------------------------------------
+FOLD 3
+----------------------------------------------------------------
+Epoch [0] Initial Model
+Training: Loss: 0.6935, Acc.: 0.4813
+Validation: Loss: 0.6931, Acc.: 0.5106, Emp. acc.: 0.81, Sim. acc.: 0.2113
+Epoch [1]
+Training: Loss: 0.6366, Acc.: 0.7978
+Validation: Loss: 0.6605, Acc.: 0.7205, Emp. acc.: 0.61, Sim. acc.: 0.831
+Epoch [2]
+Training: Loss: 0.3336, Acc.: 0.9296
+Validation: Loss: 0.5542, Acc.: 0.7599, Emp. acc.: 0.825, Sim. acc.: 0.6948
 
-( ... )
+#########################  PERFORMANCE  #########################
+
+
+---- Performance on validation data
+
+        best_epoch      loss      bacc  acc_emp   acc_sim
+Fold 1           2  0.602858  0.678271    0.450  0.906542
+Fold 2           2  0.624862  0.750833    0.835  0.666667
+Fold 3           2  0.554171  0.759918    0.825  0.694836
+
+---- Summary
+
+          loss      bacc  bacc_close_epochs   acc_emp   acc_sim  abs(emp-sim)
+mean  0.593964  0.729674           0.603302  0.703333  0.756015      0.251680
+std   0.036175  0.044747           0.141078  0.219450  0.131119      0.178439
+min   0.554171  0.678271           0.503545  0.450000  0.666667      0.130164
+max   0.624862  0.759918           0.703060  0.835000  0.906542      0.456542
+
+Not saving models and evaluation plots. Please use --save and specify a directory if you want to save your results!
 ```
 
-For testing a trained network you can expect an output like this: 
+For testing a trained network (`--test`) you can expect a standard output similar to the following: 
 
 ```
 Loading alignments ...
-Only 2690 / 5517 fasta files taken into account.
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 6971/6971 [00:59<00:00, 117.01it/s]
+
+
+ => 2 file(s) have too few (<=10) sites after removing sites with ambiguous letters.
+ => In 912 out of 6969 MSAs 1.34% sites include ambiguous letters
+Loaded 6969 MSAs from 6971 files from ../data/hogenom_fasta with success
+
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 6971/6971 [01:12<00:00, 96.64it/s]
+
+
+Loaded 6971 MSAs from 6971 files from ../data/alisim_lg_gapless_trees with success
+
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 6971/6971 [01:12<00:00, 95.97it/s]
+
+
+Loaded 6971 MSAs from 6971 files from ../data/alisim_poisson_gapless_trees with success
+
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 6971/6971 [01:12<00:00, 96.77it/s]
+
+
+Loaded 6971 MSAs from 6971 files from ../data/alisim_lg_gc_gapless with success
+
+      hogenom_fasta              alisim_lg_gapless_trees              alisim_poisson_gapless_trees              alisim_lg_gc_gapless             
+           No.seqs.     No.sites                No.seqs.     No.sites                     No.seqs.     No.sites             No.seqs.     No.sites
+count   6969.000000  6969.000000             6971.000000  6971.000000                  6971.000000  6971.000000          6971.000000  6971.000000
+mean      24.462764   452.276223               24.470664   449.561756                    24.470664   451.254053            24.470664   451.472673
+std       32.190250   275.759029               32.192759   274.914377                    32.192759   274.074809            32.192759   273.085064
+min        4.000000    27.000000                4.000000    42.000000                     4.000000    41.000000             4.000000    41.000000
+25%        7.000000   232.000000                7.000000   230.500000                     7.000000   233.500000             7.000000   232.000000
+50%       13.000000   404.000000               13.000000   399.000000                    13.000000   403.000000            13.000000   398.000000
+75%       29.000000   619.000000               29.000000   614.000000                    29.000000   619.500000            29.000000   622.000000
+max      335.000000  1479.000000              335.000000  1478.000000                   335.000000  1477.000000           335.000000  1473.000000
+----------------------------------------------------------------
 Generating alignment representations ...
-Building validation data set ...
+100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 4/4 [00:30<00:00,  7.52s/it]
 
-model 1, accuracy: 0.1524(0.9701)
-model 2, accuracy: 0.1323(0.9782)
-model 3, accuracy: 0.171(0.981)
-model 4, accuracy: 0.1743(0.9691)
-model 5, accuracy: 0.1335(0.9746)
-model 6, accuracy: 0.0996(0.9583)
-model 7, accuracy: 0.1197(0.9664)
-model 8, accuracy: 0.0963(0.9774)
-model 9, accuracy: 0.0349(0.9783)
-model 10, accuracy: 0.1435(0.9665)
 
-Average: 0.1258, Standard deviation: 0.0392
-Average acc. after training: 0.972, Standard deviation: 0.0067
+#########################  PERFORMANCE  #########################
+
+              emp           alisim_lg_gapless_trees           alisim_poisson_gapless_trees           alisim_lg_gc_gapless          
+             loss       acc                    loss       acc                         loss       acc                 loss       acc
+Fold 1   0.211348  0.924953                0.199603  0.967006                     0.709262  0.867307             0.695358  0.742505
+Fold 2   0.178218  0.938155                0.218943  0.959116                     0.839445  0.828145             0.815042  0.700473
+Fold 3   0.189289  0.938729                0.217910  0.959690                     1.254817  0.488309             0.753810  0.712093
+Fold 4   0.182957  0.934998                0.213677  0.962990                     1.329637  0.505953             0.829666  0.702195
+Fold 5   0.256862  0.900703                0.160053  0.974609                     0.533980  0.900875             0.519630  0.814087
+Fold 6   0.172813  0.941742                0.241159  0.954813                     1.209236  0.632908             0.890546  0.670205
+Fold 7   0.160753  0.947912                0.252409  0.953235                     1.081125  0.742648             0.985645  0.644814
+Fold 8   0.167361  0.943751                0.234418  0.956104                     1.258109  0.585999             0.923246  0.662172
+Fold 9   0.189275  0.931841                0.204222  0.963994                     0.786245  0.846794             0.755206  0.723569
+Fold 10  0.184705  0.933132                0.226271  0.959260                     1.133959  0.708937             0.861923  0.688567
+min      0.160753  0.900703                0.160053  0.953235                     0.533980  0.488309             0.519630  0.644814
+max      0.256862  0.947912                0.252409  0.974609                     1.329637  0.900875             0.985645  0.814087
+std      0.027493  0.013264                0.025715  0.006368                     0.274843  0.151662             0.131825  0.047907
+mean     0.189358  0.933592                0.216867  0.961082                     1.013582  0.710788             0.803007  0.706068
 ```
-
-
-## Formatting and Simulations Generator (fsg)
-
-### Usage
-
-In order to generate simulations, please download the Seq-Gen simulator from [here](http://tree.bio.ed.ac.uk/software/seqgen/)
-
-To run the script use:
-
-`python fsg.py [args]`
-
-Type `python fsg.py -h` obtain the output below for possible arguments:
-
-```
-usage: fsg.py [-h] [-f] [--ocaml] [-s simulator path hogenom fasta path] [-r] [-n min number of sequences max number of sequences] [-a NUMBERALIGNS] indir outdir
-
-positional arguments:
-  indir                 the </path/to/> input directory or file
-  outdir                the </path/to/> output directory or file
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -f, --format          format newick trees such that they can be passed to the simulator. Per default files are formatted for the Seq-Gen simulator. Use --ocaml to format for the ocaml-simulator
-  --ocaml               Indicate reformatting for simulations with the ocaml-simulator
-  -s simulator path hogenom fasta path, --simulator simulator path hogenom fasta path
-                        simulate sequences from newick trees. Requires </path/to/> seq-gen or ocaml-sim executable.
-  -r, --removegaps      remove column(s) with gap(s) from input fasta file or directory and save alignment(s) without gaps in given output file or directory
-
-arguments for simulation:
-  -n min number of sequences max number of sequences, --numberseqs min number of sequences max number of sequences
-                        2 integers determining minimum/maximum number of sequences to be simulated per alignmnet default: (4,300)
-  -a NUMBERALIGNS, --numberaligns NUMBERALIGNS
-                        the number of alignments to be simulated
-```
-
-### Arguments explained 
-
-**`indir <str>`** example: `my/path/to/input/data`
-
-The input folder can contain newick trees (.ph), newick trees especially reformatted for Seq-Gen (.tree) or fasta files.
-
-**`outdir <str>`** example: `my/path/to/output/directory`                
-    
-Specify the directory where formatted trees or fasta files or simulated alignments should be stored.
-
-**`-f`**
-
-Flag indicating that you want to reformat newick trees for a simulator. Per default given trees are reformatted in order to be passed to the Seq-Gen simulator. In that case, if the first node is terminal, then the first non-terminal node will be exchanged with the terminal one. Furthermore, confidence values will be removed form the trees.   
-
-**`--ocaml`**
-
-This flag indicates that trees should be formatted to perform simulations with the ocaml-simulator. If so, only confidence values will be deleted from the tree. 
-
-
-**`-s <str> <str>`** example: `-s my/path/to/Seq-Gen/source/seq-gen my/path/to/empirical/fastas`
-
-The first path needs to be the directory to [the `seq-gen` program](http://tree.bio.ed.ac.uk/software/seqgen/) or the [ocaml-executable `_build/default/simulator.exe`](https://gitlab.in2p3.fr/pveber/mlaa/-/tree/indel-simulator/ocaml) , while the second directory has to contain fasta formatted sequence alignment. The simulations with Seq-Gen will be based on the amino acid frequency and number of sites of these MSAs.  
-While the ocaml-simulator uses a given rate matrix and a set of amino acid profiles. The files need to be named: [`wag.dat`](https://www.ebi.ac.uk/goldman-srv/WAG/wag.dat) and [`263SelectedProfiles.tsv`](https://gitlab.in2p3.fr/pveber/codepi/-/blob/master/example/aa_fitness/263SelectedProfiles.tsv) and need to be in the partent folder of the parent folder of the ocaml-executable (in `exe-folder/../..`). The insertion and deletion rate for the simulations are currently set to zero. 
-
-**`-n` <int> <int>** example: `-n 3 1000`
-
-Minimum and maximum number of sequences for each simulated alignment. The default values are 4 and 300. 
-
-**`-a` <int>** example: `-a 300`
-
-Argument to specify the desired number of simulations (alignments).
-
-**`-r`**
-
-Flag indicating that gaps and indels (`'-'`) shall be removed from inputted fasta files. Note that the directory for the alignments has to be given by the positional argument `indir`.
-
-### The generation of simulations: Walk Through
-
-1. Reformat your newick trees so that they are accepted by Seq-Gen:
-
-`python fsg.py data/hogenom_trees data/seq_gen_input_trees -f
-`
-
-2. Remove gaps/indels from the empirical alignments:
-
-`python fsg.py data/fasta_real_gaps_indels data/fasta_real_no_gaps_indels -r
-`
-
-3. Run the simulations:
-
-` python3 fsg.py data/seq_gen_input_trees data/simulations -s ../../Seq-Gen/source/seq-gen data/fasta_real_no_gaps_indels -a 99 -n 3 1000
-`
-
-Note that you need to replace `../../Seq-Gen/source/seq-gen` with your path to the simulator.
-
-## Organisation of scripts
-
-The following diagram illustrates the dependencies between scripts.
-
-
-```mermaid
-graph TD 
-SC("sequenceClassifier <br/> main()")
-SC --> U(utils)
-SC --> S(stats)
-SC --> CN(ConvNet)
-SC --> T(train_eval)
-SC --> P(preprocessing)
-SC --> PL(plots)
-
-F("fsg <br/> main()")
-
-T --> P
-T --> CN
-T --> S
-
-P --> S
-P --> U
-
-PL --> U
-
-S --> U
-
-U --> CN
-
-F --> P
-F --> S
-
-style SC fill:#77e5c8
-style F fill:#77e5c8
-```
+Please note that you will encounter the warning: `UserWarning: y_pred contains classes not in y_true` which is triggered if not all labels are present when using the balanced accuracy function of sklearn (which is the case here because it is applied to each class separately).
 
