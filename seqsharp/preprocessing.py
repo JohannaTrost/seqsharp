@@ -8,6 +8,7 @@ the child classes of *torch.utils.data.Dataset*
 import errno
 import os
 
+import numpy as np
 import psutil
 import torch
 import multiprocessing as mp
@@ -234,7 +235,7 @@ def load_msa(filename):
     return alned_seqs_raw
 
 
-def load_alns(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
+def load_alns(fasta_dir, n_alns=None, seq_len=None,
         molecule_type='protein', rem_ambig_chars='remove'):
     """Extracts alignments from fasta files in given directory
 
@@ -249,39 +250,28 @@ def load_alns(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
              list of alignment identifiers (strings)
     """
 
-    # load fasta filenames
-    if fasta_dir.endswith('.txt'):
-        # files in txt file must be in same directory as data!
-        fasta_files = np.genfromtxt(fasta_dir, dtype=str)
-        if not fasta_files[0].endswith('.fasta'):
-            fasta_files = np.core.defchararray.add(fasta_files,
-                                                   np.repeat('.fasta',
-                                                             len(fasta_files)))
-        fasta_dir = '/'.join(fasta_dir.split('/')[:-1])
-    else:
-        fasta_files = np.asarray(os.listdir(fasta_dir))
-
-    if len(fasta_files) == 0:
+    fasta_files = np.asarray(os.listdir(fasta_dir))
+    n_files = len(fasta_files)
+    if n_files == 0:
         raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
-                         f'No fasta files in directory {fasta_dir}')
+                         f'No files (with .fa, .fasta, .phy extension) '
+                         f'in directory {fasta_dir}')
 
     if molecule_type == 'protein':
         ambig_chars = PROTEIN_AMBIG.keys()
-    else:
+    elif molecule_type == 'DNA':
         ambig_chars = DNA_AMBIG.keys()
 
     # load and preprocess MSAs
-    alns, fastas = [], []
+    alns, files = [], []
     frac_ambig_mol_sites = []
-    count_empty, count_wrong_mol_type, count_too_long = 0, 0, 0
+    cnt_empty, cnt_empty_rem, cnt_wrong_mol_type, cnt_too_long = 0, 0, 0, 0
     for file in tqdm(fasta_files):
         aln = load_msa(fasta_dir + '/' + file)
         if len(aln) > 0:  # check if no sequences
-            # check if num sites
-            if len(aln[0]) > 0:
-                # exceeds max seq len
+            if len(aln[0]) > 0:  # check if no sites
+                # check if MSA exceeds max num. of sites
                 if seq_len is None or len(aln[0]) <= seq_len:
-                    # clean up
                     if is_mol_type(aln, molecule_type):
                         # deal with ambiguous letters
                         frac_ambig = get_frac_sites_with(ambig_chars, aln)
@@ -296,94 +286,57 @@ def load_alns(fasta_dir, quantiles=False, n_alns=None, seq_len=None,
                         if len(aln[0]) > 10:  # exclude alns with <=10 sites
                             frac_ambig_mol_sites.append(frac_ambig)
                             alns.append(aln)
-                            fastas.append(file)
+                            files.append(file)
                         else:
-                            count_empty += 1
-                            print(f'{file} empty after cleaning: '
-                                  f'{frac_ambig} amig. letters')
+                            cnt_empty_rem += 1
                     else:
-                        count_wrong_mol_type += 1
+                        cnt_wrong_mol_type += 1
                 else:
-                    count_too_long += 1
+                    cnt_too_long += 1
             else:
-                count_empty += 1
+                cnt_empty += 1
         else:
-            count_empty += 1
+            cnt_empty += 1
 
         if n_alns is not None and n_alns == len(alns):
             break
 
-    fastas = np.asarray(fastas)
+    files = np.asarray(files)
     frac_ambig_mol_sites = np.asarray(frac_ambig_mol_sites)
 
     print('\n')
-    if count_empty > 0:
-        print(f'{count_empty} empty file(s)')
-    if count_wrong_mol_type > 0:
-        print(f'{count_wrong_mol_type} file(s) did not contain '
-              f'{molecule_type} sequences')
-    if count_too_long > 0:
-        print(f'{count_too_long} file(s) have too long sequences '
-              f'>{seq_len}')
+    if cnt_empty > 0:
+        print(f' => {cnt_empty} empty file(s)')
+    if cnt_wrong_mol_type > 0:
+        print(f' => {cnt_wrong_mol_type} file(s) did not contain '
+              f'{molecule_type} MSAs')
+    if cnt_too_long > 0:
+        print(f' => {cnt_too_long} file(s) have too many sites >{seq_len}')
+    if cnt_empty_rem > 0:
+        print(f' => {cnt_empty_rem} file(s) have too few (<=10) sites after '
+              f'removing sites with ambiguous letters.')
     if np.sum(frac_ambig_mol_sites != 0) > 0:
-        print(f'In {np.sum(frac_ambig_mol_sites != 0)} out of {len(alns)} MSAs '
-              f'{np.round((np.sum(frac_ambig_mol_sites) / len(frac_ambig_mol_sites)) * 100, 2)}% sites '
-              f'include ambiguous letters.')
+        perc_ambig_sites = np.round(np.mean(frac_ambig_mol_sites) * 100, 2)
+        print(f' => In {np.sum(frac_ambig_mol_sites != 0)} out of '
+              f'{len(alns)} MSAs {perc_ambig_sites}% sites include '
+              f'ambiguous letters')
 
-    n_seqs = np.asarray(get_n_seqs_per_msa(alns))  # msa rows
-    n_sites = np.asarray(get_n_sites_per_msa(alns))  # msa columns
-
-    if quantiles:  # optional
-        # such that min = 4 for 6000 MSAs and max < 400
-        q_ns = (np.quantile(n_seqs, 0.39), np.quantile(n_seqs, 0.998))
-        q_sl = (np.quantile(n_sites, 0.05), np.quantile(n_sites, 0.95))
-
-        print(f'\nq_ns : {q_ns} (0.25, 0.998)\nq_sl : {q_sl} (0.05, 0.95)\n')
-
-        ind_q_ns = np.where((q_ns[0] <= n_seqs) & (n_seqs <= q_ns[1]))[0]
-        ind_q_sl = np.where((q_sl[0] <= n_sites[ind_q_ns]) &
-                            (n_sites[ind_q_ns] <= q_sl[1]))[0]
-
-        # filter : keep MSAs with seq. len. and n.seq. within above quantiles
-        n_seqs = n_seqs[ind_q_ns][ind_q_sl]
-        n_sites = n_sites[ind_q_ns][ind_q_sl]
-        fastas = fastas[ind_q_ns][ind_q_sl]
-        alns = [alns[i] for i in ind_q_ns]
-        alns = [alns[i] for i in ind_q_sl]
-
-    if n_alns is not None:  # optional
-        if (n_alns - len(fastas)) > 0:  # we get less MSAs than wanted
-            print(f'Only {len(fastas)} / {n_alns} fasta files taken into '
-                  f'account.')
-        else:  # restrict number of MSAs to n_alns
-            fastas = fastas[:n_alns]
-            n_seqs = n_seqs[:n_alns]
-            n_sites = n_sites[:n_alns]
-            alns = alns[:n_alns]
-
-    print(f'\n{len(alns)} MSAs loaded from {fasta_dir}\n')
+    print(f'Loaded {len(alns)} MSAs from '
+          f'{n_alns if n_alns is not None else n_files} files from {fasta_dir} '
+          f'with success\n')
 
     if len(alns) > 0:
-        out_stats = {'n_seqs_min': n_seqs.min(),
-                     'n_seqs_max': n_seqs.max(),
-                     'n_seqs_avg': n_seqs.mean(),
-                     'seq_lens_min': n_sites.min(),
-                     'seq_lens_max': n_sites.max(),
-                     'seq_lens_avg': n_sites.mean()}
+        stats = pd.DataFrame({'No.seqs.': get_n_seqs_per_msa(alns),
+                              'No.sites': get_n_sites_per_msa(alns)}).describe()
     else:
-        out_stats = {}
+        stats = None
 
-    if quantiles:
-        print('After filtering quantiles:')
-    print(out_stats)
-
-    return alns, fastas, out_stats
+    return alns, files, stats
 
 
-def load_msa_reprs(path, pairs, n_alns=None):
-    """Load msa representations from a directory, TODO handel pair repr
+def load_msa_reprs(path, n_alns=None):
+    """Load msa representations from a directory
 
-    :param pairs: True if pair representation is given False otherwise
     :param path: <path/to/dir> directory containing csv files with msa reprs.
     :return: list of msa reprs., list (n_alns) with filenames without extension
     """
@@ -395,14 +348,9 @@ def load_msa_reprs(path, pairs, n_alns=None):
     filenames = []
     msa_reprs = []
     for file in files:
-        print(file)
         filenames.append(file.split('.')[0])
-        if not pairs:
-            msa_reprs.append(np.genfromtxt(f'{path}/{file}', delimiter=','))
-        else:
-            raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
-                             'load representations not yet possible for pair '
-                             'representations')
+        msa_reprs.append(np.genfromtxt(f'{path}/{file}', delimiter=','))
+
     return msa_reprs, filenames
 
 
@@ -428,7 +376,7 @@ def remove_gaps(alns):
     return alns_no_gaps
 
 
-def encode_aln(alned_seqs_raw, seq_len, padding='', molecule_type='protein'):
+def encode_aln(aln, seq_len, padding='', molecule_type='protein'):
     """Transforms aligned sequences to (padded) one-hot encodings
 
     Trims/pads the alignment to a certain number of sites (*seq_len*)
@@ -437,28 +385,26 @@ def encode_aln(alned_seqs_raw, seq_len, padding='', molecule_type='protein'):
     zeros or random amino acids (according to *padding*)
 
     :param molecule_type: either protein or DNA sequences
-    :param alned_seqs_raw: list of amino acid sequences (strings)
+    :param aln: list of amino acid sequences (strings)
     :param seq_len: number of sites (integer)
     :param padding: 'data' or else padding will use zeros
     :return: one-hot encoded alignment (3D array)
     """
 
     # encode sequences and limit to certain seq_len (seq taken from the middle)
-    if len(alned_seqs_raw[0]) > seq_len:
-        diff = len(alned_seqs_raw[0]) - seq_len  # overhang
+    if len(aln[0]) > seq_len:
+        diff = len(aln[0]) - seq_len  # overhang
         start = int(np.floor((diff / 2)))
         end = int(-np.ceil((diff / 2)))
         seqs = np.asarray([index2code(seq2index(seq[start:end],
                                                 molecule_type),
-                                      molecule_type).T
-                           for seq in alned_seqs_raw])
+                                      molecule_type).T for seq in aln])
     else:
         seqs = np.asarray([index2code(seq2index(seq, molecule_type),
-                                      molecule_type).T
-                           for seq in alned_seqs_raw])
+                                      molecule_type).T for seq in aln])
 
-    if len(alned_seqs_raw[0]) < seq_len:  # padding
-        pad_size = int(seq_len - len(alned_seqs_raw[0]))
+    if len(aln[0]) < seq_len:  # padding
+        pad_size = int(seq_len - len(aln[0]))
         pad_before = int(pad_size // 2)
         pad_after = (int(pad_size // 2) if pad_size % 2 == 0
                      else int(pad_size // 2 + 1))
@@ -486,52 +432,10 @@ def encode_aln(alned_seqs_raw, seq_len, padding='', molecule_type='protein'):
         return seqs
 
 
-def seq_pair_worker(alns):
-    """Legacy function Generates pair representation for given alignments"""
-
-    return [make_seq_pairs(aln) for aln in alns]
-
-
 def get_aln_repr(alned_seqs):
     """Returns proportions of amino acids at each site of the alignment"""
 
     return np.sum(alned_seqs, axis=0) / len(alned_seqs)
-
-
-def make_seq_pairs(alned_seqs):
-    """Returns pairwise alignment representation
-
-    Representation consists of the sum of 2 pairs and the amino acid
-    proportions at each site for the rest of the sequences
-
-    :param alned_seqs: one-hot encoded aligned sequences (3D array)
-    :return: pair representation (3D array (pair, aa, sites))
-    """
-
-    inds = np.asarray(np.triu_indices(len(alned_seqs), k=1))  # pair indices
-
-    sums = alned_seqs[inds[0], :, :] + alned_seqs[inds[1], :, :]
-    sum_all_seqs = np.sum(alned_seqs, axis=0)
-    aa_prop_no_pair = (sum_all_seqs - sums) / (len(alned_seqs) - 2)
-
-    return np.concatenate((sums / 2, aa_prop_no_pair), axis=1)
-
-
-def make_pairs_from_alns_mp(alns):
-    """Legacy function Generates pair representations using multi threading"""
-
-    threads = len(alns) if THREADS > len(alns) else THREADS + 0
-
-    alns_chunks = list(split_lst(alns, threads))
-
-    work = [alns_chunks[i] for i in range(threads)]
-
-    with mp.Pool() as pool:
-        res = pool.map(seq_pair_worker, work)
-
-    pairs_per_aln = flatten_lst(res)
-
-    return pairs_per_aln
 
 
 class TensorDataset(Dataset):
@@ -540,22 +444,12 @@ class TensorDataset(Dataset):
         Attributes
         ----------
         data : FloatTensor
-            alignment representations
-            (either for sequence pairs or full alignments)
+            alignment representations (site-wise compositions)
         labels : FloatTensor
             0 for empirical, 1 for simulated
     """
 
-    def __init__(self, data, labels, pairs=False):
-        if pairs:  # remove MSA dimension
-            n_real = np.sum([len(data[i]) for i, label in enumerate(labels)
-                             if label == 0])
-            n_sim = np.sum([len(data[i]) for i, label in enumerate(labels)
-                            if label == 1])
-            labels = [0] * n_real + [1] * n_sim
-            # remove first dimension from (aln, pair, chnls, sites) array
-            data = np.concatenate(data)
-
+    def __init__(self, data, labels):
         self.labels = torch.FloatTensor(labels)
         self.data = torch.from_numpy(data).float()
 
@@ -566,52 +460,30 @@ class TensorDataset(Dataset):
         return self.data.size(0)
 
 
-class DatasetAln(Dataset):
-    """Generates dataset from pair representation for one alignment
-
-    To be able to evaluate the performance per alignment when using the
-    pair representation, because here the information about the membership
-    of a pair to an alignment is usually lost
-    """
-
-    def __init__(self, aln, real):
-        self.data = torch.from_numpy(np.asarray(aln)).float()
-        labels = [0] * len(aln) if real else [1] * len(aln)
-        self.labels = torch.FloatTensor(labels)
-
-    def __getitem__(self, index):
-        return self.data[index], self.labels[index]
-
-    def __len__(self):
-        return self.data.size(0)
-
-
-def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
-        quantiles=None, shuffle=False,
-        molecule_type='protein'):
-    """Loads and preprocesses raw (not encoded) alignments
+def raw_alns_prepro(data_paths, n_alns=None, seq_len=None, shuffle=False,
+                    molecule_type='protein'):
+    """Loading and preprocessing raw (not encoded) alignments
 
     :param shuffle: shuffle sites if True
     :param molecule_type: indicate if either 'protein' or 'DNA' sequences given
-    :param quantiles: if True keep MSAs where seq. len. and n. seq.
-                      within quantiles
-    :param fasta_paths: <path(s)/to> empirical/simulated fasta files
-                        (list/tuple of strings)
-    :param params: parameters for preprocessing (dictionary)
-    :return: ids, preprocessed string alignments, updated param. dict.
+    :param data_paths: <path(s)/to> empirical/simulated fasta files
+                       (list of strings)
+    :return: filtered filenames (2D list of strings),
+             preprocessed alignments (3D list of strings),
+             max. No. sites over all MSAs
     """
 
-    quantiles = [False] * len(fasta_paths) if quantiles is None else quantiles
     n_alns = None if n_alns == '' else n_alns
     seq_len = None if seq_len == '' else seq_len
-
-    params = {}
 
     print("Loading alignments ...")
 
     # load sets of multiple aligned sequences
-    alns, fastas, stats = [], [], []
-    for i, path in enumerate(fasta_paths):
+    datasets = [os.path.basename(str(p)) for p in data_paths]
+    cols = pd.MultiIndex.from_product([datasets, ['No.seqs.', 'No.sites']])
+    max_n_sites_cls = -np.inf
+    alns, files, stats = [], [], pd.DataFrame(columns=cols)
+    for i, path in enumerate(data_paths):
         path = str(path)
         size = n_alns[i] if isinstance(n_alns, list) else n_alns
 
@@ -619,65 +491,48 @@ def raw_alns_prepro(fasta_paths, n_alns=None, seq_len=None,
         sim_cl_dirs = [dir for dir in os.listdir(path)
                        if os.path.isdir(os.path.join(path, dir))]
         if len(sim_cl_dirs) > 0:  # there are multiple clusters
-            sim_alns, sim_fastas, sim_stats = [], [], {}
-            for dir in sim_cl_dirs:
-                sim_data = load_alns(f'{path}/{dir}', quantiles[i],
-                                     size, seq_len,
+            sim_alns, sim_files = [], []
+            cl_stats_cols = pd.MultiIndex.from_product([sim_cl_dirs,
+                                                        ['No.seqs.',
+                                                         'No.sites']])
+            sim_stats = pd.DataFrame(columns=cl_stats_cols)
+            for d in sim_cl_dirs:
+                sim_data = load_alns(f'{path}/{d}', size, seq_len,
                                      molecule_type=molecule_type)
                 # concat remove cluster dimension
                 sim_alns += sim_data[0]
-                sim_fastas += sim_data[1]
-
+                sim_files += sim_data[1]
                 # get stats from current cluster
-                if len(sim_stats) == 0:  # first cluster
-                    for k, v in sim_data[2].items():
-                        sim_stats[k] = [v]
-                else:
-                    for k in sim_stats.keys():
-                        sim_stats[k] += [sim_data[2][k]]
+                sim_stats[(d, 'No.sites')] = sim_data[2]['No.sites']
+                sim_stats[(d, 'No.seqs.')] = sim_data[2]['No.seqs.']
+            print(sim_stats)
+            tmp_max_n_sites_cls = int(max(sim_stats.xs('No.sites', level=1,
+                                                       axis=1).xs('max')))
+            if max_n_sites_cls < tmp_max_n_sites_cls:
+                max_n_sites_cls = tmp_max_n_sites_cls
 
-            if size is not None and len(sim_alns) > size:
-                inds = np.random.permutation(len(sim_alns))[:size]
-                raw_data = [[sim_alns[ind] for ind in inds],
-                            [sim_fastas[ind] for ind in inds],
-                            sim_stats]
-            else:
-                raw_data = [sim_alns, sim_fastas, sim_stats]
+            raw_data = [sim_alns, sim_files]
         else:  # empirical data set or simulations without MSA clusters
-            raw_data = load_alns(path, quantiles[i], size, seq_len,
+            raw_data = load_alns(path, size, seq_len,
                                  molecule_type=molecule_type)
 
         alns.append(raw_data[0])
-        fastas.append(raw_data[1])
-        stats.append(raw_data[2])
+        files.append(raw_data[1])
+        if len(sim_cl_dirs) == 0:  # no clusters
+            stats[(datasets[i], 'No.sites')] = raw_data[2]['No.sites']
+            stats[(datasets[i], 'No.seqs.')] = raw_data[2]['No.seqs.']
 
-    if len(alns) == 2 and len(fastas) == 2:
-        print(f"avg. seqs. len. : {stats[1]['seq_lens_avg']} (sim.) vs. "
-              f"{stats[0]['seq_lens_avg']} (emp.)")
-        print(f"avg. n.seqs. : {stats[1]['n_seqs_avg']} (sim.) vs. "
-              f"{stats[0]['n_seqs_avg']} (emp.)")
-
-    # ensure same number of MSAs for all data sets
-    if n_alns is not None and not isinstance(n_alns, list):
-        for i in range(len(alns)):
-            inds = np.random.choice(range(len(alns[i])), n_alns, replace=False)
-            alns[i] = [alns[i][ind] for ind in inds]
-            fastas[i] = [fastas[i][ind] for ind in inds]
-
-    params['n_sites'] = int(np.max([ds_stats['seq_lens_max']
-                                     for ds_stats in stats]))
-    # before it was int(min(seq_len, stats[0]['seq_lens_max'])), why?
-    n_msa_ds = len(alns)
-    n_seqs = [get_n_seqs_per_msa(alns[i]) for i in range(n_msa_ds)]
-    params['max_seqs_per_align'] = [int(max(n_seqs[i]))
-                                    for i in range(n_msa_ds)]
-    params['min_seqs_per_align'] = [int(min(n_seqs[i]))
-                                    for i in range(n_msa_ds)]
-    params['n_alignments'] = [len(alns[i]) for i in range(n_msa_ds)]
+    print(stats)
+    max_n_sites = stats.xs('No.sites', level=1, axis=1).xs('max')
+    # columns for simulations with clusters will be NaN
+    max_n_sites = max_n_sites[~max_n_sites.isna()]
+    max_n_sites = int(max(max_n_sites))
+    max_n_sites = max(max_n_sites, max_n_sites_cls)
 
     if shuffle:  # shuffle sites/columns of alignments
         alns = shuffle_sites(alns)
-    return alns, fastas, params
+
+    return alns, files, max_n_sites
 
 
 def shuffle_sites(msa_ds):
