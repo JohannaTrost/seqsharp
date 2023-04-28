@@ -69,18 +69,22 @@ def handle_args(parser):
                 raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                         sim_path)
 
-    # get and create output folder
+    # create output folder
     timestamp = datetime.now().strftime("%d-%b-%Y-%H:%M:%S.%f")
-    if opts['result_path'] is not None and not opts['model_path']:
-        if not opts['result_path'].split('/')[-1].startswith('cnn-'):
-            # create unique subdir for the model(s)
-            opts['result_path'] += '/cnn_'
-            opts['result_path'] += opts['sim_paths'][0].split('/')[-1]
-            opts['result_path'] += '_' + str(timestamp)
-        if not os.path.exists(opts['result_path']):
+    if opts['sim_paths']:
+        sim_dir = os.path.basename(opts['sim_paths'][0])
+        cnn_dir = f'cnn_{sim_dir}_{str(timestamp)}'
+
+        if opts['result_path'] is not None and not opts['model_path']:
+            if not opts['result_path'].split('/')[-1].startswith('cnn_'):
+                # create unique subdir for the model(s)
+                opts['result_path'] += f'/{cnn_dir}'
+                os.makedirs(opts['result_path'])
+        elif opts['model_path'] and opts['train']:
+            # create new subdir for the resumed model(s)
+            opts['result_path'] = os.path.dirname(opts['model_path'])
+            opts['result_path'] += f'/resume_{cnn_dir}'
             os.makedirs(opts['result_path'])
-    elif opts['model_path']:
-        opts['result_path'] = opts['model_path']
 
     return opts
 
@@ -351,12 +355,19 @@ def train(opts, in_data):
             models.append(model.to('cpu'))
 
         if opts['result_path'] is not None:  # save cfg
+            # add lrs per fold
             cfg['training']['lr'] = lrs if len(lrs) > 0 else lr
+            # add path of original model when training was resumed
+            if resume:
+                cfg['original_model_path'] = cfg['results_path']
+            # add path to results i.e. models, plots etc.
             cfg['results_path'] = opts['result_path']
+
             write_cfg_file(cfg, opts['result_path'])
             # save cfg with timestamp
             write_cfg_file(cfg, opts['result_path'], timestamp=timestamp)
-    # save results
+
+    # save results regrouping folds
     print('\n#########################  PERFORMANCE  '
           '#########################\n')
     print_model_performance(models)

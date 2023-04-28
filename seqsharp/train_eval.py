@@ -279,6 +279,9 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         print(f'Epoch [{start_epoch}] Initial Model')
         validation(model, train_loader, val_loader)
 
+    # always save the initial (pretrained) model
+    save_checkpoint(model, optimizer, scheduler, fold, save)
+
     no_imporv_cnt = 0
     prev_val_loss = None
     throughput = []
@@ -306,7 +309,7 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         # validation phase
         model = validation(model, train_loader, val_loader)
 
-        if epoch % 2 == 0 or epoch == 1 and save is not None:
+        if epoch % 2 == 0 and save is not None:
             # save checkpoint of best model every other epoch
             if (np.min(model.val_history['loss'][:-1]) >=
                     model.val_history['loss'][-1]):
