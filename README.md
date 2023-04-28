@@ -3,18 +3,13 @@
 This is a tool that utilizes Convolutional Neural Networks (CNNs) to discriminate simulated and empirical multiple sequence alignments (MSAs). The accuracy of the classifier, that is the average of the accuracies per class (BACC), can be used as a metric to evaluate the realism of sequence evolution simulations. This enables to compare and contrast different evolutionary models used for simulation, and determine the most realistic approach.
 ### Install 
 
-A minimum python version of 3.6 is required to run the program.
+A python version <= 3.6 is required to run the program. 
+As of now the maximum python version that allows to install all required packages is 3.10.
 
-1. It is recommended to install required packages in a virtual environment e.g. create and activate a virtual environment in Python: 
-```
-python -m venv <dir/to/venv>
-soucre <dir/to/venv/bin/activate>
-```
-2. Now install the required packages:
-``` 
-python -m pip install --upgrade pip
-pip install -r requirements.txt 
-```
+1. Clone the repository: `git clone https://github.com/JohannaTrost/seqsharp.git`
+2. Then navigate to the repository folder: `cd seqsharp` 
+3. You can now install seq# using: `pip install . -r requirements.txt`
+Note that for python v3.10 you might need to add `--use-pep517`
 
 ### Usage
 
