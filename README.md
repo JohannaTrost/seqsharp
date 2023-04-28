@@ -15,9 +15,9 @@ Note that for python v3.10 you might need to add `--use-pep517`
 
 To run seq# type:
 
-`python seqsharp [args]`
+`seqsharp [args]`
 
-Type `python seqsharp --help` to obtain the output below for possible arguments:
+Type `seqsharp --help` to obtain the output below for possible arguments:
 
 ```
 usage: seqsharp [-h] [--sim [SIM ...]] [--emp EMP] [-t] [--test] [--validate] [--attr] [--clr] [-m MODEL] [-c CFG] [-s SAVE] [--shuffle] [--ncpus NCPUS]
@@ -45,7 +45,7 @@ optional arguments:
 
 To reproduce the training of the models presented in the paper use the following command:
 
-`python seqsharp -t --emp <path/to/emp/data> --sim <path/to/sim/data> -c <path/to/>seqsharp/seqsharp/pretrained_models/<evomodel>/cfg.json -s <path/to/results>
+`seqsharp -t --emp <path/to/emp/data> --sim <path/to/sim/data> -c <path/to/>seqsharp/seqsharp/pretrained_models/<evomodel>/cfg.json -s <path/to/results>
 `
 
 Replace `<evomodel>` with the respective model available in `seqsharp/pretrained_models` and use the corresponding simulated and empirical data collection (i.e. set of MSAs) available at (...).
@@ -85,7 +85,7 @@ With this flag cyclic learning rates are used for training. For this a lr range 
 
 **`-m <str>`** example: `-m my/path/to/my/pretrained/model`
 
-This argument can be used to specify a directory containing one or more `.pth` files (one per fold). These files should contain a pretrained seq#-model. 
+This argument can be used to specify a directory containing one or more `.pth` files (one per fold). These files should contain a pretrained seq#-model. When resuming training of that model (`--train`) results will be stored in a new folder starting with *resume_*. It will be in the parent directory of the `-m` directory.
 
 **`-c <str>`** example: `-c my/path/to/the/cfg/file.json`
 
@@ -93,8 +93,8 @@ Here you can input the configuration file in json format (an example is shown be
 
 **`-s <str>`** example: `-s my/path/to/where/models/and/results/will/be/stored`
 
-Plots of learning curves, tables with model performances, trained models (.pth) and/or attribution maps are saved in the directory specified with this argument. More specifically they will be stored in a newly generated folder starting with *cnn-* followed by a time stamp. 
-Moreover, the config file, including e.g. learning rates determined during training for each fold will be saved to this folder.
+Plots of learning curves, tables with model performances, trained models (.pth) and/or attribution maps are saved in this directory. More specifically they will be stored in a newly generated unique folder. 
+Moreover, the config file, including e.g. learning rates determined during training for each fold will be saved to this folder. 
 
 **`--shuffle`**
 
@@ -108,22 +108,22 @@ Number of CPUs to use (only applies for loading data).
 
 Train a model to distinguish real and simulated data:
 
-`python seqsharp -t --emp <path/to/emp/data> --sim <path/to/sim/data> -c <path/to/cfg.json> -s <path/to/results>
+`seqsharp -t --emp <path/to/emp/data> --sim <path/to/sim/data> -c <path/to/cfg.json> -s <path/to/results>
 `
 
 Resume training of a pretrained model: 
 
-`python seqsharp -t --emp <path/to/emp/data> --sim <path/to/sim1/data> -m <path/to/pretrained/models>
+`seqsharp -t --emp <path/to/emp/data> --sim <path/to/sim1/data> -m <path/to/pretrained/models>
 `
 
 Use a pretrained model to test it on multiple data collections: 
 
-`python seqsharp --test --emp <path/to/emp/data> --sim <path/to/sim1/data> <path/to/sim2/data> -m <path/to/pretrained/models>
+`seqsharp --test --emp <path/to/emp/data> --sim <path/to/sim1/data> <path/to/sim2/data> -m <path/to/pretrained/models>
 `
 
 Test a pretrained model on simulated and empirical validation data: 
 
-`python seqsharp --validate --emp <path/to/emp/data> --sim <path/to/sim/data> -m <path/to/pretrained/models>
+`seqsharp --validate --emp <path/to/emp/data> --sim <path/to/sim/data> -m <path/to/pretrained/models>
 `
 
 ### cfg.json
@@ -165,7 +165,8 @@ An example config file looks like this:
 - `padding`: Alignments with fewer than `input_size` sites will be padded on the edges, such that all MSAs have the same number of sites. Options are "zeros", "gaps" or "data". The latter will use uniformly sampled amino acids / nucleotides.
 
 ##### Remarks to parameters in `training`:
-- `lr`: `lr` can be either a learning rate e.g. *0.001* or a list of learning rates with one learning rate per fold e.g. *[1e-5, 0.01, 0.001, ...]* 
+- `epochs`: If resuming training, this value should be the sum of the number of epochs already trained and the maximum number of epochs to be trained.
+- `lr`: `lr` Can be either a learning rate e.g. *0.001* or a list of learning rates with one learning rate per fold e.g. *[1e-5, 0.01, 0.001, ...]* 
 -  `lr_range`: If you specify `lr_range` as in the example file above the given range will be used to perform a learning rate range test. In this case `lr` will be ignored. For each fold a tenth of the determined upper bound will be used for training.
 
 ##### Remarks to parameters in `model`:
