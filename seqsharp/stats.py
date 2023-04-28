@@ -8,7 +8,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
-from utils import dim
+from .utils import dim
 
 
 def sample_indel_params(kde_obj, pca, scaler, sample_size=1, min_rl=50,

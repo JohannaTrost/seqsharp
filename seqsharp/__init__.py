@@ -10,3 +10,12 @@ try:
     __version__ = importlib_metadata.version(__package__ or __name__)
 except importlib_metadata.PackageNotFoundError:
     __version__ = "0.0.0"
+
+from . import ConvNet
+from . import attr_methods
+from . import preprocessing
+from . import seqsharp_fcts
+from . import plots
+from . import stats
+from . import utils
+from . import train_eval

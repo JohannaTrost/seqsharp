@@ -1,34 +1,20 @@
-"""Program to classify empirical and simulated sequence alignments
-
-Allows to train and evaluate a (convolutional) neural network or use a
-trained network.
-
-Please execute 'python seqsharp --help' to view all the options
+"""Main functions to train and test a model to classify empirical and
+simulated MSAs
 """
 
 import errno
-import os
-import gc
 from datetime import datetime
 
-import numpy as np
-import pandas as pd
-import torch
 from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import DataLoader
 
-from ConvNet import ConvNet, load_model, compute_device, activation
-from attr_methods import get_attr, get_sorted_pred_scores, plot_summary, \
-    plot_msa_attr
-from preprocessing import TensorDataset, raw_alns_prepro, \
-    make_msa_reprs, \
+from .ConvNet import ConvNet, load_model, compute_device, activation
+from .attr_methods import get_attr
+from .preprocessing import TensorDataset, raw_alns_prepro, make_msa_reprs, \
     load_msa_reprs
-from plots import plot_folds, plot_corr_pred_sl, plot_groups_folds, \
-    make_fig, annotate
-from stats import get_n_sites_per_msa
-from utils import write_cfg_file, read_cfg_file
-from train_eval import fit, evaluate, find_lr_bounds, print_model_performance, \
-    results2table, evaluate_folds
+from .plots import plot_folds, make_fig, annotate
+from .utils import write_cfg_file, read_cfg_file
+from .train_eval import *
 
 import seaborn as sns
 
@@ -289,6 +275,9 @@ def determine_fold_lr(lr, lr_range, curr_fold, clr, train_loader,
 def train(opts, in_data):
     sep_line = '-------------------------------------------------------' \
                '---------'
+
+    resume = True if opts['model_path'] else False
+
     timestamp = datetime.now()
     cfg = read_cfg_file(opts['cfg_path'])
     # parameters of network architecture
@@ -307,10 +296,10 @@ def train(opts, in_data):
 
     # get data and models
     data, labels, _ = in_data
-    if opts['train']:
-        models = []
-    elif opts['model_path']:
+    if resume:
         models = load_model(opts['model_path'], state='train')
+    else:
+        models = []
 
     seed = 42
     torch.manual_seed(seed)
@@ -342,11 +331,11 @@ def train(opts, in_data):
             model_params['input_size'] = 1
 
         # get (pretrained) model
-        if opts['train']:
+        if not resume:
             model = ConvNet(model_params).to(compute_device)
             start_epoch = 0
             max_epochs = start_epoch + epochs
-        elif opts['model_path']:
+        else:
             if models[fold] is not None:
                 model = models[fold]
                 start_epoch = len(model.train_history['loss']) - 1
@@ -367,17 +356,17 @@ def train(opts, in_data):
             start_epoch, max_epochs, save=opts['result_path'],
             fold=fold)
 
-        if opts['train']:
-            models.append(model.to('cpu'))
-        elif opts['model_path']:
+        if resume:
             models[fold] = model.to('cpu')
+        else:
+            models.append(model.to('cpu'))
 
         if opts['result_path'] is not None:  # save cfg
             cfg['training']['lr'] = lrs if len(lrs) > 0 else lr
             cfg['results_path'] = opts['result_path']
-            write_cfg_file(cfg, opts['cfg_path'])
+            write_cfg_file(cfg, opts['result_path'])
             # save cfg with timestamp
-            write_cfg_file(cfg, opts['cfg_path'], timestamp=timestamp)
+            write_cfg_file(cfg, opts['result_path'], timestamp=timestamp)
     # save results
     print('\n#########################  PERFORMANCE  '
           '#########################\n')

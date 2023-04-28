@@ -11,10 +11,9 @@ from minepy import MINE
 from sklearn.decomposition import PCA
 from scipy.stats import pearsonr
 
-from ConvNet import load_model
-from train_eval import evaluate_folds
-from utils import confidence_ellipse, pred_runtime, \
-    min_diff_divisor
+from .ConvNet import load_model
+from .train_eval import evaluate_folds
+from .utils import confidence_ellipse, pred_runtime, min_diff_divisor
 
 
 # matplotlib.use("Agg")

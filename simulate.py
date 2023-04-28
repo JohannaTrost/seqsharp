@@ -6,10 +6,11 @@ import numpy as np
 
 from tqdm import tqdm
 from seqsharp.preprocessing import load_msa
-from utils import load_custom_distr, load_kde
-from stats import sample_indel_params
+from seqsharp.utils import load_custom_distr, load_kde
+from seqsharp.stats import sample_indel_params
 
 np.random.seed(34)
+
 
 def main():
     # -------------------- handling arguments -------------------- #
@@ -49,7 +50,7 @@ def main():
 
     mix_m_str = f'_s{n_prof}' if n_prof != "" else n_prof
     gamma_str = '_' + gamma.lower() if gamma != '' else gamma
-    out_path = f'../../emp_pdfs/simulations/test_samples/alisim_{sub_m.lower()}{mix_m_str}{gamma_str}{name_add_on}'
+    out_path = f'../../data/simulations/test_samples/alisim_{sub_m.lower()}{mix_m_str}{gamma_str}{name_add_on}'
     if not os.path.exists(out_path):
         os.mkdir(out_path)
 

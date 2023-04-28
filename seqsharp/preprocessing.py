@@ -7,17 +7,15 @@ the child classes of *torch.utils.data.Dataset*
 """
 import errno
 import os
+import warnings
 
-import numpy as np
 import psutil
 import torch
-import multiprocessing as mp
 
 from Bio import Phylo, SeqIO, Seq
 from torch.utils.data import Dataset
 
-from stats import *
-from utils import split_lst, flatten_lst
+from .stats import *
 
 warnings.simplefilter("ignore", DeprecationWarning)
 

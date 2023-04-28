@@ -10,7 +10,7 @@ import torch.nn as nn
 from matplotlib import pylab as plt
 from sklearn.metrics import balanced_accuracy_score
 
-from seqsharp.utils import read_cfg_file
+from .utils import read_cfg_file
 
 if torch.cuda.is_available():
     compute_device = torch.device("cuda:0")

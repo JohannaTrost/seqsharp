@@ -1,4 +1,4 @@
-"""Functions to train and evaluate a neural network"""
+"""Functions to train and evaluate the classifier"""
 
 import gc
 import os
@@ -10,7 +10,7 @@ import torch
 
 from matplotlib import pylab as plt
 
-from ConvNet import compute_device, accuracy
+from .ConvNet import compute_device, accuracy
 
 torch.cuda.empty_cache()
 
@@ -19,7 +19,6 @@ gc.collect()
 
 def find_lr_bounds(model, train_loader, opt_func, save, lr_range=None,
         lr_find_epochs=5, prefix=''):
-    start = time.time()
     start_lr, end_lr = (1e-07, 0.1) if lr_range == '' else lr_range
 
     lr_lambda = lambda x: np.exp(x * np.log(end_lr / start_lr) / (
@@ -33,7 +32,7 @@ def find_lr_bounds(model, train_loader, opt_func, save, lr_range=None,
     iter = 0
     smoothing = 0.05
 
-    print('Starting determination of suitable lr bounds')
+    print('Starting learning rate range test (LRRT)')
 
     for epoch in range(lr_find_epochs):
         print(f'Epoch [{epoch + 1}]')
@@ -57,28 +56,27 @@ def find_lr_bounds(model, train_loader, opt_func, save, lr_range=None,
 
             iter += 1
 
-    print(f'LR finder finished after {(time.time() - start) / 60} min')
-
     high_bound_lr = lr_find_lr[np.argmin(lr_find_loss)] / 10
     low_bound_lr = high_bound_lr / 6
 
     print(f'lr = [{low_bound_lr}, {high_bound_lr}]')
 
     if save is not None and save != '':
-        save = f'{save}/lrfinder'
+        save = f'{save}/lrrt'
         if not os.path.exists(save):
             os.mkdir(save)
+
         fig, ax = plt.subplots()
         ax.plot(lr_find_lr, lr_find_loss)
         ylims = ax.get_ylim()
         ax.vlines(high_bound_lr, *ylims, color='r')
         plt.xscale('log')
-        plt.savefig(f'{save}/{prefix}find_lr_loss_{start_lr}_{end_lr}_'
+        plt.savefig(f'{save}/{prefix}lrrt_loss_{start_lr}_{end_lr}_'
                     f'{lr_find_epochs}.png')
         plt.close('all')
 
         plt.plot(lr_find_lr)
-        plt.savefig(f'{save}/{prefix}find_lr_{start_lr}_{end_lr}_'
+        plt.savefig(f'{save}/{prefix}lrrt{start_lr}_{end_lr}_'
                     f'{lr_find_epochs}.png')
         plt.close('all')
 
@@ -133,7 +131,7 @@ def evaluate_folds(val_hist_folds, n_folds, which='best'):
 
 
 def get_close_baccs(baccs, selected_epochs):
-    # select 4 epochs preceding and succeeding best epoch
+    # select 6 epochs preceding and succeeding best epoch
     bacc_around_sel = []
     for fold, epoch in enumerate(selected_epochs):
         n_epochs = len(baccs[fold])
@@ -308,7 +306,7 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         # validation phase
         model = validation(model, train_loader, val_loader)
 
-        if epoch > 1 and epoch % 2 == 0 and save is not None:
+        if epoch % 2 == 0 or epoch == 1 and save is not None:
             # save checkpoint of best model every other epoch
             if (np.min(model.val_history['loss'][:-1]) >=
                     model.val_history['loss'][-1]):

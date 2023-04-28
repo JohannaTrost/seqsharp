@@ -50,6 +50,9 @@ def write_cfg_file(cfg, save, timestamp=None):
     elif os.path.isdir(save) and timestamp is not None:
         with open(f'{save}/cfg_{timestamp}.json', "w") as outfile:
             json.dump(cfg, outfile)
+    else:
+        raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
+                         f'{save} is neither a file nor a directory')
 
 
 def read_cfg_file(path):
