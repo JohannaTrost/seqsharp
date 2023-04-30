@@ -13,6 +13,12 @@ from tompy import CustomPDF
 from matplotlib.patches import Ellipse
 
 
+def pickle_read(path):
+    with open(path, "rb") as file:
+        out = pickle.load(file)
+    return out
+
+
 def index_neighbours(index, arr_len, n=4):
     inds_template = np.arange(-n, n + 1)
     # indices relative to "index" in center

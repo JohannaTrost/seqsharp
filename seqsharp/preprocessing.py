@@ -16,6 +16,7 @@ from Bio import Phylo, SeqIO, Seq
 from torch.utils.data import Dataset
 
 from .stats import *
+from .utils import pickle_read
 
 warnings.simplefilter("ignore", DeprecationWarning)
 
@@ -337,21 +338,19 @@ def load_alns(fasta_dir, n_alns=None, seq_len=None, molecule_type='protein',
 def load_msa_reprs(path, n_alns=None):
     """Load msa representations from a directory
 
-    :param path: <path/to/dir> directory containing csv files with msa reprs.
-    :return: list of msa reprs., list (n_alns) with filenames without extension
+    :param path: <path/to/dir> directory containing pkl files with msa reprs.
+    :return: list of msa reprs. (site-wise compositions)
     """
 
     if n_alns is not None and n_alns != '':
         files = os.listdir(path)[:n_alns]
     else:
         files = os.listdir(path)
-    filenames = []
     msa_reprs = []
-    for file in files:
-        filenames.append(file.split('.')[0])
-        msa_reprs.append(np.genfromtxt(f'{path}/{file}', delimiter=','))
+    for file in tqdm(files):
+        msa_reprs.append(pickle_read(f'{path}/{file}'))
 
-    return msa_reprs, filenames
+    return msa_reprs
 
 
 def remove_gaps(alns):
@@ -517,6 +516,7 @@ def raw_alns_prepro(data_paths, n_alns=None, seq_len=None, shuffle=False,
 
         alns.append(raw_data[0])
         files.append(raw_data[1])
+
         if len(sim_cl_dirs) == 0:  # no clusters
             stats[(datasets[i], 'No.sites')] = raw_data[2]['No.sites']
             stats[(datasets[i], 'No.seqs.')] = raw_data[2]['No.seqs.']

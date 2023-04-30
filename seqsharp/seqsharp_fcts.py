@@ -139,10 +139,11 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
                                cfg['data']['padding'],
                                molecule_type=molecule_type)
         del alns
-    elif first_input_file.endswith('.csv'):  # msa representations is provided
+    elif first_input_file.endswith('.pkl'):  # msa representations is provided
         reprs = []
-        for i in range(len(cnt_datasets)):
-            reprs.append(load_msa_reprs(data_paths[i], n_alns[i])[0])
+        for i in range(cnt_datasets):
+            size = n_alns[i] if isinstance(n_alns, list) else n_alns
+            reprs.append(load_msa_reprs(data_paths[i], size))
 
     ds_sizes = [len(ds) for ds in reprs]
     data = np.concatenate(reprs)
