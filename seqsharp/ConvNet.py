@@ -37,6 +37,15 @@ def load_checkpoint(path, model):
     model.load_state_dict(checkpoint['model_state_dict'])
     model.train_history = checkpoint['train_history']
     model.val_history = checkpoint['val_history']
+
+    # old models have key 'acc' instead of 'bacc'
+    if 'acc' in model.val_history.keys():
+        model.val_history['bacc'] = model.val_history['acc']
+        del model.val_history['acc']
+    if 'acc' in model.train_history.keys():
+        model.train_history['bacc'] = model.train_history['acc']
+        del model.train_history['acc']
+
     if 'opt_state_dict' in checkpoint.keys():
         model.opt_state = checkpoint['opt_state_dict']
     if 'scheduler_state_dict' in checkpoint.keys():
