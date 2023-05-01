@@ -322,8 +322,7 @@ def load_alns(fasta_dir, n_alns=None, seq_len=None, molecule_type='protein',
               f'{len(alns)} MSAs {perc_ambig_sites}% sites include '
               f'ambiguous letters')
 
-    print(f'Loaded {len(alns)} MSAs from '
-          f'{n_alns if n_alns is not None else n_files} files from {fasta_dir} '
+    print(f'Loaded {len(alns)} MSAs from {n_files} files from {fasta_dir} '
           f'with success\n')
 
     if len(alns) > 0:
@@ -341,16 +340,17 @@ def load_msa_reprs(path, n_alns=None):
     :param path: <path/to/dir> directory containing pkl files with msa reprs.
     :return: list of msa reprs. (site-wise compositions)
     """
-
+    file_order = np.genfromtxt(f'{path}/file_order.txt', dtype=None,
+                               encoding=None)
     if n_alns is not None and n_alns != '':
-        files = os.listdir(path)[:n_alns]
+        files = file_order[:n_alns]
     else:
-        files = os.listdir(path)
+        files = file_order
     msa_reprs = []
     for file in tqdm(files):
-        msa_reprs.append(pickle_read(f'{path}/{file}'))
+        msa_reprs.append(pickle_read(f'{path}/{file}.pkl'))
 
-    return msa_reprs
+    return msa_reprs, files
 
 
 def remove_gaps(alns):

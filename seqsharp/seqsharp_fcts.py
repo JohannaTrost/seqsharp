@@ -106,6 +106,7 @@ def model_figures(opts):
 
 
 def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
+
     if sim_paths is None:
         sim_paths = []
 
@@ -157,9 +158,12 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
         del alns
     elif first_input_file.endswith('.pkl'):  # msa representations is provided
         reprs = []
+        files = []
         for i in range(cnt_datasets):
             size = n_alns[i] if isinstance(n_alns, list) else n_alns
-            reprs.append(load_msa_reprs(data_paths[i], size))
+            reprs_ds, files_ds = load_msa_reprs(data_paths[i], size)
+            reprs.append(reprs_ds)
+            files.append(files_ds)
 
     ds_sizes = [len(ds) for ds in reprs]
     data = np.concatenate(reprs)
@@ -172,7 +176,7 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
         labels_sim = []
     labels = np.concatenate((labels_emp, labels_sim))
 
-    return data, labels, ds_sizes
+    return data, labels, ds_sizes, files
 
 
 def model_test(opts, in_data):
@@ -236,7 +240,7 @@ def model_test(opts, in_data):
 
 def validate(opts, in_data):
     timestamp = datetime.now()
-    data, labels, _ = in_data
+    data, labels, _, _ = in_data
     cfg = read_cfg_file(opts['cfg_path'])
     # save cfg with timestamp
     write_cfg_file(cfg, opts['cfg_path'], timestamp=timestamp)
@@ -320,7 +324,7 @@ def train(opts, in_data):
             'Please specify either Adagrad, Adam or SGD as optimizer')
 
     # get data and models
-    data, labels, _ = in_data
+    data, labels, _, _ = in_data
     if resume:
         models = load_model(opts['model_path'], state='train')
     else:
@@ -413,7 +417,7 @@ def attribute(opts, in_data):
     timestamp = datetime.now()
     cfg = read_cfg_file(opts['cfg_path'])
     # get data and models
-    data, labels, _ = in_data
+    data, labels, _, _ = in_data
     models = load_model(opts['model_path'])
     # choose best fold
     fold_eval = [np.min(model.val_history['loss']) for model in models]
