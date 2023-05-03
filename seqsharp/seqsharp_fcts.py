@@ -259,6 +259,10 @@ def validate(opts, in_data):
             for k, v in val_result.items():
                 res_dict[k].append(v)
 
+        img_train = f'{opts["result_path"]}/learning_curve_fold_{fold + 1}.png'
+        if not os.path.exists(img_train):
+            model.plot(img_train)
+
     res_df = results2table(res_dict,
                            f'{opts["result_path"]}/val_{timestamp}.csv')
     print('\n#########################  PERFORMANCE  '
