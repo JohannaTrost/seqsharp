@@ -1,7 +1,8 @@
 import argparse
 
 from .ConvNet import load_model
-from .seqsharp_fcts import handle_args, load_data, validate, model_test, train
+from .seqsharp_fcts import handle_args, load_data, validate, model_test, train, \
+    model_figures
 from .train_eval import print_model_performance
 
 
@@ -59,6 +60,7 @@ def main():
     if args['model_path'] is not None and not (args['val'] or args['test']
                                                or args['train']):
         print_model_performance(load_model(args['model_path']))
+        model_figures(args)
     else:
         in_data = load_data(args['emp_path'], args['sim_paths'],
                             args['cfg_path'], args['model_path'],

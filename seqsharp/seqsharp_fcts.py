@@ -85,8 +85,24 @@ def handle_args(parser):
             opts['result_path'] = os.path.dirname(opts['model_path'])
             opts['result_path'] += f'/resume_{cnn_dir}'
             os.makedirs(opts['result_path'])
+    else:  # only --model
+        opts['result_path'] = opts['model_path']
 
     return opts
+
+
+def model_figures(opts):
+    save = opts["result_path"]
+    models = load_model(opts['model_path'])
+    for fold, model in enumerate(models):
+        if model is not None:  # model of fold is missing
+            img_train = os.path.join(save,
+                                     f'learning_curve_fold_{fold + 1}.png')
+            if not os.path.exists(img_train):
+                model.plot(img_train)
+    # save plot of stacked learning curves
+    make_fig(plot_folds, [models], (1, 2),
+             save=os.path.join(save, 'folds_learning_curve.pdf'))
 
 
 def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
