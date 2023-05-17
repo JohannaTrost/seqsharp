@@ -1,12 +1,21 @@
 # Seqsharp: Sequence Simulations Have A Real(ism) Problem
 
-This is a tool that utilizes Convolutional Neural Networks (CNNs) to discriminate simulated and empirical multiple sequence alignments (MSAs). The accuracy of the classifier, that is the average of the accuracies per class (BACC), can be used as a metric to evaluate the realism of sequence evolution simulations. This enables to compare and contrast different evolutionary models used for simulation, and determine the most realistic approach.
+This is a tool that uses Convolutional Neural Networks (CNNs) to discriminate simulated and empirical multiple sequence alignments (MSAs) based on their site-wise composition. The classifier's accuracy, measured as the Balanced Accuracy (BACC), that is the average of accuracies per class, serves as a metric to assess the realism of sequence evolution simulations.
+
+Key components:
+
+- `pretrained_models`: Here we provide the pre-trained seq#-models presented in our paper. They were trained on simulations using various evolutionary models for both DNA and protein sequences.
+- The modules included in this package enable training, testing, and evaluation of (pre-trained) seq#-models. They can be used directly or through the CLI. Below, you will find commands to reproduce the results in our paper.
+- `compare_models.ipynb`: This Jupyter notebook offers a comprehensive analysis and comparison of the performance of our pre-trained models. It generates tables and figures that are included in the supplementary material of our paper.
+
+To reproduce the results of the classifier using Gradient Boosted Trees please refer to [Julia's repo](https://github.com/tschuelia/SimulationStudy.git).
+
 ### Install 
 
-A python version <= 3.6 is required to run the program. 
+A python version <= 3.6 is required for this package. 
 As of now the maximum python version that allows to install all required packages is 3.10.
 
-1. Clone the repository: `git clone https://github.com/JohannaTrost/seqsharp.git`
+1. Clone the repository: `git clone https://github.com/JohannaTrost/seqsharp.git
 2. Then navigate to the repository folder: `cd seqsharp` 
 3. You can now install seq# using: `pip install . -r requirements.txt`
 Note that for python v3.10 you might need to add `--use-pep517`
@@ -41,7 +50,7 @@ optional arguments:
   --ncpus NCPUS         Number of CPUs to be used.
 ```
 
-### Reproduction of presented results 
+### Reproduce pre-trained models 
 
 To reproduce the training of the models presented in the paper use the following command:
 
