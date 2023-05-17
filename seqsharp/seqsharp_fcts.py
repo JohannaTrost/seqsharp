@@ -147,7 +147,8 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
                 # remove first 2 sites
                 alns[i] = [[seq[2:] for seq in aln] for aln in alns[i]]
 
-        if 'input_size' in cfg['model'].keys():
+        if 'input_size' in cfg['model'].keys() \
+                and cfg['model']['input_size'] != '':
             n_sites = cfg['model']['input_size']
         else:
             n_sites = max_n_sites
@@ -186,7 +187,7 @@ def model_test(opts, in_data):
     timestamp = datetime.now()
 
     # get data and models
-    data, labels, ds_sizes = in_data
+    data, labels, ds_sizes, _ = in_data
     models = load_model(opts['model_path'])
 
     # determine names for data collections
@@ -231,8 +232,9 @@ def model_test(opts, in_data):
         ds_res[(ds_name, 'acc')] = res_dict['acc']
 
     # print and save results
-    ds_res = results2table(ds_res,
-                           f'{opts["result_path"]}/test_{timestamp}.csv')
+    if opts["result_path"] is not None:
+        ds_res = results2table(ds_res,
+                               f'{opts["result_path"]}/test_{timestamp}.csv')
     print('\n#########################  PERFORMANCE  '
           '#########################\n')
     print(ds_res)
@@ -267,8 +269,9 @@ def validate(opts, in_data):
         if not os.path.exists(img_train):
             model.plot(img_train)
 
-    res_df = results2table(res_dict,
-                           f'{opts["result_path"]}/val_{timestamp}.csv')
+    if opts["result_path"] is not None:
+        res_df = results2table(res_dict,
+                               f'{opts["result_path"]}/val_{timestamp}.csv')
     print('\n#########################  PERFORMANCE  '
           '#########################\n')
     print(res_df)

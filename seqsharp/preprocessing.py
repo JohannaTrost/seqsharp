@@ -236,13 +236,13 @@ def load_msa(filename):
     return alned_seqs_raw
 
 
-def load_alns(fasta_dir, n_alns=None, seq_len=None, molecule_type='protein',
-              rem_ambig_chars='remove'):
+def load_alns(data_dir, n_alns=None, seq_len=None, molecule_type='protein',
+        rem_ambig_chars='remove'):
     """Extracts alignments from fasta files in given directory
 
     :param rem_ambig_chars: indicate how to remove ambiguous letters: either
     replace randomly 'repl_unif' or remove respective sites 'remove'
-    :param fasta_dir: <path/to/> fasta files
+    :param data_dir: <path/to/> fasta files
     :param quantiles: if True keep MSAs where seq. len. and n. seq.
     within quantiles
     :param n_alns: number of alignments
@@ -251,12 +251,19 @@ def load_alns(fasta_dir, n_alns=None, seq_len=None, molecule_type='protein',
              list of alignment identifiers (strings)
     """
 
-    fasta_files = np.asarray(os.listdir(fasta_dir))
-    n_files = len(fasta_files)
+    if os.path.exists(f'{data_dir}/file_order.txt'):
+        # use MSA order for pretrained models
+        msa_files = np.genfromtxt(f'{data_dir}/file_order.txt', dtype=None,
+                                  encoding=None)
+    else:
+        msa_files = np.asarray(sorted(os.listdir(data_dir)))
+
+    n_files = len(msa_files)
+
     if n_files == 0:
         raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
                          f'No files (with .fa, .fasta, .phy extension) '
-                         f'in directory {fasta_dir}')
+                         f'in directory {data_dir}')
 
     if molecule_type == 'protein':
         ambig_chars = PROTEIN_AMBIG.keys()
@@ -267,8 +274,8 @@ def load_alns(fasta_dir, n_alns=None, seq_len=None, molecule_type='protein',
     alns, files = [], []
     frac_ambig_mol_sites = []
     cnt_empty, cnt_empty_rem, cnt_wrong_mol_type, cnt_too_long = 0, 0, 0, 0
-    for file in tqdm(fasta_files):
-        aln = load_msa(fasta_dir + '/' + file)
+    for file in tqdm(msa_files):
+        aln = load_msa(data_dir + '/' + file)
         if len(aln) > 0:  # check if no sequences
             if len(aln[0]) > 0:  # check if no sites
                 # check if MSA exceeds max num. of sites
@@ -322,7 +329,7 @@ def load_alns(fasta_dir, n_alns=None, seq_len=None, molecule_type='protein',
               f'{len(alns)} MSAs {perc_ambig_sites}% sites include '
               f'ambiguous letters')
 
-    print(f'Loaded {len(alns)} MSAs from {n_files} files from {fasta_dir} '
+    print(f'Loaded {len(alns)} MSAs from {n_files} files from {data_dir} '
           f'with success\n')
 
     if len(alns) > 0:
@@ -459,7 +466,7 @@ class TensorDataset(Dataset):
 
 
 def raw_alns_prepro(data_paths, n_alns=None, seq_len=None, shuffle=False,
-                    molecule_type='protein'):
+        molecule_type='protein'):
     """Loading and preprocessing raw (not encoded) alignments
 
     :param shuffle: shuffle sites if True
