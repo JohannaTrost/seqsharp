@@ -4,9 +4,10 @@ This is a tool that uses Convolutional Neural Networks (CNNs) to discriminate si
 
 Key components:
 
-- `pretrained_models`: Here we provide the pre-trained seq#-models presented in our paper. They were trained on simulations using various evolutionary models for both DNA and protein sequences.
-- The modules included in this package enable training, testing, and evaluation of (pre-trained) seq#-models. They can be used directly or through the CLI. Below, you will find commands to reproduce the results in our paper.
-- `compare_models.ipynb`: This Jupyter notebook offers a comprehensive analysis and comparison of the performance of our pre-trained models. It generates tables and figures that are included in the supplementary material of our paper.
+- `seqsharp/pretrained_models`: Here we provide the pre-trained seq#-models presented in our paper. They were trained on simulations using various evolutionary models for both DNA and protein sequences.
+- The modules included in the seqsharp-package enable training, testing, and evaluation of (pre-trained) seq#-models. They can be used directly or through the CLI. Below, you will find commands to reproduce the results in our paper.
+- `seqsharp/compare_models.ipynb`: This Jupyter notebook offers a comprehensive analysis and comparison of the performance of our pre-trained models. It generates tables and figures that are included in the supplementary material of our paper.
+- `protein_simulations`: This folder includes a CLI that allows to reproduce the simulated protein data collections of our study. 
 
 To reproduce the results of the classifier using Gradient Boosted Trees please refer to [Julia's repo](https://github.com/tschuelia/SimulationStudy.git).
 
