@@ -44,10 +44,10 @@ def kde(data, n_components=None):
     scaler = StandardScaler()
     scaler.fit(data)
     data_scaled = scaler.transform(data)
-    pca = PCA(n_components=n_components, whiten=False)
+    pca = PCA(n_components=ndim, whiten=False)
     pcs = pca.fit_transform(data_scaled)
 
-    var = np.sum(pca.explained_variance_ratio_[:n_components])
+    var = np.sum(pca.explained_variance_ratio_[:ndim])
     print(f'Explained variance: {var}')
 
     kde_obj = st.gaussian_kde(pcs.T)
