@@ -7,3 +7,4 @@ seqsharp/.DS_Store
 __pycache__/
 seqsharp/.ipynb_checkpoints/
 protein_simulations/.ipynb_checkpoints/
+seqsharp/pretrained_models/.DS_Store
