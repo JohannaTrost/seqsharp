@@ -1,10 +1,10 @@
 # Seqsharp: Sequence Simulations Have A Real(ism) Problem
 
-This is a tool that uses Convolutional Neural Networks (CNNs) to discriminate simulated and empirical multiple sequence alignments (MSAs) based on their site-wise composition. The classifier's accuracy, measured as the Balanced Accuracy (BACC), that is the average of accuracies per class, serves as a metric to assess the realism of sequence evolution simulations.
+This is a tool that uses Convolutional Neural Networks (CNNs) to discriminate simulated and empirical multiple sequence alignments (MSAs) based on their site-wise compositions. The classifier's accuracy, measured as the Balanced Accuracy (BACC), that is the average of accuracies per class, serves as a metric to assess the realism of sequence evolution simulations.
 
 Key components:
 
-- `seqsharp/pretrained_models`: Here we provide the pre-trained seq#-models presented in our paper. They were trained on simulations using various evolutionary models for both DNA and protein sequences.
+- `seqsharp/pretrained_models`: Here we provide the pre-trained seq#-models presented in our paper. They were trained on simulations using various evolutionary models for both DNA and protein sequences. In addition to the pretrained CNNs there are also pre-trained logistic regression models for all protein simulation settings. These were trained on average MSA compositions. 
 - The modules included in the seqsharp-package enable training, testing, and evaluation of (pre-trained) seq#-models. They can be used directly or through the CLI. Below, you will find commands to reproduce the results in our paper.
 - `seqsharp/compare_models.ipynb`: This Jupyter notebook offers a comprehensive analysis and comparison of the performance of our pre-trained models. It generates tables and figures that are included in the supplementary material of our paper.
 - `protein_simulations`: This folder includes a CLI that allows to reproduce the simulated protein data collections of our study. 
@@ -114,7 +114,7 @@ With this flag sites (columns) of the alignments will be permuted.
 
 Number of CPUs to use (only applies for loading data).
 
-### How to train and test a model with seq#
+### How to train and test a seq#-model
 
 Train a model to distinguish real and simulated data:
 
