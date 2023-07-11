@@ -16,7 +16,7 @@ To reproduce the results of the classifier using Gradient Boosted Trees please r
 A python version <= 3.6 is required for this package. 
 As of now the maximum python version that allows to install all required packages is 3.10.
 
-1. Clone the repository: `git clone https://github.com/JohannaTrost/seqsharp.git
+1. Clone the repository: `git clone https://github.com/JohannaTrost/seqsharp.git`
 2. Then navigate to the repository folder: `cd seqsharp` 
 3. You can now install seq# using: `pip install . -r requirements.txt`
 Note that for python v3.10 you might need to add `--use-pep517`
@@ -58,7 +58,7 @@ To reproduce the training of the models presented in the paper use the following
 `seqsharp -t --emp <path/to/emp/data> --sim <path/to/sim/data> -c <path/to/>seqsharp/seqsharp/pretrained_models/<evomodel>/cfg.json -s <path/to/results>
 `
 
-Replace `<evomodel>` with the respective model available in `seqsharp/pretrained_models` and use the corresponding simulated and empirical data collection (i.e. set of MSAs) available at (...).
+Replace `<evomodel>` with the respective model available in `seqsharp/pretrained_models` and use the corresponding simulated and empirical data collection (i.e. set of MSAs) available at https://cme.h-its.org/exelixis/material/simulation_study.tar.gz.
 
 ### Arguments explained
 
