@@ -7,8 +7,6 @@ from .train_eval import print_model_performance
 
 
 def main():
-    sep_line = '-------------------------------------------------------' \
-               '---------'
 
     # -------------------- handling arguments -------------------- #
     parser = argparse.ArgumentParser()
