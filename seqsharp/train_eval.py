@@ -62,7 +62,7 @@ def find_lr_bounds(model, train_loader, opt_func, save, lr_range=None,
     print(f'lr = [{low_bound_lr}, {high_bound_lr}]')
 
     if save is not None and save != '':
-        save = f'{save}/lrrt'
+        save = os.path.join(save, 'lrrt')
         if not os.path.exists(save):
             os.mkdir(save)
 
@@ -71,13 +71,15 @@ def find_lr_bounds(model, train_loader, opt_func, save, lr_range=None,
         ylims = ax.get_ylim()
         ax.vlines(high_bound_lr, *ylims, color='r')
         plt.xscale('log')
-        plt.savefig(f'{save}/{prefix}lrrt_loss_{start_lr}_{end_lr}_'
-                    f'{lr_find_epochs}.png')
+        plt.savefig(os.path.join(save,
+                                 f'{prefix}lrrt_loss_{start_lr}_{end_lr}_'
+                                 f'{lr_find_epochs}.png'))
         plt.close('all')
 
         plt.plot(lr_find_lr)
-        plt.savefig(f'{save}/{prefix}lrrt{start_lr}_{end_lr}_'
-                    f'{lr_find_epochs}.png')
+        plt.savefig(os.path.join(save,
+                                 f'{prefix}lrrt{start_lr}_{end_lr}_'
+                                 f'{lr_find_epochs}.png'))
         plt.close('all')
 
     return high_bound_lr, low_bound_lr
@@ -218,8 +220,8 @@ def save_checkpoint(model, optimizer, scheduler, fold, save):
     if model.scheduler_state is not None:  # because CLR is optional
         model.scheduler_state = scheduler.state_dict()
     # save model and learning curve of th current fold
-    model.save(f'{save}/model_fold_{fold + 1}.pth')
-    model.plot(f'{save}/learning_curve_fold_{fold + 1}.png')
+    model.save(os.path.join(save, f'model_fold_{fold + 1}.pth'))
+    model.plot(os.path.join(save, f'learning_curve_fold_{fold + 1}.png'))
     print('\nSave checkpoint\n')
 
 

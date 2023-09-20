@@ -51,10 +51,10 @@ def write_cfg_file(cfg, save, timestamp=None):
         with open(save, "w") as outfile:
             json.dump(cfg, outfile)
     elif os.path.isdir(save) and timestamp is None:
-        with open(f'{save}/cfg.json', "w") as outfile:
+        with open(os.path.join(save, 'cfg.json'), "w") as outfile:
             json.dump(cfg, outfile)
     elif os.path.isdir(save) and timestamp is not None:
-        with open(f'{save}/cfg_{timestamp}.json', "w") as outfile:
+        with open(os.path.join(save, f'cfg_{timestamp}.json'), "w") as outfile:
             json.dump(cfg, outfile)
     else:
         raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
@@ -72,7 +72,7 @@ def read_cfg_file(path):
 
     if os.path.exists(path):
         if os.path.isdir(path):
-            files = [f'{path}/{file}' for file in os.listdir(path)]
+            files = [os.path.join(path, file) for file in os.listdir(path)]
             path = max(files, key=os.path.getctime)
 
         with open(path) as json_file:
@@ -150,7 +150,7 @@ def confidence_ellipse(x, y, ax, n_std=3.0, facecolor='none', **kwargs):
         raise ValueError("x and y must be the same size")
 
     cov = np.cov(x, y)
-    pearson = cov[0, 1]/np.sqrt(cov[0, 0] * cov[1, 1])
+    pearson = cov[0, 1] / np.sqrt(cov[0, 0] * cov[1, 1])
     # Using a special case to obtain the eigenvalues of this
     # two-dimensionl dataset.
     ell_radius_x = np.sqrt(1 + pearson)
@@ -188,7 +188,7 @@ def pred_runtime(n_alns, n_cl):
     :param n_cl: array or single value
     :return: predicted runtimes
     """
-    return 0.24943235 * n_alns + 1.20771259 * n_cl # 0.03476806 * n_avg_sites
+    return 0.24943235 * n_alns + 1.20771259 * n_cl  # 0.03476806 * n_avg_sites
 
 
 def growth_rate(a, b):
@@ -201,43 +201,46 @@ def load_weights(weights_path, n_clusters, n_profiles, n_runs, best=True):
                   else np.zeros((n_runs, n_clusters, n_profiles)))
 
     for run in range(n_runs):
-        if (os.path.exists(f'{weights_path}/cl_weights_{run+1}.csv')
+        if (os.path.exists(os.path.join(weights_path,
+                                        f'cl_weights_{run + 1}.csv'))
                 and not best):
-            cl_w_runs[run] = np.genfromtxt(f'{weights_path}/cl_weights_{run+1}'
-                                           f'.csv', delimiter=',')
-        elif os.path.exists(f'{weights_path}/cl_weights_best{run+1}.csv'):
+            cl_w_runs[run] = np.genfromtxt(os.path.join(weights_path,
+                                                        f'cl_weights_{run + 1}'
+                                                        f'.csv'),
+                                           delimiter=',')
+        elif os.path.exists(os.path.join(weights_path,
+                                         f'cl_weights_best{run + 1}.csv')):
             if best:
-                cl_w_runs = np.genfromtxt(f'{weights_path}/cl_weights_best'
-                                          f'{run + 1}.csv', delimiter=',')
+                cl_w_runs = np.genfromtxt(
+                    os.path.join(weights_path, f'cl_weights_best{run + 1}.csv'),
+                    delimiter=',')
             else:
-                cl_w_runs[run] = np.genfromtxt(f'{weights_path}/cl_weights_best'
-                                               f'{run+1}.csv', delimiter=',')
+                cl_w_runs[run] = np.genfromtxt(os.path.join(weights_path,
+                                                            f'cl_weights_best'
+                                                            f'{run + 1}.csv'),
+                                               delimiter=',')
         else:
             if not best:
-                warnings.warn(f'No cluster weights for run {run+1}')
+                warnings.warn(f'No cluster weights for run {run + 1}')
 
         for cl in range(n_clusters):
-            if (not best and os.path.exists(
-                    f'{weights_path}/cl{cl+1}_pro_weights_{run+1}.csv')):
-
-                pro_w_runs[run, cl] = np.genfromtxt(
-                    f'{weights_path}/cl{cl+1}_pro_weights_{run+1}'
-                    f'.csv', delimiter=',')
-
-            elif os.path.exists(f'{weights_path}/cl{cl+1}_pro_weights_best{run+1}'
-                                f'.csv'):
+            cl_pw_path = os.path.join(weights_path,
+                                      f'cl{cl + 1}_pro_weights_{run + 1}.csv')
+            cl_pw_best_path = os.path.join(weights_path,
+                                           f'cl{cl + 1}_pro_weights_best{run + 1}'
+                                           f'.csv')
+            if not best and os.path.exists(cl_pw_path):
+                pro_w_runs[run, cl] = np.genfromtxt(cl_pw_path, delimiter=',')
+            elif os.path.exists(cl_pw_best_path):
                 if best:
-                    pro_w_runs[cl] = np.genfromtxt(
-                        f'{weights_path}/cl{cl + 1}'
-                        f'_pro_weights_best'
-                        f'{run + 1}.csv', delimiter=',')
+                    pro_w_runs[cl] = np.genfromtxt(cl_pw_best_path,
+                                                   delimiter=',')
                 else:
-                    pro_w_runs[run, cl] = np.genfromtxt(
-                        f'{weights_path}/cl{cl+1}_pro_weights_best{run+1}.csv',
-                        delimiter=',')
+                    pro_w_runs[run, cl] = np.genfromtxt(cl_pw_best_path,
+                                                        delimiter=',')
             else:
                 if not best:
-                    warnings.warn(f'No profile weights for run {run+1}')
+                    warnings.warn(f'No profile weights for run {run + 1}')
 
     return cl_w_runs, pro_w_runs
 
@@ -253,19 +256,19 @@ def load_custom_distr(file_path):
 
 
 def save_kde(kde_obj, pca, scaler, dir_path):
-    with open(f'{dir_path}/kde.KDE', 'wb') as file:
+    with open(os.path.join(dir_path, 'kde.KDE'), 'wb') as file:
         pickle.dump(kde_obj, file)
-    with open(f'{dir_path}/pca.KDE', 'wb') as file:
+    with open(os.path.join(dir_path, 'pca.KDE'), 'wb') as file:
         pickle.dump(pca, file)
-    with open(f'{dir_path}/scaler.KDE', 'wb') as file:
+    with open(os.path.join(dir_path, 'scaler.KDE'), 'wb') as file:
         pickle.dump(scaler, file)
 
 
 def load_kde(dir_path):
-    with open(f'{dir_path}/kde.KDE', 'rb') as file:
+    with open(os.path.join(dir_path, 'kde.KDE'), 'rb') as file:
         kde_obj = pickle.load(file)
-    with open(f'{dir_path}/pca.KDE', 'rb') as file:
+    with open(os.path.join(dir_path, 'pca.KDE'), 'rb') as file:
         pca = pickle.load(file)
-    with open(f'{dir_path}/scaler.KDE', 'rb') as file:
+    with open(os.path.join(dir_path, 'scaler.KDE'), 'rb') as file:
         scaler = pickle.load(file)
     return kde_obj, pca, scaler

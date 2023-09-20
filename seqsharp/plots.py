@@ -320,7 +320,8 @@ def plot_em_learning_curves(n_runs, n_iter, vlbs_dips, vlbs, debug, test,
 
     fig.tight_layout()
     if save_path != '':
-        fig.savefig(f'{save_path}/lk/em_optimizaton_history_{lk_type}.png')
+        fig.savefig(os.path.join(save_path, 'lk',
+                            f'em_optim_history_{lk_type}.png'))
     plt.close(fig)
 
 
@@ -505,108 +506,6 @@ def freq_compare_n_cl_violins(real_msas, sim_msas_sets, aas=None, save_path=''):
     # df.loc[df['AA'].isin(aas[:4])]
     plt.tight_layout()
     plt.savefig(f'{save_path}', dpi=100)
-    plt.close('all')
-
-
-def pca_plot():  # TODO
-    em_name = 'sim_5cls_6000alns_1000_22606'
-    n_cl = 5
-    n_pro = 64
-    sim_files = [file for file in os.listdir(
-        'seqsharp/emp_pdfs/freq_samples')
-                 if em_name in file]
-    real_msas = np.genfromtxt(
-        'seqsharp/emp_pdfs/freq_samples/fasta_no_gaps_alns.csv',
-        skip_header=True, delimiter=',')
-    sim_msas = np.asarray(
-        [np.genfromtxt(f'seqsharp/emp_pdfs/freq_samples/{file}', delimiter=',',
-                       skip_header=True) for file in sim_files])
-    init_msa_freqs = np.genfromtxt(
-        'results/profiles_weights/sim_5cls_6000alns_1000_22606/init_weights/msa_freqs.csv',
-        delimiter=',', skip_header=True)
-    init_weight = np.genfromtxt(
-        'results/profiles_weights/sim_5cls_6000alns_1000_22606/init_weights/init_weights.csv',
-        delimiter=',', skip_header=True)
-    res_w = np.asarray([np.genfromtxt(
-        f'results/profiles_weights/sim_5cls_6000alns_1000_22606/cl{i + 1}_pro_weights_1.csv')
-        for i in range(n_cl)])
-
-    init_w_freq = np.asarray([init_weight[i, :n_pro] @ profiles.T
-                              for i in range(n_cl)])
-    res_w_freq = np.asarray([res_w[i] @ profiles.T for i in range(n_cl)])
-
-    run = 2  # is first run
-
-    save_path = 'results/pca/test'
-
-    # exclude outliers
-    mean_msa = real_msas[:, :20].mean(axis=0)
-    dists = np.sum((real_msas[:, :20] - mean_msa) ** 2, axis=1) ** 0.5
-    real_msas = real_msas[dists < np.quantile(dists, 0.99)]
-
-    pca = PCA(n_components=20)
-    pca_msa_freqs = pca.fit_transform(real_msas[:, :20])
-    # predict
-    pca_sim = pca.transform(sim_msas[run, :, :20])
-    pca_init_msa = pca.transform(init_msa_freqs[:, :20])
-    pca_init_w = pca.transform(init_w_freq)
-    pca_res_w = pca.transform(res_w_freq)
-
-    sample_real = np.random.randint(len(pca_msa_freqs),
-                                    size=int(len(pca_msa_freqs) * 0.1))
-    sample_sim = np.arange(0, len(pca_sim), 10).astype(int)
-
-    fig, ax = plt.subplots(nrows=1, ncols=1)
-    ax.scatter(pca_msa_freqs[sample_real, 0], pca_msa_freqs[sample_real, 1],
-               color='coral', s=1, alpha=0.2)
-    sc = ax.scatter(pca_sim[sample_sim, 0], pca_sim[sample_sim, 1],
-                    c=sim_msas[run, sample_sim, 20], s=1, alpha=0.2)
-
-    confidence_ellipse(pca_msa_freqs[:, 0], pca_msa_freqs[:, 1], ax, n_std=2,
-                       edgecolor='coral')
-
-    for cl in sim_msas[run, sample_sim, 20]:
-        col = list(sc.to_rgba(cl))
-        col[3] = 0.5
-        confidence_ellipse(pca_sim[np.where(sim_msas[run, :, 20] == cl), 0],
-                           pca_sim[np.where(sim_msas[run, :, 20] == cl), 1], ax,
-                           n_std=2, edgecolor=tuple(col))
-
-    ax.scatter(pca_init_msa[:, 0], pca_init_msa[:, 1], c=init_msa_freqs[:, 21],
-               s=7, label='initial MSA')
-    ax.scatter(pca_init_w[:, 0], pca_init_w[:, 1], c=init_msa_freqs[:, 21],
-               s=7, label='initial weights@profiles', marker='^')
-    ax.scatter(pca_res_w[:, 0], pca_res_w[:, 1], c=init_msa_freqs[:, 21],
-               s=7, label='final weights@profiles', marker='s')
-
-    plt.legend()
-
-    plt.savefig(f'{save_path}/pca.png', dpi=200)
-    plt.close('all')
-
-
-def plot_pred_runtime(n_alns=None, n_cl=None, save=None):
-    if n_cl is None:
-        n_cl = [1, 2, 4, 6, 8]
-    if n_alns is None:
-        n_alns = [20, 40, 60, 80, 100]
-
-    X, Y = np.meshgrid(n_alns, n_cl)
-    Z = pred_runtime(X, Y)
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.set_xlabel('number of MSAs')
-    ax.set_ylabel('number of clusters')
-    surf = ax.plot_surface(X, Y, Z, cmap='viridis', rstride=1, cstride=1,
-                           linewidth=0, antialiased=False)
-    fig.colorbar(surf, label='runtime in s')
-    for ii in [180, 255, 270, 315]:
-        ax.view_init(elev=10., azim=ii)
-        if save is None:
-            plt.savefig(f'../results/runtime_cls_alns{ii}.png')
-        else:
-            plt.savefig(f'{save}{ii}.png')
     plt.close('all')
 
 

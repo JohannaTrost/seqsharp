@@ -55,9 +55,10 @@ def handle_args(parser):
     # determine cfg path from model path
     if opts['model_path'] and not opts['cfg_path']:
         if os.path.isdir(opts['model_path']):
-            opts['cfg_path'] = opts['model_path'] + '/cfg.json'
+            opts['cfg_path'] = os.path.join(opts['model_path'], 'cfg.json')
         elif os.path.isfile(opts['model_path']):
-            opts['cfg_path'] = os.path.dirname(opts['model_path']) + '/cfg.json'
+            opts['cfg_path'] = os.path.join(os.path.dirname(opts['model_path']),
+                                            'cfg.json')
 
     for path in ['emp_path', 'result_path', 'model_path', 'cfg_path']:
         if opts[path] is not None and not os.path.exists(opts[path]):
@@ -76,14 +77,17 @@ def handle_args(parser):
         cnn_dir = f'cnn_{sim_dir}_{str(timestamp)}'
 
         if opts['result_path'] is not None and not opts['model_path']:
-            if not opts['result_path'].split('/')[-1].startswith('cnn_'):
+            res_dir = os.path.normpath(opts['result_path']).split(os.path.sep)
+            res_dir = res_dir[-1]
+            if not res_dir.startswith('cnn_'):
                 # create unique subdir for the model(s)
-                opts['result_path'] += f'/{cnn_dir}'
+                opts['result_path'] = os.path.join(opts['result_path'], cnn_dir)
                 os.makedirs(opts['result_path'])
         elif opts['model_path'] and opts['train']:
             # create new subdir for the resumed model(s)
             opts['result_path'] = os.path.dirname(opts['model_path'])
-            opts['result_path'] += f'/resume_{cnn_dir}'
+            opts['result_path'] = os.path.join(opts['result_path'],
+                                               'resume_{cnn_dir}')
             os.makedirs(opts['result_path'])
     else:  # only --model
         opts['result_path'] = opts['model_path']
@@ -233,8 +237,8 @@ def model_test(opts, in_data):
 
     # print and save results
     if opts["result_path"] is not None:
-        ds_res = results2table(ds_res,
-                               f'{opts["result_path"]}/test_{timestamp}.csv')
+        ds_res = results2table(ds_res, os.path.join(opts['result_path'],
+                                                    f'test_{timestamp}.csv'))
     print('\n#########################  PERFORMANCE  '
           '#########################\n')
     print(ds_res)
@@ -265,13 +269,15 @@ def validate(opts, in_data):
             for k, v in val_result.items():
                 res_dict[k].append(v)
 
-        img_train = f'{opts["result_path"]}/learning_curve_fold_{fold + 1}.png'
+        img_train = os.path.join(opts['result_path'],
+                                 f'learning_curve_fold_{fold + 1}.png')
         if not os.path.exists(img_train):
             model.plot(img_train)
 
-    if opts["result_path"] is not None:
+    if opts['result_path'] is not None:
         res_df = results2table(res_dict,
-                               f'{opts["result_path"]}/val_{timestamp}.csv')
+                               os.path.join(opts['result_path'],
+                                            f'val_{timestamp}.csv'))
     print('\n#########################  PERFORMANCE  '
           '#########################\n')
     print(res_df)
@@ -444,7 +450,8 @@ def attribute(opts, in_data):
     for key, inds in val_inds.items():
         print(f'Attribution scores from fold-{folds[key] + 1}-model')
         if opts['result_path'] is not None:
-            attr_path = f'{opts["result_path"]}/attr_fold{folds[key] + 1}'
+            attr_path = os.path.join(opts['result_path'],
+                                     f'attr_fold{folds[key] + 1}')
             if key == 'best':
                 attr_path += '_min_loss'
             elif key == 'worst':

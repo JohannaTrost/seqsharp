@@ -251,10 +251,10 @@ def load_alns(data_dir, n_alns=None, seq_len=None, molecule_type='protein',
              list of alignment identifiers (strings)
     """
 
-    if os.path.exists(f'{data_dir}/file_order.txt'):
+    file_order_path = os.path.join(data_dir, 'file_order.txt')
+    if os.path.exists(file_order_path):
         # use MSA order for pretrained models
-        msa_files = np.genfromtxt(f'{data_dir}/file_order.txt', dtype=None,
-                                  encoding=None)
+        msa_files = np.genfromtxt(file_order_path, dtype=None, encoding=None)
     else:
         msa_files = np.asarray(sorted(os.listdir(data_dir)))
 
@@ -275,7 +275,7 @@ def load_alns(data_dir, n_alns=None, seq_len=None, molecule_type='protein',
     frac_ambig_mol_sites = []
     cnt_empty, cnt_empty_rem, cnt_wrong_mol_type, cnt_too_long = 0, 0, 0, 0
     for file in tqdm(msa_files):
-        aln = load_msa(data_dir + '/' + file)
+        aln = load_msa(os.path.join(data_dir, file))
         if len(aln) > 0:  # check if no sequences
             if len(aln[0]) > 0:  # check if no sites
                 # check if MSA exceeds max num. of sites
@@ -347,7 +347,7 @@ def load_msa_reprs(path, n_alns=None):
     :param path: <path/to/dir> directory containing pkl files with msa reprs.
     :return: list of msa reprs. (site-wise compositions)
     """
-    file_order = np.genfromtxt(f'{path}/file_order.txt', dtype=None,
+    file_order = np.genfromtxt(os.path.join(path, 'file_order.txt'), dtype=None,
                                encoding=None)
     if n_alns is not None and n_alns != '':
         files = file_order[:n_alns]
@@ -355,7 +355,7 @@ def load_msa_reprs(path, n_alns=None):
         files = file_order
     msa_reprs = []
     for file in tqdm(files):
-        msa_reprs.append(pickle_read(f'{path}/{file}.pkl'))
+        msa_reprs.append(pickle_read(os.path.join(path, f'{file}.pkl')))
 
     return msa_reprs, files
 
@@ -502,7 +502,7 @@ def raw_alns_prepro(data_paths, n_alns=None, seq_len=None, shuffle=False,
                                                          'No.sites']])
             sim_stats = pd.DataFrame(columns=cl_stats_cols)
             for d in sim_cl_dirs:
-                sim_data = load_alns(f'{path}/{d}', size, seq_len,
+                sim_data = load_alns(os.path.join(path, d), size, seq_len,
                                      molecule_type=molecule_type)
                 # concat remove cluster dimension
                 sim_alns += sim_data[0]
