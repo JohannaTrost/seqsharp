@@ -1,6 +1,4 @@
-"""Main functions to train and test a model to classify empirical and
-simulated MSAs
-"""
+"""Main functions to train, test and validate a seq#-model"""
 
 import errno
 from datetime import datetime
@@ -24,6 +22,16 @@ gc.collect()
 
 
 def handle_args(parser):
+    """Verify and handle user input
+
+    This function create a dictionary from argparse arguments,
+    verifies the correct use of arguments, the existence of input files and
+    eventually creates an output folder.
+
+    :param parser: argparse parser object
+    :return: opts dictionary with input paths, flags etc.
+    """
+
     args = parser.parse_args()
 
     # ---------------------------- get arguments ---------------------------- #
@@ -96,10 +104,16 @@ def handle_args(parser):
 
 
 def model_figures(opts):
+    """Generate learning curve plots of pre-trained models
+
+    :param opts: argument dictionary
+    :return: None
+    """
+
     save = opts["result_path"]
     models = load_model(opts['model_path'])
     for fold, model in enumerate(models):
-        if model is not None:  # model of fold is missing
+        if model is not None:  # model of fold is not missing
             img_train = os.path.join(save,
                                      f'learning_curve_fold_{fold + 1}.png')
             if not os.path.exists(img_train):
@@ -110,6 +124,21 @@ def model_figures(opts):
 
 
 def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
+    """Loading alignments
+
+    This function loads empirical and simulated MSAs according to given
+    configuration. It generates MSA representations as the site-wise or MSA
+    compositions as well as according labels: 0 for empirical and 1 for
+    simulated.
+
+    :param emp_path: <path/to/emp/data> dir with fasta or phylip format files
+    :param sim_paths: <path/to/sim/data> dir with fasta or phylip format files
+    :param cfg_path: <path/to/cfg.json> JSON formatted config file
+    :param model_path: <path/to/seq#-models> or None
+    :param shuffle: True for shuffling MSA sites False otherwise
+    :return: data (n_alns x n_sites x 21 or 5)-array, 1D array with labels,
+             list of data collection sizes, 1D list of all file names
+    """
 
     if sim_paths is None:
         sim_paths = []
@@ -185,6 +214,18 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
 
 
 def model_test(opts, in_data):
+    """Test pre-trained models on given data collections
+
+    Evaluates pre-trained model of each fold on entire data collections (without
+    separation into "training and validation" sets), prints loss, BACC
+    and class accuracy and eventually saves results in *test_{timestamp}.csv*.
+
+    :param opts: argument dictionary
+    :param in_data: tuple of MSAs (n_alns x n_sites x 21 or 5)-array,
+                    1D array with labels, list of data collection sizes,
+                    1D list of all file names
+    :return: None
+    """
 
     # load config and save with timestamp
     cfg = read_cfg_file(opts['cfg_path'])
@@ -207,14 +248,14 @@ def model_test(opts, in_data):
     write_cfg_file(cfg, opts['cfg_path'], timestamp=timestamp)
 
     # prepare dataframe to store performance (BACC, loss etc.)
-    cols = [np.repeat(ds_names, 2), ['loss', 'acc'] * len(ds_names)]
+    cols = [np.repeat(ds_names, 2), ['loss', 'bacc'] * len(ds_names)]
     ds_res = pd.DataFrame(columns=cols)
     # indices to split arrays (data, labels) into original data collections
     ds_inds = np.split(np.arange(len(data)), np.cumsum(ds_sizes))[:-1]
 
     for ds_name, ds_ind in zip(ds_names, ds_inds):
 
-        res_dict = {'loss': [], 'acc': []}
+        res_dict = {'loss': [], 'bacc': []}
         for fold in range(len(models)):
             model = models[fold]
             test_ds = TensorDataset(data[ds_ind], labels[ds_ind])
@@ -227,13 +268,13 @@ def model_test(opts, in_data):
             # populate results dictionary
             res_dict['loss'].append(test_result['loss'])
             if ds_name == 'emp':
-                res_dict['acc'].append(test_result['acc_emp'])
+                res_dict['bacc'].append(test_result['acc_emp'])
             else:
-                res_dict['acc'].append(test_result['acc_sim'])
+                res_dict['bacc'].append(test_result['acc_sim'])
 
         # populate MultiIndex df separating different data collections
         ds_res[(ds_name, 'loss')] = res_dict['loss']
-        ds_res[(ds_name, 'acc')] = res_dict['acc']
+        ds_res[(ds_name, 'bacc')] = res_dict['bacc']
 
     # print and save results
     if opts["result_path"] is not None:
@@ -245,17 +286,33 @@ def model_test(opts, in_data):
 
 
 def validate(opts, in_data):
+    """Validate pre-trained models on given data collections
+
+    Evaluates pre-trained model on data collections separated into "training and
+    validation" sets for each fold, prints loss, BACC and class accuracy and
+    eventually saves results in *val_{timestamp}.csv* and learning curves.
+
+    :param opts: argument dictionary
+    :param in_data: tuple of MSAs (n_alns x n_sites x 21 or 5)-array,
+                    1D array with labels, list of data collection sizes,
+                    1D list of all file names
+    :return: None
+    """
+
     timestamp = datetime.now()
     data, labels, _, _ = in_data
+
+    # load and save cfg with timestamp
     cfg = read_cfg_file(opts['cfg_path'])
-    # save cfg with timestamp
     write_cfg_file(cfg, opts['cfg_path'], timestamp=timestamp)
     bs = cfg['training']['batch_size']
-    # load data and models
+
+    # load models
     models = load_model(opts['model_path'])
-    # k-fold validator (kfold-seed ensures same fold-splits in opt. loop)
-    kfold = StratifiedKFold(cfg['training']['n_folds'],
-                            shuffle=True, random_state=42)
+
+    # stratified k-fold validator
+    kfold = StratifiedKFold(cfg['training']['n_folds'], shuffle=True,
+                            random_state=42)
 
     res_dict = {'loss': [], 'bacc': [], 'acc_emp': [], 'acc_sim': []}
     for fold, (train_ids, val_ids) in enumerate(kfold.split(data,
@@ -284,7 +341,23 @@ def validate(opts, in_data):
 
 
 def determine_fold_lr(lr, lr_range, curr_fold, clr, train_loader,
-        model_params, optimizer, result_path):
+                      model_params, optimizer, result_path):
+    """Determines learning rate of model of current fold (data split)
+
+    Either extracting lr from config file or determining a lr with the
+    LR finder (tracing loss while training on lrs within lower and upper bound).
+
+    :param lr: learning rate or list of learning rates
+    :param lr_range: (lower lr, upper lr) lr bounds for LR finder
+    :param curr_fold: index of current fold typically within 0 and 9
+    :param clr: flag for cyclic learning rate
+    :param train_loader: training dataset (DataLoader)
+    :param model_params: parameters for network architecture (dict)
+    :param optimizer: optimizer (torch.optim)
+    :param result_path: output path to save results to
+    :return: *fold_lr:* learning rate or lr range for given data split
+    """
+
     # determine lr (either lr from cfg or lr finder)
     if isinstance(lr, list) and len(lr) > curr_fold:
         # cfg lr is list of lrs per fold
@@ -311,6 +384,20 @@ def determine_fold_lr(lr, lr_range, curr_fold, clr, train_loader,
 
 
 def train(opts, in_data):
+    """Train seq#-models
+
+    Trains a model to distinguish given empirical and simulated MSAs using
+    stratified k-fold cross validation. Prints final loss, BACC and class
+    accuracy and plots learning curves. Eventually saves results in
+    *val_{timestamp}.csv* and learning curves.
+
+    :param opts: argument dictionary
+    :param in_data: tuple of MSAs (n_alns x n_sites x 21 or 5)-array,
+                    1D array with labels, list of data collection sizes,
+                    1D list of all file names
+    :return: None
+    """
+
     sep_line = '-------------------------------------------------------' \
                '---------'
 
@@ -423,6 +510,19 @@ def train(opts, in_data):
 
 
 def attribute(opts, in_data):
+    """Compute attribution maps on validation data
+
+    Plots attribution maps for MSA sample, summary plots for the entire
+    validation data set, empirical and simulated predication scores and the
+    correlation of MSA length and predection score.
+
+    :param opts: argument dictionary
+    :param in_data: tuple of MSAs (n_alns x n_sites x 21 or 5)-array,
+                    1D array with labels, list of data collection sizes,
+                    1D list of all file names
+    :return: None
+    """
+
     timestamp = datetime.now()
     cfg = read_cfg_file(opts['cfg_path'])
     # get data and models
