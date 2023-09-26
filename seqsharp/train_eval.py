@@ -1,14 +1,13 @@
-"""Functions to train and evaluate the classifier"""
+"""Functions to train and evaluate a seq#-model"""
 
 import gc
 import os
-import time
 
 import numpy as np
 import pandas as pd
 import torch
-
 from matplotlib import pylab as plt
+from numpy import ndarray
 
 from .ConvNet import compute_device, accuracy
 
@@ -18,7 +17,25 @@ gc.collect()
 
 
 def find_lr_bounds(model, train_loader, opt_func, save, lr_range=None,
-        lr_find_epochs=5, prefix=''):
+                   lr_find_epochs=5, prefix=''):
+    """Perform learning rate range test (LRRT)
+
+    Returns efficient lr bounds for training, where the upper bound is a tenth
+    of the lr at minimum loss during the LRRT and the lower bound is a sixth of
+    the upper bound. Creates *lrrt* directory with one figure showing the
+    learning rates during the LRRT and the log-loss vs. learning rates
+    with a vertical line at the determined upper bound.
+
+    :param model: ConvNet model
+    :param train_loader: training dataset (DataLoader)
+    :param opt_func: optimizer (torch.optim)
+    :param save: <path/to/> directory to save LRRT figures
+    :param lr_range: (lower lr, upper lr) initial bounds
+    :param lr_find_epochs: number of epochs to do training for LRRT
+    :param prefix: string prefix for figure file names
+    :return: tupel of upper and lower determined lr
+    """
+
     start_lr, end_lr = (1e-07, 0.1) if lr_range == '' else lr_range
 
     lr_lambda = lambda x: np.exp(x * np.log(end_lr / start_lr) / (
@@ -86,6 +103,17 @@ def find_lr_bounds(model, train_loader, opt_func, save, lr_range=None,
 
 
 def validation(model, train_loader, val_loader):
+    """Validation phase during training
+
+    Pass training and validation to network without updating weights and print
+    training Loss and BACC and validation Loss, BACC and class-wise accuracy.
+
+    :param model: seq#-model
+    :param train_loader: training dataset (DataLoader)
+    :param val_loader: validation dataset (DataLoader)
+    :return: seq#-model with validation and training accuracy/loss
+    """
+
     model.eval()
     with torch.no_grad():
         # eval for training dataset
@@ -95,23 +123,24 @@ def validation(model, train_loader, val_loader):
     for key, val in train_result.items():
         model.train_history[key].append(val)
     print(f"Training: Loss: {np.round(train_result['loss'], 4)}, "
-          f"Acc.: {np.round(train_result['bacc'], 4)}")
+          f"BACC: {np.round(train_result['bacc'], 4)}")
     for key, val in val_result.items():
         model.val_history[key].append(val)
     print(f"Validation: Loss: {np.round(val_result['loss'], 4)}, "
-          f"Acc.: {np.round(val_result['bacc'], 4)}, "
-          f"Emp. acc.: {np.round(val_result['acc_emp'], 4)}, "
-          f"Sim. acc.: {np.round(val_result['acc_sim'], 4)}")
+          f"BACC: {np.round(val_result['bacc'], 4)}, "
+          f"Emp. ACC: {np.round(val_result['acc_emp'], 4)}, "
+          f"Sim. ACC: {np.round(val_result['acc_sim'], 4)}")
     return model
 
 
 def evaluate_folds(val_hist_folds, n_folds, which='best'):
-    """Return acc., emp./sim. acc. and loss of best/last epoch for each fold
+    """Return BACC, emp./sim. acc. and loss of best/last epoch for each fold
 
-    :param val_hist_folds: acc., emp./sim. acc. and loss for each epoch and fold
+    :param which: indicate to either extract 'best' or 'last' epoch
+    :param val_hist_folds: BACC, emp./sim. acc. and loss for each epoch and fold
     :param n_folds: number of folds
-    :return: dict with acc., emp./sim. acc. and loss of epoch with min.
-    loss for each fold
+    :return: dict with BACC, emp./sim. acc., loss of last epoch or epoch with
+             max. BACC for each fold
     """
 
     val_folds = {'loss': [], 'bacc': [], 'acc_emp': [], 'acc_sim': []}
@@ -133,6 +162,16 @@ def evaluate_folds(val_hist_folds, n_folds, which='best'):
 
 
 def get_close_baccs(baccs, selected_epochs):
+    """Extract BACCs surrounding the selected best BACC during training
+
+    Select 6 epochs preceding and succeeding selected epoch and take mean across
+    folds (BACCs of all data splits).
+
+    :param baccs: list of BACCs (n_folds x epochs)
+    :param selected_epochs: index of the best epoch for each fold
+    :return: list of BACCs surrounding best epoch averaged across folds
+    """
+
     # select 6 epochs preceding and succeeding best epoch
     bacc_around_sel = []
     for fold, epoch in enumerate(selected_epochs):
@@ -151,6 +190,16 @@ def get_close_baccs(baccs, selected_epochs):
 
 
 def results2table(val_folds, save=None):
+    """Performance measures for all folds to pandas Dataframe
+
+    Dataframe columns are Loss, BACC and empirical/simulated accuracy. Indices
+    are Fold numbers and basic stats (means, min, max, median, std)
+
+    :param val_folds: performance dict
+    :param save: <path/to/df.csv> file to save dataframe
+    :return: pandas Dataframe with performances
+    """
+
     res_df = pd.DataFrame(val_folds)
     res_df.index = [f'Fold {i}' for i in range(1, len(res_df) + 1)]
     res_df = pd.concat((res_df,
@@ -162,6 +211,12 @@ def results2table(val_folds, save=None):
 
 
 def print_model_performance(models):
+    """Print validation performance and stats of neighbouring epochs (n-BACCs)
+
+    :param models: list of seq#-model per fold
+    :return: pandas dataframe with validation performance and stats of n-BACCs
+    """
+
     n_folds = len(models)
     val_hist_folds = [m.val_history for m in models]
     val_folds, best_epochs = evaluate_folds(val_hist_folds, n_folds)
@@ -190,8 +245,8 @@ def evaluate(model, val_loader):
     """Feeds the model with data and returns its performance
 
     :param model: ConvNet object
-    :param val_loader: networks input_plt_fct data (DataLoader object)
-    :return: losses and accuracies for each data batch (dict)
+    :param val_loader: data collection (DataLoader object)
+    :return: losses averaged over batches and accuracies for each batch (dict)
     """
 
     losses = []
@@ -215,6 +270,16 @@ def evaluate(model, val_loader):
 
 
 def save_checkpoint(model, optimizer, scheduler, fold, save):
+    """Save model at checkpoint and learning curve (for given data split)
+
+    :param model: seq#-model
+    :param optimizer: optimizer (torch.optim)
+    :param scheduler: scheduler for cyclic learning rates
+    :param fold: index of current fold
+    :param save: <path/to/> directory to save model and figure
+    :return: None
+    """
+
     # save state dict
     model.opt_state = optimizer.state_dict()
     if model.scheduler_state is not None:  # because CLR is optional
@@ -226,6 +291,11 @@ def save_checkpoint(model, optimizer, scheduler, fold, save):
 
 
 def start_timer():
+    """Start torch timer
+
+    :return: tuple of start and end event (torch.cuda.Event)
+    """
+
     if torch.cuda.is_available():
         starter = torch.cuda.Event(enable_timing=True)
         ender = torch.cuda.Event(enable_timing=True)
@@ -236,6 +306,13 @@ def start_timer():
 
 
 def stop_timer(starter, ender):
+    """Stop torch timer
+
+    :param starter: start event object (torch.cuda.Event)
+    :param ender: end event object (torch.cuda.Event)
+    :return: elapsed time in seconds
+    """
+
     if torch.cuda.is_available():
         ender.record()
         torch.cuda.synchronize()
@@ -246,19 +323,28 @@ def stop_timer(starter, ender):
 def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
         start_epoch=0, max_epochs=1000, min_epochs=100, patience=2,
         step_size=50, min_delta=1e-04, save='', fold=None):
-    """
-    Training a model to learn a function to distinguish between simulated and
-    empirical alignments (with validation step at the end of each epoch)
+    """Trains seq#-model to distinguish between simulated and empirical MSAs
+
+    Training for one data splot (fold). Function performs a validation phase at
+    the end of each epoch and includes performance on initial untrained model,
+    saving checkpoints of best model every other epoch and early stopping.
+
+    :param fold: current fold (data split)
+    :param save: <path/to/> directory to save models and figures
+    :param step_size: size of intervals in which to check for early stopping
+    :param min_epochs: min. no. of epochs before early stopping
     :param min_delta: threshold for early stopping (min. loss difference)
-    :param patience: nb. of epochs without change that triggers early stopping
+    :param patience: no. of epochs without change that triggers early stopping
     :param max_epochs: max. number of repetitions of training (integer)
     :param start_epoch: possibility to continue training from this epoch
-    :param lr: learning rate (float)
+    :param lr: learning rate (float), list of lrs for folds or lr range
     :param model: ConvNet object
     :param train_loader: training dataset (DataLoader)
     :param val_loader: validation dataset (DataLoader)
     :param opt_func: optimizer (torch.optim)
+    :return: mean training throughput (examples per second) if cuda else None
     """
+
     # init optimizer and scheduler (if used)
     if isinstance(lr, list) or isinstance(lr, tuple):
         optimizer = opt_func(model.parameters(), lr[0])
@@ -334,6 +420,6 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
                 prev_val_loss = np.min(model.val_history['loss'][-step_size:])
 
     if torch.cuda.is_available():
-        avg_throughput = np.mean(throughput)
+        avg_throughput: ndarray = np.mean(throughput)
         print(f'AVG training throughput: {avg_throughput} examples/s')
         return avg_throughput

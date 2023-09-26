@@ -1,6 +1,8 @@
-"""Provides a child class ConvNet of torch.nn.module to allow
-   the construction of a convolutional neural network as well as
-    a function to load a network and to initialize values of a tensor
+"""Provides a child class ConvNet of torch.nn.module
+
+Allows the construction of a convolutional neural network. Includes functions
+to initialize network weights, load network state and calculate accuracy next to
+ConvNet class.
 """
 
 import os
@@ -14,8 +16,6 @@ from .utils import read_cfg_file
 
 if torch.cuda.is_available():
     compute_device = torch.device("cuda:0")
-# elif torch.backends.mps.is_available():
-#    compute_device = torch.device("mps")
 else:
     compute_device = torch.device("cpu")
 
@@ -23,7 +23,7 @@ else:
 def init_weights(m):
     """Initializes weights with values according to the method
        described in “Understanding the difficulty of training
-       deep feedforward neural networks” - Glorot, alns_aa_counts.
+       deep feedforward neural networks” - Glorot.
 
     :param m: convolutional or linear layer
     """
@@ -33,6 +33,16 @@ def init_weights(m):
 
 
 def load_checkpoint(path, model):
+    """Load checkpoint of pre-trained model
+
+    Checkpoint includes the state dictionary (i.e. network weights), optimizer
+    and eventually scheduler state, training and validation history.
+
+    :param path: <path/to/checkpoint>
+    :param model: pre-trained seq#-model
+    :return: model at checkpoint
+    """
+
     checkpoint = torch.load(path, map_location=compute_device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.train_history = checkpoint['train_history']
@@ -54,11 +64,11 @@ def load_checkpoint(path, model):
 
 
 def load_model(path, state='eval'):
-    """Loads a model and sets it to evaluation or training mode
+    """Loads models of all folds and sets them to evaluation or training mode
 
     :param path: <path/to/model folder> with <.pth> model files (string)
     :param state: 'eval' or 'train' to indicate desired model state (string)
-    :return: the model (ConvNet object)
+    :return: models for all folds (list of ConvNet objects)
     """
 
     cfg = read_cfg_file(os.path.join(path, 'cfg.json'))
@@ -80,7 +90,9 @@ def load_model(path, state='eval'):
 
 
 class ConvNet(nn.Module):
-    """Neural network with at least 1 linear layer,
+    """Seq# (convolution) neural network
+
+       Neural network with at least 1 linear layer,
        which can have multiple convolutional and linear layers
        for a binary classification task, where classes are empirical
        alignments (0) and simulated alignments (1)
@@ -193,6 +205,8 @@ class ConvNet(nn.Module):
         self.scheduler_state = None  # state dict of scheduler
 
     def forward(self, x):
+        """Performs feed forward pass on input"""
+
         if self.conv_layers is not None:
             out = self.conv_layers(x)
             out = out.reshape(out.size(0), -1)  # flattening
@@ -205,6 +219,12 @@ class ConvNet(nn.Module):
         return out
 
     def feed(self, batch):
+        """Evaluate batch by ConvNet model
+
+        :param batch: MSA representations and labels
+        :return: loss, prediction, label for examples in batch
+        """
+
         alns, labels = batch
 
         alns = alns.to(compute_device)
@@ -218,7 +238,7 @@ class ConvNet(nn.Module):
         return loss, out.squeeze(dim=1), labels
 
     def plot(self, path=None):
-        """Generates a figure with 2 plots for loss and BACC over epochs
+        """Plot loss and BACC vs. epochs
 
         :param path: <path/to/> directory to save the plot to (string)
         """
@@ -265,6 +285,12 @@ class ConvNet(nn.Module):
             plt.close('all')
 
     def save(self, path):
+        """Save model state (checkpoint)
+
+        :param path: <path/to/> save model
+        :return: None
+        """
+
         torch.save({
             'train_history': self.train_history,
             'val_history': self.val_history,
@@ -282,6 +308,7 @@ def accuracy(outputs, labels):
     :param labels: 0 and 1 labels (0: empirircal, 1:simulated) (torch tensor)
     :return: BACC and class accuracies (dictionary with torch tensors)
     """
+
     accs = {}
     preds = torch.round(activation(outputs)).to(compute_device)
 
