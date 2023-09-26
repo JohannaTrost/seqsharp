@@ -7,11 +7,9 @@ the child classes of *torch.utils.data.Dataset*
 """
 import errno
 import os
-import warnings
 
 import psutil
 import torch
-
 from Bio import Phylo, SeqIO, Seq
 from torch.utils.data import Dataset
 
@@ -65,7 +63,11 @@ def rearrange_tree(root):
 
 
 def tree_remove_confidence(clade):
-    """Sets confidence of all nodes to None"""
+    """Sets confidence of all nodes to None
+
+    :param clade: monophyletic group (Clade in Phylo.tree)
+    :return: None
+    """
 
     clade.confidence = None
     for child in clade.clades:
@@ -73,7 +75,12 @@ def tree_remove_confidence(clade):
 
 
 def adapt_newick_format(in_path, out_path):
-    """Reformat newick tree for Seq-Gen simulations"""
+    """Reformat newick tree for Seq-Gen simulations
+
+    :param in_path: <path/to/input/tree>
+    :param out_path: <path/to/output/tree>
+    :return: None
+    """
     tree = Phylo.read(in_path, 'newick')
 
     tree_remove_confidence(tree.root)
@@ -89,6 +96,7 @@ def remove_gaps(fasta_in, fasta_out):
 
     :param fasta_in: </path/to> fasta file
     :param fasta_out:  </path/to> new fasta file
+    :return: None
     """
 
     aln_records = [rec for rec in SeqIO.parse(fasta_in, "fasta")]
@@ -112,8 +120,9 @@ def remove_gaps(fasta_in, fasta_out):
 
 
 def is_mol_type(aln, molecule_type='protein'):
-    """Check if given MSA is DNA
+    """Check if given MSA is DNA or AA
 
+    :param molecule_type: either 'DNA' or 'protein' sequences
     :param aln: list (n_seq) of strings (sequences)
     :return: True if it is DNA according to DNA_EMP_ALPHABET False otherwise
     """
@@ -175,6 +184,7 @@ def replace_ambig_chars(seq, molecule_type='protein'):
     """Replace all ambiguous nucleotides/amino acids by randomly drawn
     nucleotides (A,C,G or T)/ 20 amino acids
 
+    :param molecule_type: either 'DNA' or 'protein' sequences
     :param seq: sequence
     :return: cleaned sequence
     """
@@ -215,9 +225,9 @@ def remove_ambig_pos_sites(aln, molecule_type):
 
 
 def load_msa(filename):
-    """Gets aligned sequences from given file
+    """Load MSA from given file
 
-    :param filename: <path/to/> alignments (string)
+    :param filename: <path/to/> alignment (string)
     :return: MSA as list of strings
     """
     if filename.endswith('.fa') or filename.endswith('.fasta'):
@@ -226,29 +236,77 @@ def load_msa(filename):
         format_name = 'phylip'
     else:
         raise ValueError(errno.ENOENT, os.strerror(errno.ENOENT),
-                         f'File format_name not recognized: '
+                         f'File extension not recognized: '
                          f'{filename.split(".")[-1]}')
 
-    alned_seqs_raw = [str(seq_record.seq)
-                      for seq_record in SeqIO.parse(open(filename,
-                                                         encoding='utf-8'),
-                                                    format_name)]
-    return alned_seqs_raw
+    msa_raw = [str(seq_record.seq)
+               for seq_record in SeqIO.parse(open(filename, encoding='utf-8'),
+                                             format_name)]
+    return msa_raw
 
 
-def load_alns(data_dir, n_alns=None, seq_len=None, molecule_type='protein',
+def preprocess_msa(aln, msa_len, molecule_type, rem_ambig_chars):
+    """
+
+    :param aln: alignment (list of strings)
+    :param msa_len: number of sites in *aln*
+    :param molecule_type: either 'DNA' or 'protein' sequences
+    :param rem_ambig_chars: if 'repl_unif' randomly replace ambiguous chars or
+                            remove respective sites if 'remove'
+    :return: tuple of preprocessed aln or None,
+             frac_ambig: fraction of sites with ambiguous chars,
+             msa_is: bool dict showing if MSA is empty, too long or has wrong
+             molecule type
+    """
+
+    msa_is = {'empty': False, 'empty_rem': False, 'wrong_mol_type': False,
+              'too_long': False}
+    if len(aln) > 0:  # check if no sequences
+        if len(aln[0]) > 0:  # check if no sites
+            # check if MSA exceeds max num. of sites
+            if msa_len is None or len(aln[0]) <= msa_len:
+                if is_mol_type(aln, molecule_type):
+                    # deal with ambiguous letters
+                    if molecule_type == 'protein':
+                        ambig_chars = PROTEIN_AMBIG.keys()
+                    elif molecule_type == 'DNA':
+                        ambig_chars = DNA_AMBIG.keys()
+                    frac_ambig = get_frac_sites_with(ambig_chars, aln)
+                    if frac_ambig > 0:
+                        if rem_ambig_chars == 'remove':
+                            aln = remove_ambig_pos_sites(aln, molecule_type)
+                        elif rem_ambig_chars == 'repl_unif':
+                            aln = replace_ambig_chars(','.join(aln),
+                                                      molecule_type)
+                            aln = aln.split(',')
+                    else:
+                        msa_is['empty_rem'] = True
+                else:
+                    msa_is['wrong_mol_type'] = True
+            else:
+                msa_is['too_long'] = True
+        else:
+            msa_is['empty'] = True
+    else:
+        msa_is['empty'] = True
+
+    # exclude alns with <=2 sites
+    return aln if len(aln[0]) > 2 else None, frac_ambig, msa_is
+
+
+def load_alns(data_dir, n_alns=None, msa_len=None, molecule_type='protein',
         rem_ambig_chars='remove'):
-    """Extracts alignments from fasta files in given directory
+    """Extracts alignments from files in given directory
 
-    :param rem_ambig_chars: indicate how to remove ambiguous letters: either
-    replace randomly 'repl_unif' or remove respective sites 'remove'
-    :param data_dir: <path/to/> fasta files
-    :param quantiles: if True keep MSAs where seq. len. and n. seq.
-    within quantiles
+    :param data_dir: <path/to/> MSA files
     :param n_alns: number of alignments
+    :param msa_len: number of sites
     :param molecule_type: either protein or DNA sequences
-    :return: list of aligned sequences (string list),
-             list of alignment identifiers (strings)
+    :param rem_ambig_chars: indicate how to remove ambiguous letters: either
+                            replace randomly 'repl_unif' or remove respective
+                            sites 'remove'
+    :return: list of MSAs (string list), list of MSA identifiers (string list),
+             stats of No. of sites/sequences in data collection (pd.Dataframe)
     """
 
     file_order_path = os.path.join(data_dir, 'file_order.txt')
@@ -265,46 +323,21 @@ def load_alns(data_dir, n_alns=None, seq_len=None, molecule_type='protein',
                          f'No files (with .fa, .fasta, .phy extension) '
                          f'in directory {data_dir}')
 
-    if molecule_type == 'protein':
-        ambig_chars = PROTEIN_AMBIG.keys()
-    elif molecule_type == 'DNA':
-        ambig_chars = DNA_AMBIG.keys()
-
     # load and preprocess MSAs
     alns, files = [], []
     frac_ambig_mol_sites = []
-    cnt_empty, cnt_empty_rem, cnt_wrong_mol_type, cnt_too_long = 0, 0, 0, 0
+    cnts = {'empty': 0, 'empty_rem': 0, 'wrong_mol_type': 0, 'too_long': 0}
     for file in tqdm(msa_files):
         aln = load_msa(os.path.join(data_dir, file))
-        if len(aln) > 0:  # check if no sequences
-            if len(aln[0]) > 0:  # check if no sites
-                # check if MSA exceeds max num. of sites
-                if seq_len is None or len(aln[0]) <= seq_len:
-                    if is_mol_type(aln, molecule_type):
-                        # deal with ambiguous letters
-                        frac_ambig = get_frac_sites_with(ambig_chars, aln)
-                        if frac_ambig > 0:
-                            if rem_ambig_chars == 'remove':
-                                aln = remove_ambig_pos_sites(aln, molecule_type)
-                            elif rem_ambig_chars == 'repl_unif':
-                                aln = replace_ambig_chars(','.join(aln),
-                                                          molecule_type)
-                                aln = aln.split(',')
-
-                        if len(aln[0]) > 10:  # exclude alns with <=10 sites
-                            frac_ambig_mol_sites.append(frac_ambig)
-                            alns.append(aln)
-                            files.append(file)
-                        else:
-                            cnt_empty_rem += 1
-                    else:
-                        cnt_wrong_mol_type += 1
-                else:
-                    cnt_too_long += 1
-            else:
-                cnt_empty += 1
-        else:
-            cnt_empty += 1
+        aln, frac_ambig, msa_is = preprocess_msa(aln, msa_len, molecule_type,
+                                                 rem_ambig_chars)
+        if aln is not None:
+            alns.append(aln)
+            files.append(file)
+        frac_ambig_mol_sites.append(frac_ambig)
+        # count empty, too long MSAs or MSAs of wrong molecule type
+        for key in cnts.keys():
+            cnts[key] += msa_is[key]
 
         if n_alns is not None and n_alns == len(alns):
             break
@@ -313,21 +346,21 @@ def load_alns(data_dir, n_alns=None, seq_len=None, molecule_type='protein',
     frac_ambig_mol_sites = np.asarray(frac_ambig_mol_sites)
 
     print('\n')
-    if cnt_empty > 0:
-        print(f' => {cnt_empty} empty file(s)')
-    if cnt_wrong_mol_type > 0:
-        print(f' => {cnt_wrong_mol_type} file(s) did not contain '
+    if cnts['empty'] > 0:
+        print(f' => {cnts["empty"]} empty file(s)')
+    if cnts['wrong_mol_type'] > 0:
+        print(f' => {cnts["wrong_mol_type"]} file(s) did not contain '
               f'{molecule_type} MSAs')
-    if cnt_too_long > 0:
-        print(f' => {cnt_too_long} file(s) have too many sites >{seq_len}')
-    if cnt_empty_rem > 0:
-        print(f' => {cnt_empty_rem} file(s) have too few (<=10) sites after '
+    if cnts['too_long'] > 0:
+        print(f' => {cnts["too_long"]} file(s) have too many sites >{msa_len}')
+    if cnts['empty_rem'] > 0:
+        print(f' => {cnts["empty_rem"]} file(s) have too few (<=2) sites after '
               f'removing sites with ambiguous letters.')
     if np.sum(frac_ambig_mol_sites != 0) > 0:
         perc_ambig_sites = np.round(np.mean(frac_ambig_mol_sites) * 100, 2)
         print(f' => In {np.sum(frac_ambig_mol_sites != 0)} out of '
               f'{len(alns)} MSAs {perc_ambig_sites}% sites include '
-              f'ambiguous letters')
+              f'ambiguous letters.')
 
     print(f'Loaded {len(alns)} MSAs from {n_files} files from {data_dir} '
           f'with success\n')
@@ -344,8 +377,10 @@ def load_alns(data_dir, n_alns=None, seq_len=None, molecule_type='protein',
 def load_msa_reprs(path, n_alns=None):
     """Load msa representations from a directory
 
+    :param n_alns: number of alignments
     :param path: <path/to/dir> directory containing pkl files with msa reprs.
-    :return: list of msa reprs. (site-wise compositions)
+    :return: tuple of list of msa reprs. (site-wise/MSA compositions) and
+             list of MSA filenames
     """
     file_order = np.genfromtxt(os.path.join(path, 'file_order.txt'), dtype=None,
                                encoding=None)
@@ -361,7 +396,7 @@ def load_msa_reprs(path, n_alns=None):
 
 
 def remove_gaps(alns):
-    """Removes columns with gaps from given raw alignments (not yet encoded)
+    """Removes sites with gaps from given raw alignments (not yet encoded)
 
     :param alns: list of list of amino acid sequences (2D list strings)
     """
@@ -382,24 +417,24 @@ def remove_gaps(alns):
     return alns_no_gaps
 
 
-def encode_aln(aln, seq_len, padding='', molecule_type='protein'):
+def encode_aln(aln, msa_len, pad='', molecule_type='protein'):
     """Transforms aligned sequences to (padded) one-hot encodings
 
-    Trims/pads the alignment to a certain number of sites (*seq_len*)
-    If sequences are > *seq_len* only the middle part of the sequence is taken
-    If sequences are < *seq_len* they will be padded at both end either with
+    Trims/pads the alignment to a certain number of sites (*msa_len*)
+    If sequences are > *msa_len* only the middle part of the sequence is taken
+    If sequences are < *msa_len* they will be padded at both end either with
     zeros or random amino acids (according to *padding*)
 
     :param molecule_type: either protein or DNA sequences
     :param aln: list of amino acid sequences (strings)
-    :param seq_len: number of sites (integer)
-    :param padding: 'data' or else padding will use zeros
+    :param msa_len: number of sites (integer)
+    :param pad: 'data' or else padding will use zeros
     :return: one-hot encoded alignment (3D array)
     """
 
-    # encode sequences and limit to certain seq_len (seq taken from the middle)
-    if len(aln[0]) > seq_len:
-        diff = len(aln[0]) - seq_len  # overhang
+    # encode sequences and limit to certain msa_len (seq taken from the middle)
+    if len(aln[0]) > msa_len:
+        diff = len(aln[0]) - msa_len  # overhang
         start = int(np.floor((diff / 2)))
         end = int(-np.ceil((diff / 2)))
         seqs = np.asarray([index2code(seq2index(seq[start:end],
@@ -409,8 +444,8 @@ def encode_aln(aln, seq_len, padding='', molecule_type='protein'):
         seqs = np.asarray([index2code(seq2index(seq, molecule_type),
                                       molecule_type).T for seq in aln])
 
-    if len(aln[0]) < seq_len:  # padding
-        pad_size = int(seq_len - len(aln[0]))
+    if len(aln[0]) < msa_len:  # padding
+        pad_size = int(msa_len - len(aln[0]))
         pad_before = int(pad_size // 2)
         pad_after = (int(pad_size // 2) if pad_size % 2 == 0
                      else int(pad_size // 2 + 1))
@@ -419,15 +454,15 @@ def encode_aln(aln, seq_len, padding='', molecule_type='protein'):
         seqs_shape[2] = int(seqs_shape[2] + pad_after + pad_before)
         seqs_new = np.zeros(seqs_shape)
 
-        if padding == 'data':  # pad with random amino acids
+        if pad == 'data':  # pad with random amino acids
             seqs_new = np.asarray([index2code(np.random.randint(0,
                                                                 seqs_shape[1],
                                                                 seqs_shape[
                                                                     2]),
                                               molecule_type).T
                                    for _ in range(seqs_shape[0])])
-        elif padding == 'gaps':
-            pad_data = np.repeat('-' * int(seq_len), seqs_shape[1])
+        elif pad == 'gaps':
+            pad_data = np.repeat('-' * int(msa_len), seqs_shape[1])
             seqs_new = np.asarray([index2code(seq2index(seq, molecule_type),
                                               molecule_type).T
                                    for seq in pad_data])
@@ -438,8 +473,12 @@ def encode_aln(aln, seq_len, padding='', molecule_type='protein'):
         return seqs
 
 
-def get_aln_repr(aln):
-    """ Compute site-wise compositions from one-hot encoded MSA"""
+def get_sites_compositions(aln):
+    """Compute site-wise compositions from one-hot encoded MSA
+
+    :param aln: one hot coded MSA
+    :return: array of site compositions (n_sites x 21)
+    """
     return np.sum(aln, axis=0) / len(aln)
 
 
@@ -465,13 +504,19 @@ class TensorDataset(Dataset):
         return self.data.size(0)
 
 
-def raw_alns_prepro(data_paths, n_alns=None, seq_len=None, shuffle=False,
-        molecule_type='protein'):
+def raw_alns_prepro(data_paths, n_alns=None, msa_len=None, shuffle=False,
+                    molecule_type='protein'):
     """Loading and preprocessing raw (not encoded) alignments
 
+    Loading and preprocessing MSAs and printing statistics of number of
+    sites/sequences of data collections. When simulations have multiple clusters
+    statistics of clusters are printed too. Eventually shuffling sites of MSAs.
+
+    :param msa_len: number of sites
+    :param n_alns: number of alignments
     :param shuffle: shuffle sites if True
     :param molecule_type: indicate if either 'protein' or 'DNA' sequences given
-    :param data_paths: <path(s)/to> empirical/simulated fasta files
+    :param data_paths: <path(s)/to> empirical/simulated MSA files
                        (list of strings)
     :return: filtered filenames (2D list of strings),
              preprocessed alignments (3D list of strings),
@@ -479,7 +524,7 @@ def raw_alns_prepro(data_paths, n_alns=None, seq_len=None, shuffle=False,
     """
 
     n_alns = None if n_alns == '' else n_alns
-    seq_len = None if seq_len == '' else seq_len
+    msa_len = None if msa_len == '' else msa_len
 
     print("Loading alignments ...")
 
@@ -502,7 +547,7 @@ def raw_alns_prepro(data_paths, n_alns=None, seq_len=None, shuffle=False,
                                                          'No.sites']])
             sim_stats = pd.DataFrame(columns=cl_stats_cols)
             for d in sim_cl_dirs:
-                sim_data = load_alns(os.path.join(path, d), size, seq_len,
+                sim_data = load_alns(os.path.join(path, d), size, msa_len,
                                      molecule_type=molecule_type)
                 # concat remove cluster dimension
                 sim_alns += sim_data[0]
@@ -518,7 +563,7 @@ def raw_alns_prepro(data_paths, n_alns=None, seq_len=None, shuffle=False,
 
             raw_data = [sim_alns, sim_files]
         else:  # empirical data set or simulations without MSA clusters
-            raw_data = load_alns(path, size, seq_len,
+            raw_data = load_alns(path, size, msa_len,
                                  molecule_type=molecule_type)
 
         alns.append(raw_data[0])
@@ -542,7 +587,11 @@ def raw_alns_prepro(data_paths, n_alns=None, seq_len=None, shuffle=False,
 
 
 def shuffle_sites(msa_ds):
-    """Shuffle sites within MSAs of MSA data sets"""
+    """Shuffle sites within MSAs of MSA data sets
+
+    :param msa_ds: MSA data collections (3D list of strings)
+    :return: data collections with shuffled sites
+    """
 
     for i in range(len(msa_ds)):  # data set
         for j in range(len(msa_ds[i])):  # MSA
@@ -552,14 +601,14 @@ def shuffle_sites(msa_ds):
     return msa_ds
 
 
-def make_msa_reprs(alns, seq_len, pad='zeros', molecule_type='protein'):
+def make_msa_reprs(alns, msa_len, pad='zeros', molecule_type='protein'):
     """Encodes alignments and generates their representations
 
     :param alns: preprocessed raw alignment sets (3D string list)
-    :param seq_len: max. sequence length, used for padding
+    :param msa_len: number of sites
     :param pad: padding type, default: zeros
     :param molecule_type: either protein or DNA sequences
-    :return: alignment representations
+    :return: alignment representations (list of site or MSA compositions)
     """
 
     alns_reprs = []
@@ -567,12 +616,13 @@ def make_msa_reprs(alns, seq_len, pad='zeros', molecule_type='protein'):
     print("Generating alignment representations ...")
 
     for alns_set in tqdm(alns):
-        if seq_len == 1:
+        if msa_len == 1:
             alns_reprs.append(get_msa_compositions(alns_set,
                                                    molecule_type=molecule_type))
         else:
-            alns_set_reprs = [get_aln_repr(encode_aln(alns, seq_len, pad,
-                                                      molecule_type))
+            alns_set_reprs = [get_sites_compositions(encode_aln(alns, msa_len,
+                                                                pad,
+                                                                molecule_type))
                               for alns in alns_set]
             alns_set_reprs = np.asarray(alns_set_reprs, dtype='float32')
             alns_reprs.append(alns_set_reprs)

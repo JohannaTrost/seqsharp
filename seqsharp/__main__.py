@@ -1,7 +1,7 @@
 """Seqsharp CLI
 
 Handels arguments and allows to train, test or validate a seq#-classifier
-using the data collectioon provided by the user.
+using data collections provided by the user.
 """
 
 import argparse
