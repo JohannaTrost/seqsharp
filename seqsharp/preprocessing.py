@@ -628,16 +628,3 @@ def make_msa_reprs(alns, msa_len, pad='zeros', molecule_type='protein'):
             alns_reprs.append(alns_set_reprs)
 
     return alns_reprs
-
-
-def msa_comp2df(data_collection_path, save='', molecule_type='protein'):
-    comps = get_msa_compositions(load_alns(data_collection_path,
-                                           molecule_type=molecule_type)[0],
-                                 molecule_type=molecule_type)
-    df_comps = pd.DataFrame(comps,
-                            columns=list(PROTEIN_ALPHABET)
-                            if molecule_type == 'protein'
-                            else list(DNA_ALPHABET))
-    if save is not None and save != '':
-        df_comps.to_csv(save, index=False)
-    return df_comps
