@@ -347,6 +347,7 @@ def train(opts, in_data):
                             shuffle=True, random_state=seed)
 
     lrs = []
+    times = None
     for fold, (train_ids, val_ids) in enumerate(kfold.split(data,
                                                             labels)):
         print(f'{sep_line}\nFOLD {fold + 1}\n{sep_line}')
@@ -374,8 +375,10 @@ def train(opts, in_data):
                                     train_loader, model_params, optimizer,
                                     opts['result_path'])
         lrs.append(fold_lr)
-        fit(fold_lr, model, train_loader, val_loader, optimizer,
-            start_epoch, epochs, save=opts['result_path'], fold=fold)
+        times_fold = fit(fold_lr, model, train_loader, val_loader, optimizer,
+                         start_epoch, epochs, save=opts['result_path'],
+                         fold=fold)
+        times = times_fold if times is None else pd.concat((times, times_fold))
 
         if resume:
             models[fold] = model.to('cpu')
@@ -408,6 +411,9 @@ def train(opts, in_data):
         make_fig(plot_folds, [models], (1, 2),
                  save=os.path.join(opts['result_path'],
                                    'folds_learning_curve.pdf'))
+        # save time measurements
+        times.to_csv(os.path.join(opts["result_path"], 'runtimes.csv'),
+                     index=False)
         print(f'\nSaved results to {opts["result_path"]}\n')
     else:
         print(
