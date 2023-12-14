@@ -282,10 +282,17 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
     # always save the initial (pretrained) model
     save_checkpoint(model, optimizer, scheduler, fold, save)
 
+    # for early stopping
     no_imporv_cnt = 0
     prev_val_loss = None
-    throughput = []
+    # measure thoughput/time
+    train_throughput = []
+    val_times = []
+    total_times = []
+
     for epoch in range(start_epoch + 1, max_epochs + 1):
+
+        start_time = time.time()
 
         print(f'Epoch [{epoch}]')
 
@@ -304,16 +311,20 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
             scheduler.step()
         if torch.cuda.is_available():  # measure examples per second
             tp = (len(train_loader) * train_loader.batch_size) / total_time
-            throughput.append(tp)
+            train_throughput.append(tp)
 
         # validation phase
+        starter, ender = start_timer()
         model = validation(model, train_loader, val_loader)
+        val_times.append(stop_timer(starter, ender))
 
         if epoch % 2 == 0 and save is not None:
             # save checkpoint of best model every other epoch
             if (np.min(model.val_history['loss'][:-1]) >=
                     model.val_history['loss'][-1]):
                 save_checkpoint(model, optimizer, scheduler, fold, save)
+
+        total_times.append(time.time() - start_time)  # measure time
 
         if epoch % step_size == 0 and epoch > min_epochs - 1:
             # do eval for early stopping every 50th epoch
@@ -332,6 +343,14 @@ def fit(lr, model, train_loader, val_loader, opt_func=torch.optim.Adagrad,
                 prev_val_loss = np.min(model.val_history['loss'][-step_size:])
 
     if torch.cuda.is_available():
-        avg_throughput = np.mean(throughput)
-        print(f'AVG training throughput: {avg_throughput} examples/s')
-        return avg_throughput
+        times = pd.DataFrame({'fold': [fold] * len(total_times),
+                              'epochs': np.arange(len(total_times)),
+                              'train expl per sec': train_throughput,
+                              'val time in sec': val_times,
+                              'epoch time in sec': total_times})
+    else:
+        times = pd.DataFrame({'fold': [fold] * len(total_times),
+                              'epochs': np.arange(len(total_times)),
+                              'epoch time in sec': total_times})
+
+    return times
