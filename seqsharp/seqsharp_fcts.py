@@ -106,7 +106,6 @@ def model_figures(opts):
 
 
 def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
-
     if sim_paths is None:
         sim_paths = []
 
@@ -181,7 +180,6 @@ def load_data(emp_path, sim_paths, cfg_path, model_path, shuffle):
 
 
 def model_test(opts, in_data):
-
     # load config and save with timestamp
     cfg = read_cfg_file(opts['cfg_path'])
     timestamp = datetime.now()
@@ -397,6 +395,10 @@ def train(opts, in_data):
             write_cfg_file(cfg, opts['result_path'])
             # save cfg with timestamp
             write_cfg_file(cfg, opts['result_path'], timestamp=timestamp)
+
+            times_fold.to_csv(os.path.join(opts["result_path"],
+                                           f'fold_{fold + 1}_runtimes.csv'),
+                              index=False)
 
     # save results regrouping folds
     print('\n#########################  PERFORMANCE  '
