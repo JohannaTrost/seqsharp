@@ -11,6 +11,10 @@ Key components:
 
 To reproduce the results of the classifier using Gradient Boosted Trees please refer to [Julia's repo](https://github.com/tschuelia/SimulationStudy.git).
 
+#### Publication   
+Trost, J.*, Haag, J.*, Höhler, D.*, Jacob, L., Stamatakis, A. & Boussau, B. (2024). **Simulations of Sequence Evolution: How (Un)realistic They Are and Why.** *Molecular Biology and Evolution*, 41(1). [https://doi.org/10.1093/molbev/msad277](https://doi.org/10.1093/molbev/msad277)
+<br>*equal contribution
+
 ### Install 
 
 A python version <= 3.6 is required for this package. 
