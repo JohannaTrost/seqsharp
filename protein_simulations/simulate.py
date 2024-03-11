@@ -3,11 +3,12 @@ import subprocess
 import argparse
 
 import numpy as np
+import pandas as pd
 
 from tqdm import tqdm
 from seqsharp.preprocessing import load_msa
-from seqsharp.utils import load_custom_distr, load_kde
-from seqsharp.stats import sample_indel_params
+from seqsharp.utils import load_custom_distr
+from seqsharp.stats import sample_indel_params, kde
 
 
 def main():
@@ -98,7 +99,11 @@ def main():
         gamma_shape_pdf = load_custom_distr(
             os.path.join('emp_pdfs', 'gamma_shape.CustomPDF'))
     if indels:
-        indel_pdf = load_kde(os.path.join('emp_pdfs', 'indel_param_distr'))
+        emp_indel_params = pd.read_csv(os.path.join('emp_params',
+                                                    'emp_indel_params.csv'),
+                                       index_col=0)
+        # scaling, PCA and KDE
+        indel_pdf = kde(emp_indel_params)
 
     # sample from PDFs
     seq_lens = n_sites_pdf.draw(n_sims)
@@ -112,10 +117,10 @@ def main():
     files_sim_fail = []  # tree files for which simulations failed
 
     for i in tqdm(range(n_sims)):
-        
+
         out_file = f'{os.path.basename(os.path.splitext(trees[i])[0])}.fa'
         out_file = os.path.join(out_path, out_file)
-        
+
         if not os.path.exists(out_file):  # no overwrite
 
             tree_file = os.path.join(tree_path, trees[i])
@@ -126,9 +131,9 @@ def main():
                 gamma_arg = ''
 
             repeat_sim = True
-            
+
             while repeat_sim:
-                
+
                 if indels:
                     indel_params = sample_indel_params(*indel_pdf)
 
