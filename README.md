@@ -17,8 +17,7 @@ Trost, J.*, Haag, J.*, Höhler, D.*, Jacob, L., Stamatakis, A. & Boussau, B. (20
 
 ### Install 
 
-A python version <= 3.6 is required for this package. 
-As of now the maximum python version that allows to install all required packages is 3.10.
+A python version <= 3.10 is required for this package.
 
 1. Clone the repository: `git clone https://github.com/JohannaTrost/seqsharp.git`
 2. Then navigate to the repository folder: `cd seqsharp` 
