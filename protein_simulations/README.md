@@ -5,7 +5,7 @@ This is a CLI to generate a set of multiple sequence alignments (data collection
 
 #### Parameters and distributons for MSA data collection simulations
 - `emp_params`: Includes the "raw" parameters from which we obtained parameter distributions, such as the Indel parameters inferred with SpartaABC (in *emp_params/emp_indel_params.csv*), the Alpha shape parameters for the Gamma distribution of evolution rates (in *emp_params/alphas.txt*) and MSA lengths of different MSA data collections (e.g. in *emp_params/msa_lens_hogenom_gaps.txt*).
-- `emp_pdfs`: Includes the empirical Probability Density Functions (PDFs) inferred from the parameters in *emp_params*. Objects for the Indel parameter kernel density estimates are in *emp_pdfs/indel_param_distr* and PDFs for the Alpha parameters are in *gamma_shape.CustomPDF* and for the MSA lengths in *n_sites_hogenom_6971.CustomPDF*. 
+- `emp_pdfs`: Includes the empirical Probability Density Functions (PDFs) inferred from the parameters in *emp_params*. Objects for the Indel parameter kernel density estimates (KDE) are in *emp_pdfs/indel_param_distr*. Note that this KDE is not used in the simulate-scipt, but it is instead recomputed. PDFs for the Alpha parameters are in *gamma_shape.CustomPDF* and for the MSA lengths in *n_sites_hogenom_6971.CustomPDF*. 
 
 #### Requirements
 
